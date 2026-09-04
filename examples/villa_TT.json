@@ -1,0 +1,124 @@
+{
+  "app": "EarthSystem",
+  "version": 1,
+  "saved": "2026-09-04T07:56:10",
+  "name": "Residential villa - TT system",
+  "inputs": {
+    "projName": "Residential villa - TT system",
+    "soilArray": "wenner",
+    "soilInput": "rho",
+    "soilDepth": "0.8",
+    "soilRod": "3",
+    "soilEquiv": "auto",
+    "bSys": "TT",
+    "bU0": "230",
+    "bRho": "150",
+    "bCircuit": "final",
+    "bZl": "0.28",
+    "bZpe": "0.42",
+    "bZs": "0.35",
+    "bUL": "50",
+    "bDev": "rcd",
+    "bRating": "0.03",
+    "bCurve": "B",
+    "lCls": "III",
+    "lRho": "150",
+    "lArea": "180",
+    "lPer": "56",
+    "lArr": "B",
+    "lD": "0.01",
+    "lH": "0.6",
+    "lRodD": "0.016",
+    "lLen": "9",
+    "lMat": "concrete",
+    "cI": "1.5",
+    "cT": "0.4",
+    "cDf": "1",
+    "cTa": "30",
+    "cMat": "cu_hard",
+    "cJoint": "",
+    "cIecMat": "copper",
+    "cIecInst": "separate|pvc70",
+    "cSline": "16",
+    "cProt": "1|0",
+    "sV": "0.4",
+    "sCont": false,
+    "sLn": true,
+    "sMeth": "auto",
+    "rProject": "Residential villa earthing design",
+    "rEngineer": "Dr. Emad Roshandel",
+    "rRev": "00",
+    "rLang": "fa",
+    "rFigs": true,
+    "rNotes": "TT installation with a foundation earth electrode supplemented by two driven rods; 30 mA RCD provides additional protection."
+  },
+  "tables": {
+    "soil": [
+      {
+        "spacing": 0.5,
+        "rho": 210
+      },
+      {
+        "spacing": 1,
+        "rho": 186
+      },
+      {
+        "spacing": 2,
+        "rho": 160
+      },
+      {
+        "spacing": 4,
+        "rho": 148
+      },
+      {
+        "spacing": 8,
+        "rho": 152
+      },
+      {
+        "spacing": 16,
+        "rho": 163
+      }
+    ],
+    "bem": [
+      {
+        "kind": "rectangle",
+        "x0": 0,
+        "y0": 0,
+        "Lx": 15,
+        "Ly": 12,
+        "depth": 0.7,
+        "radius": 0.005
+      },
+      {
+        "kind": "rod",
+        "x": 0,
+        "y": 0,
+        "top_depth": 0.7,
+        "length": 3,
+        "radius": 0.008
+      },
+      {
+        "kind": "rod",
+        "x": 15,
+        "y": 12,
+        "top_depth": 0.7,
+        "length": 3,
+        "radius": 0.008
+      }
+    ],
+    "building": [
+      {
+        "type": "foundation",
+        "volume_m3": 420
+      },
+      {
+        "type": "rods_parallel",
+        "L": 3,
+        "d": 0.016,
+        "n": 2,
+        "s": 6
+      }
+    ]
+  },
+  "results": {}
+}

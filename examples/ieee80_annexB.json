@@ -1,0 +1,116 @@
+{
+  "app": "EarthSystem",
+  "version": 1,
+  "saved": "2026-09-04T07:56:10",
+  "name": "IEEE 80 Annex B - 20 kV substation",
+  "inputs": {
+    "projName": "IEEE 80 Annex B - 20 kV substation",
+    "soilArray": "wenner",
+    "soilInput": "rho",
+    "soilDepth": "0.5",
+    "soilRod": "0",
+    "soilEquiv": "auto",
+    "fMode": "source",
+    "fUn": "115",
+    "fC": "1.1",
+    "fSk": "1500",
+    "fXR": "12",
+    "fX0": "3",
+    "fR0": "1",
+    "fTS": "0",
+    "fTZ": "10",
+    "fTf": "0.5",
+    "fTs": "0.5",
+    "fFreq": "60",
+    "fSf": "0.6",
+    "fCp": "1",
+    "cI": "3.18",
+    "cT": "0.5",
+    "cDf": "1.026",
+    "cTa": "40",
+    "cMat": "cu_hard",
+    "cJoint": "brazed",
+    "cIecMat": "copper",
+    "cIecInst": "buried|bare",
+    "cSline": "0",
+    "cProt": "1|0",
+    "gRho": "400",
+    "gRhoS": "2500",
+    "gHs": "0.102",
+    "gTs": "0.5",
+    "gBody": "70",
+    "gIG": "1.908",
+    "gLx": "70",
+    "gLy": "70",
+    "gD": "7",
+    "gH": "0.5",
+    "gd": "0.01",
+    "gShape": "rectangular",
+    "gNr": "0",
+    "gLr": "0",
+    "gDr": "0.016",
+    "gPerim": true,
+    "gRMeth": "sverak",
+    "nRho1": "400",
+    "nRho2": "",
+    "nHl": "",
+    "nIG": "1908",
+    "nSeg": "3",
+    "nRes": "61",
+    "nStep": "1",
+    "rProject": "IEEE Std 80-2013 Annex B worked example",
+    "rEngineer": "Dr. Emad Roshandel",
+    "rRev": "00",
+    "rLang": "en",
+    "rFigs": true,
+    "rNotes": "Reference case used to validate EarthSystem against the worked example of IEEE Std 80-2013 Annex B (square 70 x 70 m grid, no ground rods)."
+  },
+  "tables": {
+    "soil": [
+      {
+        "spacing": 1,
+        "rho": 420
+      },
+      {
+        "spacing": 2,
+        "rho": 405
+      },
+      {
+        "spacing": 4,
+        "rho": 398
+      },
+      {
+        "spacing": 6,
+        "rho": 396
+      },
+      {
+        "spacing": 10,
+        "rho": 399
+      },
+      {
+        "spacing": 16,
+        "rho": 402
+      }
+    ],
+    "bem": [
+      {
+        "kind": "grid",
+        "Lx": 70,
+        "Ly": 70,
+        "D": 7,
+        "depth": 0.5,
+        "radius": 0.005,
+        "x0": 0,
+        "y0": 0
+      }
+    ],
+    "building": [
+      {
+        "type": "rod",
+        "L": 3,
+        "d": 0.016
+      }
+    ]
+  },
+  "results": {}
+}
