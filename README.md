@@ -317,10 +317,6 @@ are hidden in browser mode; Export/Import JSON still work.
 
 ## 15. Troubleshooting
 
-**A launcher window flashes and disappears.** Run `Diagnose.bat` — it prints and saves
-`diagnostic.txt` listing every Python it can find. The launchers also write
-`startup_log.txt` on every run.
-
 **"Python was not found".** Install Python 3.9+ from python.org and tick *Add python.exe to
 PATH*. The launchers also search the usual Anaconda, Miniconda and per-user install
 locations.
@@ -352,7 +348,7 @@ that way.
 
 ## 17. Licence and references
 
-MIT — see [`LICENSE`](LICENSE). Third-party components in
+GNU — see [`LICENSE`](LICENSE). Third-party components in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 This software implements methods published in the standards below and reproduces the
