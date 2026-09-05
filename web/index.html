@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EarthSystem — Earthing System Design</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⏚</text></svg>">
+<link rel="stylesheet" href="styles.css">
+<script src="vendor/plotly.min.js" charset="utf-8"></script>
+<script src="boot.js"></script>
+<script src="draw.js"></script>
+<script src="sections.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <div id="brand">
+    <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M12 2v9M4 11h16M7 15h10M10 19h4"/>
+    </svg>
+    <b>EarthSystem</b><span id="ver"></span>
+  </div>
+
+  <div id="top">
+    <input id="projName" placeholder="Project name" style="max-width:280px">
+    <button id="btnSaveProj" title="Save the project on this computer">💾 Save</button>
+    <button id="btnLoadProj">📂 Open</button>
+    <button id="btnExport">⤓ Export JSON</button>
+    <label class="btn" style="position:relative;overflow:hidden">⤒ Import
+      <input id="fileImport" type="file" accept=".json" style="position:absolute;inset:0;opacity:0;cursor:pointer">
+    </label>
+    <span class="grow"></span>
+    <span id="npWarn" class="badge warn" style="display:none">numpy missing — numerical solver off</span>
+    <button id="btnHelp" class="ghost" title="Show every explanation inline, instead of on hover">Explain all</button>
+    <button id="btnTheme" class="ghost" title="Light / dark">◐</button>
+  </div>
+
+  <div id="nav">
+    <div class="navgroup">Inputs</div>
+    <div class="navitem active" data-page="soil"><span class="n">1</span>Soil model<span class="dot"></span></div>
+    <div class="navitem" data-page="fault"><span class="n">2</span>Fault current<span class="dot"></span></div>
+    <div class="navitem" data-page="conductor"><span class="n">3</span>Conductor sizing<span class="dot"></span></div>
+    <div class="navgroup">Design modules</div>
+    <div class="navitem" data-page="grid"><span class="n">4</span>Substation grid<span class="dot"></span></div>
+    <div class="navitem" data-page="numerical"><span class="n">5</span>Numerical solver<span class="dot"></span></div>
+    <div class="navitem" data-page="building"><span class="n">6</span>Buildings &amp; homes<span class="dot"></span></div>
+    <div class="navitem" data-page="lightning"><span class="n">7</span>Lightning earth<span class="dot"></span></div>
+    <div class="navitem" data-page="airterm"><span class="n">8</span>Air termination<span class="dot"></span></div>
+    <div class="navitem" data-page="sysgnd"><span class="n">9</span>System grounding<span class="dot"></span></div>
+    <div class="navgroup">Output</div>
+    <div class="navitem" data-page="report"><span class="n">10</span>Design report<span class="dot"></span></div>
+    <div class="navitem" data-page="about"><span class="n">i</span>Theory &amp; reference<span class="dot"></span></div>
+  </div>
+
+  <div id="main">
+
+  <!-- ==================== 1. SOIL ==================== -->
+  <section class="page active" id="page-soil">
+    <div class="pagehead"><h2>Soil investigation and model</h2>
+      <p>Reduce four-pin field measurements to apparent resistivity, fit a two-layer earth model
+         (IEEE Std 81-2012 §8), and derive the equivalent uniform resistivity used by the
+         closed-form IEEE 80 equations.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Survey data</h3><div class="body">
+          <div class="field wide"><label>Test array<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="soilArray"><option value="wenner">Wenner (equal spacing)</option>
+              <option value="schlumberger">Schlumberger</option></select><div class="fh">Wenner puts the four pins at equal spacing a. Schlumberger keeps the two inner potential pins close together and moves the outer current pins out, so the spacing entered is AB/2, half the distance between the current pins.</div></div>
+          <div class="field wide"><label>Data entered as<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="soilInput"><option value="rho">Apparent resistivity ρₐ</option>
+              <option value="R">Measured resistance R</option></select><div class="fh">Enter the apparent resistivity if the instrument already reports ρₐ, or the raw resistance R if it reports ohms — the program applies the array formula for you.</div></div>
+          <div class="field" id="soilMNBox" style="display:none"><label>Potential-pin spacing MN<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <input id="soilMN" type="number" value="1" step="0.1"><span class="u">m</span><div class="fh">Distance between the two inner potential pins, which stays fixed while the outer current pins are moved out. It appears in the Schlumberger formula, so a wrong value scales every reading. Only used for the Schlumberger array.</div></div>
+
+          <div id="soilArrayFig" class="drawing sm"></div>
+
+          <div class="hint" id="soilTableHint">One row per pin spacing you measured, smallest
+            first. At least three rows are needed to fit a two-layer model, and a
+            roughly logarithmic ladder of spacings — 1, 1.5, 2, 3, 4, 6, 9, 12, 16, 20 m —
+            resolves the layers best.</div>
+          <table class="data" id="soilTable"><thead><tr>
+            <th class="rn">#</th>
+            <th id="soilCol1">Pin spacing a (m)<span class="qm" tabindex="0" role="button" aria-label="Explain this column">?</span></th>
+            <th id="soilCol2">ρₐ (Ω·m)<span class="qm" tabindex="0" role="button" aria-label="Explain this column">?</span></th>
+            <th id="soilCol3" class="derived">R (Ω)<span class="qm" tabindex="0" role="button" aria-label="Explain this column">?</span></th>
+            <th class="mn" style="width:34px" title="Remove this row"></th>
+          </tr></thead><tbody></tbody></table>
+          <div class="hint" id="soilCount"></div>
+          <div class="rowbtns">
+            <button id="soilAdd">+ Row</button>
+            <button id="soilDemo">Load example traverse</button>
+            <button id="soilClear" class="ghost">Clear</button>
+          </div>
+        </div></div>
+        <div class="card"><h3>Model options</h3><div class="body">
+          <div class="field"><label>Grid burial depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="soilDepth" type="number" value="0.5" step="0.1"><span class="u">m</span><div class="fh">Depth of cover over the buried earthing conductors, measured from finished ground level to the top of the conductor. Typically 0.5–0.8 m.</div></div>
+          <div class="field"><label>Rod penetration below the grid<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="soilRod" type="number" value="0" step="0.5"><span class="u">m</span><div class="fh">How far the ground rods reach below the buried grid, not their total length. Leave 0 if there are no rods. It only affects which layer the model is averaged over.</div></div>
+          <div class="field wide"><label>Equivalent uniform ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="soilEquiv"><option value="auto">Automatic</option>
+              <option value="top">Upper layer only (conservative)</option>
+              <option value="weighted">Depth-weighted average</option></select><div class="fh">How the two fitted layers are collapsed into the single ρ that the IEEE 80 closed-form equations need. Automatic picks by where the electrodes sit; upper layer only is the conservative choice when ρ₂ is lower than ρ₁.</div></div>
+          <div class="rowbtns"><button class="primary" id="soilRun">Fit two-layer model</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="soilKpis" class="kpis"></div>
+        <div class="card"><h3>Apparent resistivity curve<span class="sub">measured vs fitted</span></h3>
+          <div class="body tight"><div id="soilPlot" class="plot"></div></div></div>
+        <div class="card"><h3>Section through the modelled soil<span class="sub">to scale</span></h3>
+          <div class="body tight"><div id="soilSection" class="drawing"></div></div></div>
+        <div class="card"><h3>Model and residuals</h3><div class="body" id="soilOut">
+          <div class="empty">Enter at least three measurement points and run the fit.</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 2. FAULT ==================== -->
+  <section class="page" id="page-fault">
+    <div class="pagehead"><h2>Earth-fault current</h2>
+      <p>Line-to-earth fault current to IEC 60909-0, then the maximum grid current
+         I<sub>G</sub> = D<sub>f</sub>·S<sub>f</sub>·C<sub>p</sub>·3I₀ of IEEE Std 80-2013 clause 15.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Source data</h3><div class="body">
+          <div class="field wide"><label>Input method<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="fMode"><option value="source">Network + transformer data</option>
+              <option value="impedance">Sequence impedances</option>
+              <option value="direct">Enter 3I₀ directly</option></select><div class="fh">Network + transformer data builds the sequence impedances from the supply short-circuit level. Use sequence impedances if the utility gave you Z₁ and Z₀ directly, or 3I₀ if you already know the earth-fault current.</div></div>
+          <div class="field"><label>Nominal voltage U<sub>n</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fUn" type="number" value="20" step="0.1"><span class="u">kV</span><div class="fh">Nominal line-to-line voltage of the faulted system, not the phase voltage.</div></div>
+          <div class="field"><label>Voltage factor c<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fC" type="number" value="1.1" step="0.05"><span class="u">–</span><div class="fh">IEC 60909 voltage factor. 1.1 for maximum fault current above 1 kV — it accounts for the highest operating voltage, tap changers and load flow.</div></div>
+          <div id="fSourceBox">
+            <fieldset><legend>Supply network</legend>
+              <div class="field"><label>Short-circuit level S<sub>k</sub>″<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fSk" type="number" value="500"><span class="u">MVA</span><div class="fh">Three-phase short-circuit level at the point of supply. The utility states it on the connection agreement, in MVA or as a fault current in kA.</div></div>
+              <div class="field"><label>X/R of the source<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fXR" type="number" value="10"><span class="u">–</span><div class="fh">Reactance-to-resistance ratio of the source impedance. It sets how slowly the d.c. offset decays and therefore the decrement factor. 10 is typical for a distribution network, 15–30 near a large generator.</div></div>
+              <div class="field"><label>Zero-seq. X₀/X₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fX0" type="number" value="3" step="0.1"><span class="u">–</span><div class="fh">Ratio of the zero-sequence to positive-sequence reactance of the source. Around 3 for a typical delta-star transformer; the utility can confirm it.</div></div>
+              <div class="field"><label>Zero-seq. R₀/R₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fR0" type="number" value="1" step="0.1"><span class="u">–</span><div class="fh">Ratio of the zero-sequence to positive-sequence resistance of the source. 1 is a common default when no better figure is available.</div></div>
+            </fieldset>
+            <fieldset><legend>Transformer (optional)</legend>
+              <div class="field"><label>Rating S<sub>r</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fTS" type="number" value="0"><span class="u">MVA</span><div class="fh">Rating of the transformer feeding the substation. Leave 0 if you are working straight from the network short-circuit level.</div></div>
+              <div class="field"><label>Impedance u<sub>k</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fTZ" type="number" value="10" step="0.5"><span class="u">%</span><div class="fh">Transformer short-circuit impedance from the nameplate, as a percentage of its own rating. Typically 6–12 % for a distribution transformer.</div></div>
+            </fieldset>
+          </div>
+          <div id="fImpBox" style="display:none">
+            <fieldset><legend>Sequence impedances (Ω)</legend>
+              <div class="field"><label>Positive-seq. resistance R₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fZ1r" type="number" value="0.5" step="0.01"><span class="u">Ω</span><div class="fh">Positive-sequence resistance of the source, referred to the fault point.</div></div>
+              <div class="field"><label>Positive-seq. reactance X₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fZ1x" type="number" value="5" step="0.01"><span class="u">Ω</span><div class="fh">Positive-sequence reactance of the source, referred to the fault point.</div></div>
+              <div class="field"><label>Zero-seq. resistance R₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fZ0r" type="number" value="1.5" step="0.01"><span class="u">Ω</span><div class="fh">Zero-sequence resistance of the source, referred to the fault point.</div></div>
+              <div class="field"><label>Zero-seq. reactance X₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fZ0x" type="number" value="15" step="0.01"><span class="u">Ω</span><div class="fh">Zero-sequence reactance of the source, referred to the fault point.</div></div>
+            </fieldset>
+          </div>
+          <div class="field"><label>3I₀ (override)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="f3I0" type="number" placeholder="auto" step="0.01"><span class="u">kA</span><div class="fh">The total earth-fault current at the site — three times the zero-sequence current. Fill this in to bypass the impedance calculation entirely; leave it blank to let the program compute it.</div></div>
+        </div></div>
+        <div class="card"><h3>Grid current factors</h3><div class="body">
+          <div class="field"><label>Fault duration t<sub>f</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fTf" type="number" value="0.5" step="0.05"><span class="u">s</span><div class="fh">How long the fault lasts before the protection clears it, including breaker operating time. This sizes the conductor and sets the decrement factor.</div></div>
+          <div class="field"><label>Shock duration t<sub>s</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fTs" type="number" value="0.5" step="0.05"><span class="u">s</span><div class="fh">How long a person could be in contact with the fault. Usually the same as the fault duration, but IEEE 80 lets you use a shorter time where high-speed reclosing means the person is not exposed for the whole event.</div></div>
+          <div class="field"><label>Frequency</label><input id="fFreq" type="number" value="50"><span class="u">Hz</span></div>
+          <div class="field"><label>Split factor S<sub>f</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fSf" type="number" value="0.6" step="0.01"><span class="u">–</span><div class="fh">The fraction of the earth-fault current that actually leaves the grid into the soil. The rest returns through overhead earth wires, cable sheaths and neutrals, and never raises the site potential. 0.6 means 60 %.</div></div>
+          <div class="field"><label>Growth factor C<sub>p</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fCp" type="number" value="1" step="0.05"><span class="u">–</span><div class="fh">Allowance for future growth of the fault level over the life of the installation. 1.0 for no growth, 1.25 to design for a 25 % increase.</div></div>
+          <div class="hint">Typical S<sub>f</sub> values — click to apply:</div>
+          <div class="chips" id="sfChips"></div>
+          <div class="rowbtns"><button class="primary" id="fRun">Calculate</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="fKpis" class="kpis"></div>
+        <div class="card"><h3>Results</h3><div class="body" id="fOut">
+          <div class="empty">Enter the source data and calculate.</div></div></div>
+        <div class="card"><h3>Decrement factor vs fault duration</h3>
+          <div class="body tight"><div id="fPlot" class="plot"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 3. CONDUCTOR ==================== -->
+  <section class="page" id="page-conductor">
+    <div class="pagehead"><h2>Earthing conductor sizing</h2>
+      <p>Thermal sizing to IEEE Std 80-2013 Eq. (37) and the IEC 60364-5-54 adiabatic
+         equation, plus the minimum sizes required by IEC 60364-5-54 Tables 54.1 and 54.2.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Design current</h3><div class="body">
+          <div class="field"><label>Fault current through the conductor<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cI" type="number" value="6.8" step="0.1"><span class="u">kA</span><div class="fh">The current the earthing conductor itself has to carry, which is not always the full site fault current — a grid conductor carries only its share.</div></div>
+          <div class="field"><label>Duration t<sub>c</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cT" type="number" value="0.5" step="0.05"><span class="u">s</span><div class="fh">Time the conductor carries that current. The heating is adiabatic, so the required area grows as the square root of this time.</div></div>
+          <div class="field"><label>Decrement factor D<sub>f</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cDf" type="number" value="1" step="0.01"><span class="u">–</span><div class="fh">Accounts for the d.c. offset in the first cycles, which heats the conductor more than the a.c. value alone. Take the value computed on the fault-current page; 1.0 ignores the offset.</div></div>
+          <div class="field"><label>Ambient temperature T<sub>a</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cTa" type="number" value="40"><span class="u">°C</span><div class="fh">Ambient soil or air temperature the conductor starts from. A higher starting temperature leaves less room before the fusing limit and increases the area.</div></div>
+        </div></div>
+        <div class="card"><h3>Material and joints</h3><div class="body">
+          <div class="field wide"><label>Conductor material (IEEE 80 Table 1)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><select id="cMat"></select><div class="fh">Sets the conductivity, fusing temperature and thermal capacity used in the IEEE 80 equation. Copper-clad steel is the usual compromise between cost and theft resistance.</div></div>
+          <div class="field wide"><label>Joint type limits T<sub>m</sub> to<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="cJoint"><option value="">Material fusing temperature</option>
+              <option value="welded_exothermic">Exothermic weld (1083 °C)</option>
+              <option value="brazed">Brazed (450 °C)</option>
+              <option value="pressure_bolted">Bolted / pressure (250 °C)</option></select><div class="fh">The joint, not the conductor, usually sets the temperature limit. An exothermic weld can go to the copper fusing point; a bolted joint must stay below 250 °C or it loosens and its resistance rises.</div></div>
+          <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+          <div class="field wide"><label>IEC material<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="cIecMat"><option value="copper">Copper</option><option value="aluminium">Aluminium</option><option value="steel">Steel</option></select><div class="fh">Material for the parallel IEC 60364-5-54 adiabatic check, which uses a k factor rather than the IEEE 80 formula.</div></div>
+          <div class="field wide"><label>IEC installation / covering<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="cIecInst">
+              <option value="buried|bare">Buried, bare</option>
+              <option value="buried|pvc">Buried, PVC covered</option>
+              <option value="separate|bare">Separate PE, bare</option>
+              <option value="separate|pvc70">Separate PE, PVC 70 °C</option>
+              <option value="separate|xlpe">Separate PE, XLPE / EPR</option>
+              <option value="in_cable|pvc70">PE core in a cable, PVC 70 °C</option>
+              <option value="in_cable|xlpe">PE core in a cable, XLPE</option></select><div class="fh">Where the conductor runs and what covers it. This sets the initial and final temperatures, and therefore k — a bare buried conductor may run hotter than one bundled with cables.</div></div>
+          <div class="field"><label>Line conductor size (for PE)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cSline" type="number" value="0" step="1"><span class="u">mm²</span><div class="fh">Cross-section of the line conductor the protective conductor runs with, used for the S/2 and 16 mm² rules of IEC 60364-5-54 Table 54.2. Leave 0 if you are not sizing a PE from a line size.</div></div>
+          <div class="field wide"><label>Corrosion / mechanical protection<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="cProt"><option value="1|0">Corrosion protected, no mechanical protection</option>
+              <option value="1|1">Corrosion and mechanically protected</option>
+              <option value="0|0">Not protected against corrosion</option></select><div class="fh">Unprotected buried conductors must meet a larger minimum size to survive corrosion and mechanical damage, whatever the thermal calculation says.</div></div>
+          <div class="rowbtns"><button class="primary" id="cRun">Size the conductor</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="cKpis" class="kpis"></div>
+        <div class="card"><h3>Results</h3><div class="body" id="cOut">
+          <div class="empty">Enter the design current and run.</div></div></div>
+        <div class="card"><h3>Required area vs fault duration</h3>
+          <div class="body tight"><div id="cPlot" class="plot"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 4. GRID ==================== -->
+  <section class="page" id="page-grid">
+    <div class="pagehead"><h2>Substation / power-plant earth grid — IEEE Std 80-2013</h2>
+      <p>The complete design procedure of Figure 33: tolerable voltages, grid resistance
+         (Sverak and Schwarz), ground potential rise, mesh and step voltages, and automatic
+         refinement until the design complies.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Site and safety data</h3><div class="body">
+          <div class="field"><label>Soil resistivity ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gRho" type="number" value="400"><span class="u">Ω·m</span><div class="fh">Uniform soil resistivity used by the closed-form equations. Take the equivalent value from the soil model page rather than a single field reading.</div></div>
+          <div class="field wide"><label>Surface layer<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><select id="gSurfSel"></select><div class="fh">Picking a material fills in its wet resistivity below. The surface layer is the crushed rock or asphalt on top of the natural soil, not the soil itself.</div></div>
+          <div class="field"><label>Surface resistivity ρ<sub>s</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gRhoS" type="number" value="2500"><span class="u">Ω·m</span><div class="fh">Resistivity of the surface layer when wet — always use the wet figure, because that is the unfavourable case for a person standing on it.</div></div>
+          <div class="field"><label>Surface thickness h<sub>s</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gHs" type="number" value="0.102" step="0.01"><span class="u">m</span><div class="fh">Thickness of the crushed-rock or asphalt layer. 0.102 m is 4 inches, the value used in the IEEE 80 Annex B worked example. Set 0 for bare soil.</div></div>
+          <div class="field"><label>Shock duration t<sub>s</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gTs" type="number" value="0.5" step="0.05"><span class="u">s</span><div class="fh">Duration of the shock a person could receive. It appears under a square root in the tolerable-voltage formula, so halving it raises the limits by about 40 %.</div></div>
+          <div class="field wide"><label>Body weight criterion<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="gBody"><option value="70">70 kg</option><option value="50">50 kg (conservative)</option></select><div class="fh">IEEE 80 gives limits for a 50 kg and a 70 kg body. 50 kg gives the lower, more conservative limits and is the usual choice where the public has access.</div></div>
+          <div class="field"><label>Maximum grid current I<sub>G</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gIG" type="number" value="1.908" step="0.001"><span class="u">kA</span><div class="fh">The part of the earth-fault current that actually flows from the grid into the soil: I<sub>G</sub> = D<sub>f</sub> · S<sub>f</sub> · C<sub>p</sub> · 3I₀. Use “Pull inputs” to take it from the fault-current page rather than entering the raw fault current here.</div></div>
+        </div></div>
+        <div class="card"><h3>Grid geometry</h3><div class="body">
+          <div class="field"><label>Length L<sub>x</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLx" type="number" value="70"><span class="u">m</span><div class="fh">Overall plan length of the buried grid, edge to edge — the area the conductors enclose, not the length of one conductor.</div></div>
+          <div class="field"><label>Width L<sub>y</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLy" type="number" value="70"><span class="u">m</span><div class="fh">Overall plan width of the buried grid, edge to edge.</div></div>
+          <div class="field"><label>Conductor spacing D<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gD" type="number" value="7" step="0.5"><span class="u">m</span><div class="fh">Centre-to-centre distance between adjacent parallel grid conductors — the size of one mesh. The IEEE 80 equations assume the same spacing both ways, so a 70 m grid at D = 7 m has eleven conductors in each direction. Reducing D is the most direct way to bring the mesh voltage down.</div></div>
+          <div class="field"><label>Burial depth h<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gH" type="number" value="0.5" step="0.1"><span class="u">m</span><div class="fh">Depth of cover from finished ground level to the top of the buried conductors. Usually 0.5 m; deeper burial lowers the touch voltage but barely changes the grid resistance.</div></div>
+          <div class="field"><label>Conductor diameter d<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gd" type="number" value="0.01" step="0.001"><span class="u">m</span><div class="fh">Diameter of the grid conductor itself, in metres — 0.01 m is a 10 mm round conductor, roughly 79 mm². It enters the mesh-voltage geometry factor only, so it has a weak effect on the result.</div></div>
+          <div class="field wide"><label>Grid shape<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="gShape"><option value="rectangular">Square / rectangular</option>
+              <option value="L">L-shaped</option><option value="T">T-shaped</option>
+              <option value="irregular">Irregular</option></select><div class="fh">Irregular and L or T shapes get the IEEE 80 corrective factor K<sub>i</sub> applied to the mesh voltage, because current crowds at re-entrant corners.</div></div>
+          <fieldset><legend>Ground rods</legend>
+            <div class="field"><label>Number of rods<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gNr" type="number" value="0"><span class="u">–</span><div class="fh">Total number of vertical ground rods connected to the grid. Rods help most where a low-resistivity layer sits beneath a resistive surface layer.</div></div>
+            <div class="field"><label>Rod length L<sub>r</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLr" type="number" value="0" step="0.5"><span class="u">m</span><div class="fh">Length of each rod below the grid conductors, not its total driven length.</div></div>
+            <div class="field"><label>Rod diameter<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gDr" type="number" value="0.016" step="0.001"><span class="u">m</span><div class="fh">Diameter of each ground rod, in metres — 0.016 m is a standard 16 mm rod.</div></div>
+            <div class="field"><label><input id="gPerim" type="checkbox" checked> Rods in the corners and along the perimeter<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">Rods concentrated on the perimeter and corners are far more effective than rods spread evenly, because that is where the current density is highest.</div></div>
+          </fieldset>
+          <div class="field wide"><label>Resistance formula<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="gRMeth"><option value="auto">Automatic</option>
+              <option value="sverak">Sverak — Eq. (52)</option>
+              <option value="schwarz">Schwarz — Eq. (56)–(60)</option></select><div class="fh">Sverak is the standard closed form for a grid with or without rods. Schwarz treats the conductors and the rods as two coupled electrodes and is better when the rods dominate. Automatic chooses between them.</div></div>
+          <div class="rowbtns">
+            <button class="primary" id="gRun">Evaluate design</button>
+            <button id="gOpt">Auto-refine until compliant</button>
+            <button id="gPull" class="ghost" title="Take ρ, I_G, d and t_s from the earlier modules">↺ Pull inputs</button>
+          </div>
+        </div></div>
+      </div>
+      <div>
+        <div id="gKpis" class="kpis"></div>
+        <div class="card"><h3>Compliance</h3><div class="body" id="gChecks">
+          <div class="empty">Run the evaluation.</div></div></div>
+        <div class="tabs" id="gTabs">
+          <div class="tab active" data-t="glay">Layout</div>
+          <div class="tab" data-t="gsect">Section</div>
+          <div class="tab" data-t="gsweep">Spacing sweep</div>
+          <div class="tab" data-t="gdet">Detailed results</div>
+        </div>
+        <div class="tabpane active" id="pane-glay"><div class="card"><h3>Grid layout</h3>
+          <div class="body tight"><div id="gPlotLay" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-gsect"><div class="card"><h3>Section through the grid<span class="sub">surface layer, burial depth, spacing, rods</span></h3>
+          <div class="body tight"><div id="gSection" class="drawing"></div></div></div></div>
+        <div class="tabpane" id="pane-gsweep"><div class="card"><h3>Mesh and step voltage vs conductor spacing</h3>
+          <div class="body tight"><div id="gPlotSweep" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-gdet"><div class="card"><h3>All computed quantities</h3>
+          <div class="body" id="gOut"><div class="empty">Run the evaluation.</div></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 5. NUMERICAL ==================== -->
+  <section class="page" id="page-numerical">
+    <div class="pagehead"><h2>Numerical analysis — boundary-element solver</h2>
+      <p>Arbitrary electrode geometry in uniform or two-layer soil. The buried metal is
+         discretised into segments held at a common potential; solving for the leakage-current
+         distribution gives the true earth resistance, the surface potential field and the
+         touch and step voltages everywhere — without the shape restrictions of the
+         closed-form equations.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Soil and current</h3><div class="body">
+          <div class="field"><label>Upper layer ρ₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho1" type="number" value="400"><span class="u">Ω·m</span><div class="fh">Resistivity of the upper soil layer. For a uniform earth, put the single value here and leave the lower layer blank.</div></div>
+          <div class="field"><label>Lower layer ρ₂ <span class="muted">(blank = uniform)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho2" type="number" placeholder="uniform"><span class="u">Ω·m</span><div class="fh">Resistivity of the lower layer. Leave blank to solve a uniform earth.</div></div>
+          <div class="field"><label>Upper layer thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nHl" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Depth from ground level to the boundary between the two layers.</div></div>
+          <div class="field"><label>Injected current I<sub>G</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nIG" type="number" value="1908"><span class="u">A</span><div class="fh">Current injected into the electrode system, in amperes — note that the grid page asks for the same quantity in kA, so 1.908 kA is 1908 A here.</div></div>
+          <div class="field"><label>Segment length<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nSeg" type="number" value="3" step="0.5"><span class="u">m</span><div class="fh">Length each conductor is chopped into before solving. Shorter segments give a more accurate answer and a slower solve; 2–3 m suits a substation grid.</div></div>
+          <div class="field"><label>Surface grid resolution<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRes" type="number" value="61" step="10"><span class="u">pts</span><div class="fh">Number of points across the scanned area in each direction, so 61 means the surface potential is evaluated on a 61 × 61 grid. Raise it for a smoother map, at the cost of solve time.</div></div>
+          <div class="field"><label>Step distance<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nStep" type="number" value="1" step="0.5"><span class="u">m</span><div class="fh">The stride length used to evaluate step voltage — the distance between a person's feet. IEEE 80 and IEC 60364 both use 1 m.</div></div>
+        </div></div>
+        <div class="card"><h3>Electrode geometry</h3><div class="body">
+          <table class="data" id="nTable"><thead><tr><th>Element</th><th>Parameters</th><th style="width:34px"></th></tr></thead><tbody></tbody></table>
+          <div class="rowbtns">
+            <button data-add="grid">+ Grid</button>
+            <button data-add="rod">+ Rod</button>
+            <button data-add="ring">+ Ring</button>
+            <button data-add="rectangle">+ Rectangle</button>
+            <button data-add="conductor">+ Conductor</button>
+          </div>
+          <div class="rowbtns">
+            <button id="nFromGrid" class="ghost">↺ Build from the IEEE 80 grid</button>
+            <button class="primary" id="nRun">Solve</button>
+          </div>
+          <div class="hint">Touch voltage is reported inside the electrode footprint plus 1 m of
+            arm reach; step voltage is reported over the whole scanned area.</div>
+        </div></div>
+      </div>
+      <div>
+        <div id="nKpis" class="kpis"></div>
+        <div class="tabs" id="nTabs">
+          <div class="tab active" data-t="nsurf">Surface potential</div>
+          <div class="tab" data-t="n3d">3-D potential</div>
+          <div class="tab" data-t="ntouch">Touch / step map</div>
+          <div class="tab" data-t="nprof">Profile</div>
+          <div class="tab" data-t="ncur">Current distribution</div>
+          <div class="tab" data-t="ngeo">Geometry</div>
+          <div class="tab" data-t="nsect">Section</div>
+        </div>
+        <div class="tabpane active" id="pane-nsurf"><div class="card"><h3>Earth-surface potential</h3>
+          <div class="body tight"><div id="nPlotSurf" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-n3d"><div class="card"><h3>Potential surface</h3>
+          <div class="body tight"><div id="nPlot3d" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-ntouch"><div class="card"><h3>Touch voltage (GPR − V<sub>surface</sub>)</h3>
+          <div class="body tight"><div id="nPlotTouch" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-nprof"><div class="card"><h3>Potential, touch and step voltage along a traverse</h3>
+          <div class="body tight"><div id="nPlotProf" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-ncur"><div class="card"><h3>Leakage current per segment</h3>
+          <div class="body tight"><div id="nPlotCur" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-ngeo"><div class="card"><h3>Electrode geometry (3-D)</h3>
+          <div class="body tight"><div id="nPlotGeo" class="plot tall"></div></div></div></div>
+        <div class="tabpane" id="pane-nsect"><div class="card"><h3>Electrodes in the soil section</h3>
+          <div class="body tight"><div id="nSection" class="drawing"></div></div></div></div>
+        <div class="card"><h3>Results</h3><div class="body" id="nOut">
+          <div class="empty">Add at least one electrode element and solve.</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 6. BUILDING ==================== -->
+  <section class="page" id="page-building">
+    <div class="pagehead"><h2>Buildings and homes — IEC 60364 / BS 7671</h2>
+      <p>Earth electrode selection, protective conductor sizing, earth-fault loop impedance,
+         maximum disconnection times and RCD selection for TN-S, TN-C-S, TT and IT installations.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Installation</h3><div class="body">
+          <div class="field wide"><label>System earthing arrangement<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="bSys"><option>TT</option><option>TN-S</option><option>TN-C-S</option>
+              <option>TN-C</option><option>IT</option></select><div class="fh">The first letter is how the supply is earthed, the second how the installation is: TN uses a protective conductor back to the source, TT uses its own local electrode, IT has no direct source earth.</div></div>
+          <div class="field"><label>Voltage to earth U₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bU0" type="number" value="230"><span class="u">V</span><div class="fh">Nominal voltage between a line conductor and earth — 230 V in a 400 V three-phase system.</div></div>
+          <div class="field"><label>Soil resistivity ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bRho" type="number" value="150"><span class="u">Ω·m</span><div class="fh">Soil resistivity at the electrode location, used to compute the resistance of each electrode you add below.</div></div>
+          <div class="field wide"><label>Circuit type<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="bCircuit"><option value="final">Final circuit ≤ 63 A</option>
+              <option value="distribution">Distribution circuit</option></select><div class="fh">Final circuits must disconnect faster than distribution circuits: 0.4 s against 5 s in a TN system at 230 V.</div></div>
+          <div class="field"><label>Line impedance to the fault<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bZl" type="number" value="0.35" step="0.01"><span class="u">Ω</span><div class="fh">Resistance and reactance of the line conductor from the origin of the installation to the point of the fault. Together with the PE impedance and Z_e it makes up the fault loop.</div></div>
+          <div class="field"><label>PE impedance to the fault<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bZpe" type="number" value="0.55" step="0.01"><span class="u">Ω</span><div class="fh">Impedance of the protective conductor over the same route back to the source. In a TT system the return is through the soil instead, so this is not used.</div></div>
+          <div class="field"><label>Source / external loop Z<sub>e</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bZs" type="number" value="0.35" step="0.01"><span class="u">Ω</span><div class="fh">The part of the fault loop outside the installation — the supply transformer and the service cable. The distributor declares it; 0.35 Ω is a common assumed value for a TN-C-S supply.</div></div>
+          <div class="field"><label>Touch voltage limit U<sub>L</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bUL" type="number" value="50"><span class="u">V</span><div class="fh">The touch voltage that may be held indefinitely. 50 V a.c. in ordinary dry conditions; 25 V where the standard calls for reduced limits, such as agricultural premises.</div></div>
+        </div></div>
+        <div class="card"><h3>Protective device</h3><div class="body">
+          <div class="field wide"><label>Device<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="bDev"><option value="mcb">MCB / MCCB</option><option value="fuse">gG fuse</option>
+              <option value="rcd">RCD (residual current)</option></select><div class="fh">The device that has to clear the earth fault. An RCD trips on residual current and so does not depend on the fault current being large.</div></div>
+          <div class="field"><label>Rating<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="bRating" type="number" value="32"><span class="u" id="bRatingU">A</span><div class="fh">For an MCB or fuse this is the rated current in amperes. For an RCD it is the rated residual operating current IΔn, so type 0.03 for a 30 mA device.</div></div>
+          <div class="field wide" id="bCurveBox"><label>Tripping curve</label>
+            <select id="bCurve"><option>B</option><option>C</option><option>D</option></select></div>
+        </div></div>
+        <div class="card"><h3>Earth electrodes</h3><div class="body">
+          <table class="data" id="bTable"><thead><tr><th>Type</th><th>Parameters</th><th>R (Ω)</th><th style="width:34px"></th></tr></thead><tbody></tbody></table>
+          <div class="rowbtns">
+            <button data-badd="rod">+ Rod</button>
+            <button data-badd="rods_parallel">+ Rod group</button>
+            <button data-badd="strip">+ Buried tape</button>
+            <button data-badd="ring">+ Ring</button>
+            <button data-badd="plate">+ Plate</button>
+            <button data-badd="foundation">+ Foundation</button>
+            <button data-badd="mesh">+ Mesh</button>
+          </div>
+          <div class="rowbtns">
+            <button class="primary" id="bRun">Assess installation</button>
+            <button id="bSize">How many rods do I need?</button>
+          </div>
+        </div></div>
+      </div>
+      <div>
+        <div id="bKpis" class="kpis"></div>
+        <div class="card"><h3>Compliance</h3><div class="body" id="bChecks">
+          <div class="empty">Add an electrode and run the assessment.</div></div></div>
+        <div class="card"><h3>Details</h3><div class="body" id="bOut"></div></div>
+        <div class="card"><h3>Electrode section
+            <span class="sub"><select id="bSectionSel" class="inline"></select></span></h3>
+          <div class="body tight"><div id="bSection" class="drawing"></div></div></div>
+        <div class="card"><h3>Electrode resistance vs soil resistivity</h3>
+          <div class="body tight"><div id="bPlot" class="plot"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 7. LIGHTNING ==================== -->
+  <section class="page" id="page-lightning">
+    <div class="pagehead"><h2>Lightning protection earth termination — IEC 62305-3</h2>
+      <p>LPS class parameters, the minimum electrode length l₁ from Figure 3, Type A and
+         Type B earth terminations, down-conductor spacing and the separation distance s.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Structure and LPS</h3><div class="body">
+          <div class="field wide"><label>LPS class<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="lCls"><option>I</option><option>II</option><option selected>III</option><option>IV</option></select><div class="fh">Class I protects against the widest range of stroke currents and demands the most; class IV the least. It comes from the risk assessment of IEC 62305-2, not from this page.</div></div>
+          <div class="field"><label>Soil resistivity ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lRho" type="number" value="200"><span class="u">Ω·m</span><div class="fh">Soil resistivity at the structure, which sets the minimum electrode length l₁ required for this class.</div></div>
+          <div class="field"><label>Plan area of the structure<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lArea" type="number" value="300"><span class="u">m²</span><div class="fh">Plan area enclosed by the structure at ground level. It is used to find the mean radius of the ring electrode, r<sub>e</sub> = √(A/π).</div></div>
+          <div class="field"><label>Perimeter<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lPer" type="number" value="70"><span class="u">m</span><div class="fh">Perimeter of the structure at ground level, which sets how many down-conductors are needed.</div></div>
+          <div class="field wide"><label>Earth-termination arrangement<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="lArr"><option value="B">Type B — ring / foundation electrode</option>
+              <option value="A">Type A — radial or vertical electrodes</option></select><div class="fh">Type B is a ring or foundation electrode round the whole structure and is the normal choice. Type A is separate radial or vertical electrodes, one at each down-conductor, and suits small structures.</div></div>
+          <div class="field"><label>Ring conductor diameter<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lD" type="number" value="0.01" step="0.001"><span class="u">m</span><div class="fh">Diameter of the ring conductor, in metres — 0.01 m is a 10 mm round conductor.</div></div>
+          <div class="field"><label>Burial depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lH" type="number" value="0.5" step="0.1"><span class="u">m</span><div class="fh">Depth of cover over the ring electrode, typically 0.5 m and at least 0.5 m clear of the foundation.</div></div>
+          <div class="field"><label>Rod diameter (Type A)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lRodD" type="number" value="0.016" step="0.001"><span class="u">m</span><div class="fh">Diameter of each vertical electrode in a Type A arrangement, in metres — 0.016 m is a standard 16 mm rod.</div></div>
+          <div class="field"><label>Foundation earth volume <span class="muted">(optional)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lVol" type="number" placeholder="—"><span class="u">m³</span><div class="fh">Volume of concrete in contact with the earth, if you are using the reinforcement as the electrode. Leave blank to size a ring instead.</div></div>
+          <fieldset><legend>Separation distance</legend>
+            <div class="field"><label>Length along the down-conductor l<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lLen" type="number" value="10" step="0.5"><span class="u">m</span><div class="fh">Distance measured along the down-conductor from the equipotential bonding point up to the level where you are checking the separation — usually up to the nearest metallic service or item of equipment.</div></div>
+            <div class="field wide"><label>Insulating material k<sub>m</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+              <select id="lMat"><option value="air">Air (k_m = 1)</option><option value="concrete">Concrete / brick (k_m = 0.5)</option></select><div class="fh">What lies between the down-conductor and the metalwork you are separating it from. Concrete and brick need twice the distance of air, because they puncture rather than flash over.</div></div>
+          </fieldset>
+          <div class="rowbtns"><button class="primary" id="lRun">Design earth termination</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="lKpis" class="kpis"></div>
+        <div class="card"><h3>Compliance</h3><div class="body" id="lChecks"><div class="empty">Run the design.</div></div></div>
+        <div class="card"><h3>Details</h3><div class="body" id="lOut"></div></div>
+        <div class="card"><h3>Minimum electrode length l₁ vs soil resistivity</h3>
+          <div class="body tight"><div id="lPlot" class="plot"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ================ 8. AIR TERMINATION / PROTECTION ZONE ============== -->
+  <section class="page" id="page-airterm">
+    <div class="pagehead"><h2>Air termination and protection zone — IEC 62305-3</h2>
+      <p>Where the flash is intercepted, and which volume that interception actually
+         protects. The rolling sphere is rolled numerically over the structure and the
+         terminations, so the result holds for any arrangement; the protective angle and
+         the mesh method are shown beside it for comparison.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Structure</h3><div class="body">
+          <div class="field wide"><label>LPS class<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="aCls"><option>I</option><option>II</option>
+              <option selected>III</option><option>IV</option></select><div class="fh">The class sets the rolling sphere radius: 20 m for I, 30 m for II, 45 m for III and 60 m for IV. A smaller sphere reaches into more places, so a higher class is a harder test.</div></div>
+          <div class="field"><label>Width — across the section<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aW" type="number" value="20" step="0.5"><span class="u">m</span><div class="fh">Width of the structure measured across the elevation being drawn — the left-to-right direction of the section view.</div></div>
+          <div class="field"><label>Depth — into the page<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aD" type="number" value="15" step="0.5"><span class="u">m</span><div class="fh">Depth of the structure into the page. It is not used by the elevation; it sets the roof area for the plan-coverage and mesh checks.</div></div>
+          <div class="field"><label>Height to the roof<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aH" type="number" value="10" step="0.5"><span class="u">m</span><div class="fh">Height from ground level to the roof surface. Set 0 for open ground, such as a tank farm or a switchyard protected by masts.</div></div>
+          <div class="field"><label>Protected plane <span class="muted">(blank = the roof)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aRef" type="number" placeholder="auto" step="0.5"><span class="u">m</span><div class="fh">The surface being protected. Leave blank to protect the roof when there is a structure and the ground when there is not; enter a level to protect something else, such as the top of a tank.</div></div>
+          <div class="field"><label>Mesh size <span class="muted">(blank = class value)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aMesh" type="number" placeholder="auto" step="0.5"><span class="u">m</span><div class="fh">Leave blank to use the mesh size the class requires. Enter a value only to test a layout you already have.</div></div>
+          <div class="rowbtns"><button id="aPull" class="ghost"
+            title="Take the class and the plan dimensions from the lightning earth page">&#8634; Pull inputs</button></div>
+        </div></div>
+        <div class="card"><h3>Air terminations</h3><div class="body">
+          <table class="data" id="aTable"><thead><tr>
+            <th>x (m)</th><th>y (m)</th><th>Height (m)</th><th>Base (m)</th><th style="width:34px"></th>
+          </tr></thead><tbody></tbody></table>
+          <div class="hint">x runs across the section and y into the page, both measured from the
+            centre of the structure. Height is the length of the rod or mast itself; leave the base
+            level blank to stand it on the roof when it falls inside the footprint and on the ground
+            when it falls outside.</div>
+          <div class="rowbtns"><button id="aAdd">+ Termination</button></div>
+          <div class="rowbtns">
+            <button data-layout="corners">Corner rods</button>
+            <button data-layout="corners_centre">Corners + centre</button>
+            <button data-layout="masts">Two masts beside</button>
+            <button data-layout="single">Single mast</button>
+          </div>
+          <fieldset><legend>Catenary wire</legend>
+            <div class="field full"><label><input id="aCat" type="checkbox"> Wire strung between the outermost masts<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">A horizontal wire between two masts intercepts along its whole length rather than at one point, which protects a long object with fewer masts.</div></div>
+            <div class="field"><label>Sag at mid-span<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="aCatSag" type="number" value="1" step="0.5"><span class="u">m</span><div class="fh">How far the wire hangs below its supports at mid-span. The sag reduces the protected height in the middle, so it is worth keeping small.</div></div>
+          </fieldset>
+          <div class="rowbtns"><button class="primary" id="aRun">Evaluate protection zone</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="aKpis" class="kpis"></div>
+        <div class="card"><h3>Compliance</h3><div class="body" id="aChecks">
+          <div class="empty">Add a termination and evaluate.</div></div></div>
+        <div class="tabs" id="aTabs">
+          <div class="tab active" data-t="ars">Rolling sphere</div>
+          <div class="tab" data-t="aplan">Protected area</div>
+          <div class="tab" data-t="apa">Protective angle</div>
+          <div class="tab" data-t="amesh">Mesh method</div>
+        </div>
+        <div class="tabpane active" id="pane-ars"><div class="card"><h3>Rolling sphere — elevation</h3>
+          <div class="body tight"><div id="aPlotRS" class="drawing tall"></div></div></div></div>
+        <div class="tabpane" id="pane-aplan"><div class="card"><h3>Protected area — plan</h3>
+          <div class="body tight"><div id="aPlotPlan" class="drawing tall"></div></div></div></div>
+        <div class="tabpane" id="pane-apa"><div class="card"><h3>Protective angle method</h3>
+          <div class="body tight"><div id="aPlotPA" class="drawing"></div></div></div></div>
+        <div class="tabpane" id="pane-amesh"><div class="card"><h3>Mesh method — roof plan</h3>
+          <div class="body tight"><div id="aPlotMesh" class="drawing"></div></div></div></div>
+        <div class="card"><h3>All computed quantities</h3><div class="body" id="aOut">
+          <div class="empty">Evaluate the arrangement.</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 9. SYSTEM GROUNDING ==================== -->
+  <section class="page" id="page-sysgnd">
+    <div class="pagehead"><h2>System neutral grounding — IEEE Std 142</h2>
+      <p>Choose between solid, low-resistance, high-resistance, reactance and ungrounded
+         systems; size the neutral earthing resistor; check whether the system is
+         effectively grounded for surge-arrester selection.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>System</h3><div class="body">
+          <div class="field"><label>Line voltage<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sV" type="number" value="6.6" step="0.1"><span class="u">kV</span><div class="fh">Nominal line-to-line voltage of the system whose neutral is being earthed.</div></div>
+          <div class="field"><label>Frequency</label><input id="sF" type="number" value="50"><span class="u">Hz</span></div>
+          <div class="field"><label>Cable route length<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sCab" type="number" value="8" step="0.5"><span class="u">km</span><div class="fh">Total route length of cable connected to the system. Cable capacitance to earth is what makes an unearthed system charge up, so this drives the earth-fault current.</div></div>
+          <div class="field"><label>Cable C₀ per phase<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sC0" type="number" value="0.25" step="0.01"><span class="u">µF/km</span><div class="fh">Zero-sequence capacitance to earth per phase per kilometre, from the cable data sheet. Around 0.25 µF/km for medium-voltage XLPE.</div></div>
+          <div class="field"><label>Overhead line length<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sOh" type="number" value="0" step="0.5"><span class="u">km</span><div class="fh">Route length of overhead line. Its capacitance to earth is far smaller than a cable's, so it contributes much less charging current.</div></div>
+          <div class="field"><label>Connected motors<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sMot" type="number" value="0"><span class="u">kVA</span><div class="fh">Total rating of motors connected to the system, used for their contribution to the charging current.</div></div>
+          <div class="field"><label>Connected transformers<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sTx" type="number" value="0"><span class="u">kVA</span><div class="fh">Total rating of transformers connected to the system, used the same way.</div></div>
+          <div class="field full"><label><input id="sCont" type="checkbox" checked> Continuity of service is critical<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">Tick this if a single earth fault must not trip the plant. It pushes the recommendation towards high-resistance or unearthed operation, which keeps running with one phase earthed.</div></div>
+          <div class="field full"><label><input id="sLn" type="checkbox"> Line-to-neutral loads are supplied<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">Tick this if any load is connected between a phase and the neutral. Such loads need a stable neutral, which rules out high-resistance earthing.</div></div>
+          <div class="field wide"><label>Grounding method<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="sMeth"><option value="auto">Recommend automatically</option>
+              <option value="high_resistance">High resistance</option>
+              <option value="low_resistance">Low resistance</option>
+              <option value="reactance">Reactance</option>
+              <option value="solid">Solid</option></select><div class="fh">Leave on Recommend automatically to have the program choose from the system data, or force a method to see what it would require.</div></div>
+          <div class="field"><label>Target earth-fault current<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sIt" type="number" value="400"><span class="u">A</span><div class="fh">The earth-fault current you want the neutral earthing resistor to let through. High resistance keeps it at or just above the charging current; low resistance is typically 200–600 A to give relays something to see.</div></div>
+          <div class="field"><label>Resistor time rating<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sTr" type="number" value="10"><span class="u">s</span><div class="fh">How long the resistor must carry that current before the protection clears the fault. 10 s is the usual rating; continuous rating costs much more.</div></div>
+          <fieldset><legend>Effectively-grounded test (optional)</legend>
+            <div class="field"><label>X₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sX1" type="number" placeholder="—" step="0.1"><span class="u">Ω</span><div class="fh">Positive-sequence reactance at the point of interest. Fill the three impedances in only if you want the effectively-earthed test for surge arrester selection.</div></div>
+            <div class="field"><label>X₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sX0" type="number" placeholder="—" step="0.1"><span class="u">Ω</span><div class="fh">Zero-sequence reactance at the same point. Effectively earthed requires X₀/X₁ ≤ 3.</div></div>
+            <div class="field"><label>R₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="sR0" type="number" placeholder="—" step="0.1"><span class="u">Ω</span><div class="fh">Zero-sequence resistance at the same point. Effectively earthed also requires R₀/X₁ ≤ 1.</div></div>
+          </fieldset>
+          <div class="rowbtns"><button class="primary" id="sRun">Evaluate</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="sKpis" class="kpis"></div>
+        <div class="card"><h3>Results</h3><div class="body" id="sOut"><div class="empty">Run the evaluation.</div></div></div>
+        <div class="card"><h3>Grounding method comparison</h3><div class="body" id="sTable"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 9. REPORT ==================== -->
+  <section class="page" id="page-report">
+    <div class="pagehead"><h2>Design report</h2>
+      <p>Assemble every module that has been run into one printable document, in English or
+         Persian. Charts are captured from the modules and embedded in the report.</p></div>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Document details</h3><div class="body">
+          <div class="field wide"><label>Project</label><input id="rProject"></div>
+          <div class="field wide"><label>Client</label><input id="rClient"></div>
+          <div class="field wide"><label>Engineer</label><input id="rEngineer" value="Dr. Emad Roshandel"></div>
+          <div class="field wide"><label>Document reference</label><input id="rRef"></div>
+          <div class="field wide"><label>Revision</label><input id="rRev" value="00"></div>
+          <div class="field wide"><label>Date</label><input id="rDate" type="date"></div>
+          <div class="field full"><label>Notes and assumptions</label>
+            <textarea id="rNotes" rows="5" placeholder="Soil survey date, measurement equipment, deviations from the standard, …"></textarea></div>
+          <div class="field wide"><label>Language<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="rLang"><option value="en">English</option><option value="fa">فارسی (Persian, RTL)</option></select><div class="fh">The Persian version is laid out right-to-left with translated headings and verdicts; numbers and formulas stay left-to-right.</div></div>
+          <div class="field full"><label><input id="rFigs" type="checkbox" checked> Include the charts from each module<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">Captures the section drawings and charts from every module that has been run and embeds them in the document.</div></div>
+          <div class="rowbtns">
+            <button class="primary" id="rBuild">Generate report</button>
+            <button id="rPrint">Print / save as PDF</button>
+            <button id="rDownload">Download HTML</button>
+          </div>
+        </div></div>
+        <div class="card"><h3>Sections included</h3><div class="body" id="rSections"></div></div>
+      </div>
+      <div>
+        <div class="card"><h3>Preview</h3><div class="body tight">
+          <iframe id="rFrame" style="width:100%;height:78vh;border:1px solid var(--line);border-radius:7px;background:#fff"></iframe>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== ABOUT ==================== -->
+  <section class="page" id="page-about">
+    <div class="pagehead"><h2>Theory — the physics and mathematics behind every page</h2>
+      <p>The complete teaching companion: where each equation comes from, the derivations,
+         worked examples, and how to read a verdict. The same text is in
+         <code>docs/THEORY.md</code>, and <code>docs/METHODS.md</code> is the condensed
+         equation reference.</p></div>
+    <div class="theorywrap">
+      <nav id="theoryToc" class="toc"></nav>
+      <div id="theoryBody" class="card"><div class="body"></div></div>
+    </div>
+  </section>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="modal"><div class="box">
+  <header><b id="modalTitle">…</b><span style="flex:1"></span><button id="modalClose" class="ghost">✕</button></header>
+  <div class="content" id="modalBody"></div>
+</div></div>
+
+<script src="app.js"></script>
+<script src="airterm.js"></script>
+<script src="help.js"></script>
+</body>
+</html>
