@@ -1,7 +1,0 @@
-# EarthSystem requirements
-#
-# The calculation engine, the web server and the report generator use only the
-# Python standard library.  numpy is needed for the numerical (boundary-element)
-# solver; pywebview is optional and only provides the native desktop window.
-numpy>=1.21
-pywebview>=4.0 ; extra == "desktop"
