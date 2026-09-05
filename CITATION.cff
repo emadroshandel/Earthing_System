@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "EarthSystem: earthing system design for homes, buildings, substations and power plants"
+message: "If you use this software in academic work, please cite it as below."
+type: software
+authors:
+  - family-names: Roshandel
+    given-names: Emad
+    orcid: ""
+license: MIT
+repository-code: "https://github.com/emadroshandel/earthsystem"
+abstract: >-
+  An open-source earthing (grounding) system design application implementing
+  IEEE Std 80, IEC 60364-4-41 and -5-54, IEC 62305-3, IEC 60909 and IEEE Std
+  142, with a boundary-element numerical solver for arbitrary electrode
+  geometry in uniform or two-layer soil, and a bilingual design-report
+  generator. Runs locally as a desktop or browser application, or entirely in
+  the browser via Pyodide.
+keywords:
+  - earthing
+  - grounding
+  - IEEE 80
+  - IEC 60364
+  - IEC 62305
+  - boundary element method
+  - power systems
