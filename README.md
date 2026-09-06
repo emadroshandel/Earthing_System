@@ -385,7 +385,7 @@ that way.
 
 ## 17. Licence and references
 
-MIT — see [`LICENSE`](LICENSE). Third-party components in
+GPL-3.0 license — see [`LICENSE`](LICENSE). Third-party components in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 This software implements methods published in the standards below and reproduces the
