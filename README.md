@@ -1,4 +1,5 @@
 # EarthSystem
+
 **Earthing (grounding) system design for homes, buildings, substations and power plants.**
 
 Implements IEEE Std 80-2013, IEC 60364-4-41 / -5-54, IEC 62305-3, IEC 60909-0 and
@@ -9,7 +10,7 @@ produces a printable design report in English or Persian.
 Runs three ways from the same code: a local desktop window, a local browser application, or
 entirely inside your browser with no installation at all.
 
-**▶ Live demo — no installation:** [https://emadroshandel.github.io/earthsystem/](https://emadroshandel.github.io/EarthSystem/)
+**▶ Live demo — no installation:** https://emadroshandel.github.io/earthsystem/
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
@@ -23,7 +24,7 @@ entirely inside your browser with no installation at all.
 2. [Install](#2-install)
 3. [Quick start](#3-quick-start)
 4. [The interface](#4-the-interface)
-5. [The nine modules](#5-the-nine-modules)
+5. [The ten modules](#5-the-ten-modules)
 6. [Why it passed or failed](#6-why-it-passed-or-failed)
 7. [The numerical solver](#7-the-numerical-solver)
 8. [Reports](#8-reports)
@@ -100,7 +101,7 @@ Then load one of the example projects with the **Import** button:
 
 ## 4. The interface
 
-Nine pages down the left, in the order a real design goes:
+Ten pages down the left, in the order a real design goes:
 
 ```
 Inputs           1  Soil model          field data → two-layer earth
@@ -110,12 +111,28 @@ Inputs           1  Soil model          field data → two-layer earth
 Design modules   4  Substation grid     the full IEEE 80 procedure
                  5  Numerical solver    boundary-element method
                  6  Buildings & homes   IEC 60364, TN / TT / IT
-                 7  Lightning earth     IEC 62305-3
-                 8  System grounding    IEEE 142, neutral earthing
+                 7  Lightning earth     IEC 62305-3, earth termination
+                 8  Air termination     IEC 62305-3, rolling sphere zone
+                 9  System grounding    IEEE 142, neutral earthing
 
-Output           9  Design report       English or Persian, printable
+Output          10  Design report       English or Persian, printable
                  i  Theory & reference  the physics behind every page
 ```
+
+Every input carries a small **?** beside its label. Hover it — or the label — and a
+short explanation appears saying what the quantity is, what it is measured between, and
+where a typical value comes from, so `D` reads as "centre-to-centre distance between
+adjacent parallel grid conductors" rather than just `D`. Click the **?** to keep the
+explanation open while you read it. The geometry tables name and dimension every
+parameter the same way. **Explain all** in the top bar drops every explanation inline at
+once, which is what you want when teaching from the form or printing it.
+
+Every design page also carries a **scale section drawing** of what it just computed — the
+fitted soil strata with the electrode depths on them, the grid with its surface layer and
+what touch and step voltage actually mean on site, the electrode type you selected drawn to
+its own dimensions, and the rolling sphere rolled over the structure in elevation and plan.
+The drawings are built from the same numbers as the results table, so a reader can check the
+model against the site before trusting the answer, and they are embedded in the report.
 
 The modules feed each other. **Pull inputs** on the grid page takes ρ from the soil model,
 `I_G` from the fault module and the conductor diameter from the sizing module. **Build from
@@ -125,7 +142,7 @@ closed-form and numerical answers can be compared directly.
 A green or red dot on each nav item shows whether that module has been run and whether it
 complied.
 
-## 5. The nine modules
+## 5. The ten modules
 
 | # | Module | Standard | What it computes |
 |---|---|---|---|
@@ -136,8 +153,9 @@ complied.
 | 5 | Numerical solver | Boundary-element method | Arbitrary geometry, uniform or two-layer soil, surface potential field, touch/step maps, per-segment leakage current |
 | 6 | Buildings & homes | IEC 60364-4-41 / -5-54 | Electrode resistances, R_A, Z_s, disconnection time, RCD selection, TN / TT / IT |
 | 7 | Lightning earth | IEC 62305-3 | LPS class data, l₁, Type A / Type B termination, down-conductors, separation distance s |
-| 8 | System grounding | IEEE 142, IEEE C62.92 | Method selection, NER sizing, charging current, effectively-grounded test |
-| 9 | Design report | — | One printable HTML document, English or Persian (RTL), charts embedded |
+| 8 | Air termination | IEC 62305-3 Annex A | Rolling sphere rolled numerically over the structure, protected radius r_p, sphere penetration between terminations, maximum span, roof-field and roof-edge checks, plan coverage, protective angle and mesh methods |
+| 9 | System grounding | IEEE 142, IEEE C62.92 | Method selection, NER sizing, charging current, effectively-grounded test |
+| 10 | Design report | — | One printable HTML document, English or Persian (RTL), drawings and charts embedded |
 
 ## 6. Why it passed or failed
 
@@ -188,7 +206,7 @@ profile, per-segment leakage current, and a 3-D view of the electrode geometry.
 
 One HTML document, printable to PDF from any browser, containing the inputs, every
 intermediate quantity with its clause reference, the compliance verdicts with their full
-reasoning, and the charts captured from each module.
+reasoning, the scale section drawings and the charts captured from each module.
 
 Available in **English** and **Persian (RTL)** — the Persian version has translated
 headings, quantity names and verdict badges, with numbers and formulas correctly isolated
@@ -242,8 +260,18 @@ cleanly and can be generated by script.
 
 | Document | For |
 |---|---|
-| [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, and a suggested four-session teaching sequence |
+| [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 18 figures, and a suggested four-session teaching sequence |
+| **`docs/EarthSystem_Theory_and_Practice.docx`** | The same material as a formatted 38-page Word document: title page, table of contents, numbered figures and captions, headers and page numbers. Ready to hand out or print |
+| `docs/EarthSystem_Theory_and_Practice.pdf` | The same document as a PDF |
 | [`docs/METHODS.md`](docs/METHODS.md) | The condensed equation reference, every formula with its clause number |
+
+Every figure is generated from the engine itself by `docs/make_figures.py`, so the plots in
+the tutorial and the numbers in the software cannot drift apart. Rebuild the whole set — the
+figures, the Word document and its table of contents — with:
+
+```bash
+bash docs/build_docx.sh
+```
 
 `THEORY.md` is also rendered inside the application, on the **Theory & reference** page,
 with a contents sidebar — so the software teaches while it is being used. It derives the
@@ -255,7 +283,7 @@ own published form.
 ## 12. Validation and tests
 
 ```bash
-python -m unittest discover -s tests -v      # 39 checks
+python -m unittest discover -s tests -v      # 65 checks
 ```
 
 Against the worked example of **IEEE Std 80-2013 Annex B** (70 × 70 m grid, ρ = 400 Ω·m,
@@ -292,9 +320,14 @@ no server it loads Pyodide, fetches the `earthsys` package sources, and patches 
 that every `/api/...` call goes to the identical Python code inside the browser. `app.js`
 never learns which mode it is in, and the numbers are bit-for-bit the same.
 
-To publish your own copy: push the repository, then in **Settings → Pages** select
-*Deploy from a branch*, branch `main`, folder `/ (root)`. The root `index.html` forwards to
-`web/`.
+To publish your own copy, follow [`PUBLISH.md`](PUBLISH.md) — it has the exact commands.
+In short: push the repository, and the workflow in `.github/workflows/pages.yml` deploys it
+on every push to `main` (Settings → Pages → Source: **GitHub Actions**). The root
+`index.html` forwards to `web/`.
+
+> With *Source: GitHub Actions* selected, GitHub deploys nothing until a workflow exists —
+> that file is what does it. *Deploy from a branch* → `main` → `/ (root)` also works;
+> `.nojekyll` is included for that case.
 
 First load fetches about 20 MB (Pyodide plus numpy) and is then cached. Save/Open to disk
 are hidden in browser mode; Export/Import JSON still work.
@@ -316,6 +349,10 @@ are hidden in browser mode; Export/Import JSON still work.
 - See [`DISCLAIMER.md`](DISCLAIMER.md).
 
 ## 15. Troubleshooting
+
+**A launcher window flashes and disappears.** Run `Diagnose.bat` — it prints and saves
+`diagnostic.txt` listing every Python it can find. The launchers also write
+`startup_log.txt` on every run.
 
 **"Python was not found".** Install Python 3.9+ from python.org and tick *Add python.exe to
 PATH*. The launchers also search the usual Anaconda, Miniconda and per-user install
@@ -348,7 +385,7 @@ that way.
 
 ## 17. Licence and references
 
-GNU — see [`LICENSE`](LICENSE). Third-party components in
+MIT — see [`LICENSE`](LICENSE). Third-party components in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 This software implements methods published in the standards below and reproduces the
@@ -370,4 +407,3 @@ standards body is claimed.
 12. C. F. Dalziel, "Threshold 60-cycle fibrillating currents", *Trans. AIEE*, 79, 1960
 13. F. Dawalibi and D. Mukhedkar, "Optimum design of substation grounding in two-layer earth", *IEEE Trans. PAS*, 94, 1975
 14. J. G. Sverak, "Sizing of ground conductors against fusing", *IEEE Trans. PAS*, 100, 1981
-
