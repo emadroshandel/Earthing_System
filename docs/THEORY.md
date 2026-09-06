@@ -1085,6 +1085,112 @@ denominator, `k_m = 0.5` **doubles** the required separation. Solid building mat
 *worse* insulators than air over these distances — they are porous, absorb moisture, and
 puncture rather than flash over. Students almost always guess the other way.
 
+### 10.4 Effective length and effective area — putting a number on §10.1
+
+Section 10.1 asserted that only the first ten or twenty metres of a long horizontal
+electrode does any work during the front. That is worth turning into an equation, because
+it changes what you build.
+
+**The mechanism.** A buried conductor is a lossy transmission line: series inductance
+`L'` per metre, and shunt conductance `G'` per metre to the soil. A step of current
+injected at one end does not appear at the far end instantly — it diffuses along the line,
+and while it is diffusing the conductance near the injection point is already bleeding it
+into the soil. By the time the front has peaked, at `t = T`, the current has only reached
+a limited distance. Beyond that distance the conductor is carrying almost nothing. The
+diffusion length of such a line scales as `√(T/(L'G'))`, and since `G' ∝ 1/ρ` while `L'`
+is essentially fixed by the geometry, the distance scales as `√(ρT)`. Fitting the constant
+to measurements gives
+
+```
+L_eff = k · (ρ · T)^0.5      ρ in Ω·m, T in µs, L_eff in m      … (10.2)
+        k = 1.40  fed at one end
+        k = 1.55  fed at its centre
+```
+
+The centre-fed constant is larger only because the current has two directions to travel
+in rather than one, so each half of the electrode sees half the current and the front gets
+a little further.
+
+Put the numbers of §10.1 in: 100 Ω·m soil, a 1 µs first negative stroke, fed at one end,
+gives `L_eff = 1.4 × √100 = 14 m`. That is where the "10–20 m" came from. In 1000 Ω·m soil
+it is 44 m; under a 0.25 µs subsequent stroke in 100 Ω·m it is only 7 m.
+
+**The design consequence.** Electrode beyond `L_eff` is not merely of diminishing value —
+during the front it is doing nothing at all. It still helps at power frequency, so a long
+radial electrode is not wasted money if the same system also has to carry earth-fault
+current. But if the reason you are adding it is lightning, adding *length* is the wrong
+move; adding *conductor within the effective radius*, or moving the injection point, is
+the right one.
+
+### 10.5 The effective area of a meshed system, and why three formulas disagree
+
+For a grid rather than a single radial electrode the same argument gives an **effective
+radius** `r_eff` around the injection point, and an effective area `π r_eff²`. Three
+published expressions are in common use and EarthSystem reports all three:
+
+```
+Gupta & Thapar   r_eff = K (ρT)^0.5      K = 1.45 − 0.05 s   (centre-fed)
+                                          K = 0.60 − 0.025 s  (corner-fed)
+Conductor reach  r_eff = k (ρT)^0.5      equation (10.2) read as a radius
+Grcev            r_eff = K exp[0.84 (ρT)^0.22]   K = 1 centre, 0.5 corner
+```
+
+where `s` is the mesh conductor spacing in metres. Gupta & Thapar's fit was made over
+roughly 3 m to 15 m spacing; outside that band the linear `K` is an extrapolation and the
+program says so.
+
+Work the program's default switchyard: a 70 × 70 m grid at 7 m spacing in 400 Ω·m soil,
+struck by a 1 µs front.
+
+| | centre-fed | corner-fed |
+|---|---|---|
+| Gupta & Thapar | 22.0 m | 8.5 m |
+| Conductor reach | 31.0 m | 28.0 m |
+| Grcev | 23.1 m | 11.5 m |
+
+The grid's own equivalent radius is `√(4900/π) = 39.5 m`. So on the most pessimistic
+estimate, a corner-fed stroke puts **5 % of a 4900 m² grid to work**; on the most
+optimistic, 50 %. That is a factor of six between two published formulas applied to the
+same site, and it is not a defect in this program — it is the state of the published work.
+Design on the smallest if the consequence of being wrong is an equipment failure, and on
+the largest if it is only the cost of copper.
+
+Two things the table does say unambiguously:
+
+1. **Front time matters more than anything you can build.** Take the same grid to an 8 µs
+   front and the centre-fed effective radius is 62 m — larger than the grid, so the whole
+   thing participates. The 1 µs case is severe because it is fast, not because the grid is
+   small.
+2. **Where the current enters is a free design variable.** Every formula makes the
+   corner-fed case roughly half the centre-fed one, because the current has a quadrant to
+   spread into instead of the whole plane. Choosing which down-conductor lands where costs
+   nothing and buys a factor of two.
+
+### 10.6 Why the measured resistance flatters the design
+
+This is the part that matters for safety. An earth resistance measured with a d.c. or 50 Hz
+tester describes the whole electrode sitting at one potential. Under the front only the
+effective part is carrying current, so the impedance the stroke actually sees is higher.
+
+To first order, take the disc-electrode result `R = ρ/(4r)`: if only a radius `r_eff`
+participates instead of the geometric `r_geom`, the impedance rises in the ratio of the
+radii. Define the **impulse coefficient**
+
+```
+A = Z_impulse / R_measured ≈ r_geom / r_eff      (A ≥ 1)      … (10.3)
+```
+
+For the corner-fed 1 µs case above, `A ≈ 39.5 / 8.5 = 4.6`. A grid measured at 4.5 Ω
+behaves like about 21 Ω during the front, and the peak earth potential rise for the class
+III current of 100 kA is around **2100 kV rather than the 450 kV that I·R would give**.
+
+Equation (10.3) is an estimate, not a measurement — a defensible number needs an impulse
+test or a full transmission-line model, and it deliberately ignores soil ionisation, which
+pushes the other way (§10.1) and can be significant at high current density. But it is the
+right order and it points the right way, which is what a warning has to do. Size
+equipotential bonding and SPD coordination on the impulse value; never quote the measured
+resistance as if it described the lightning performance of an extended earthing system.
+
 ---
 
 ## 11. Air termination and protection zones — module 8
