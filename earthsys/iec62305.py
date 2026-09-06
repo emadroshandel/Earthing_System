@@ -151,11 +151,218 @@ def down_conductors(lps_class: str, perimeter_m: float) -> dict:
                 reference="IEC 62305-3 Table 4 / Table 2")
 
 
+# ---------------------------------------------------------------------------
+# Behaviour under the impulse — effective length and effective area
+# ---------------------------------------------------------------------------
+#
+# Everything above this line is a power-frequency or d.c. calculation: the
+# whole electrode is assumed to be at one potential, so making it longer
+# always lowers the resistance.  A lightning current does not behave that
+# way.  The front is over in a microsecond or two, and in that time the
+# travelling wave has only reached a limited distance along the buried
+# conductor; the series inductance of the conductor holds the far end back
+# while the leakage conductance to soil is already bleeding the current away
+# near the injection point.  Beyond that distance the electrode carries
+# almost no current and contributes almost nothing.  That distance is the
+# *effective length*, and it is why a 200 m radial electrode is no better
+# under lightning than a 30 m one.
+#
+# Two consequences matter to a designer:
+#
+#   1. Extra electrode length beyond L_eff is money spent for nothing.
+#   2. The earth potential rise under a stroke is larger — often much
+#      larger — than I·R would suggest from the resistance measured with a
+#      d.c. or 50 Hz tester, because only the effective part is working.
+
+IMPULSE_K = {"centre": 1.55, "end": 1.40}
+
+
+def _is_centre(injection) -> bool:
+    """Centre-fed, or fed from an edge or a corner.  Spelt out because
+    "centre" and "corner" share their first letter and a prefix test on
+    them is a bug waiting to happen."""
+    return str(injection).strip().lower() in ("centre", "center", "middle")
+
+# Gupta & Thapar fitted K = a - b·s to model tests, with s the conductor
+# spacing of the mesh in metres.  The fit was made over roughly 3 m to 15 m
+# spacing; outside that band the linear fit is extrapolated and flagged.
+GT_SPACING_RANGE = (3.0, 15.0)
+
+# IEC 62305-1 Table 3 front times T1, in microseconds.
+IMPULSE_FRONTS = {
+    "first_negative": 1.0,
+    "first_positive": 10.0,
+    "subsequent": 0.25,
+}
+
+
+def effective_length(rho: float, tau: float, feed: str = "end") -> dict:
+    """Effective length of a horizontal electrode under an impulse.
+
+        L_eff = k · (ρ · τ)^0.5        ρ in Ω·m, τ in µs, L_eff in m
+
+    k = 1.40 for an electrode fed at one end and 1.55 for one fed at its
+    centre, the centre-fed case being longer only because the current has
+    two directions to travel in.  The square-root form follows from the
+    lossy transmission line: the distance the front reaches in a time τ
+    scales with the square root of the product of the soil resistivity
+    (which sets the leakage) and the time available.
+    """
+    if rho <= 0 or tau <= 0:
+        raise ValueError("Soil resistivity and front time must both be "
+                         "greater than zero.")
+    k = IMPULSE_K.get(feed, IMPULSE_K["end"])
+    return dict(L_eff=k * math.sqrt(rho * tau), k=k, feed=feed,
+                rho=rho, tau=tau,
+                formula="L_eff = k·(ρ·τ)^0.5  [k = 1.40 end-fed, "
+                        "1.55 centre-fed; ρ in Ω·m, τ in µs]")
+
+
+def _gupta_thapar(rho: float, T: float, spacing: float,
+                  injection: str) -> dict:
+    """r_e = K(ρT)^0.5 with K a linear function of the mesh spacing."""
+    s = float(spacing)
+    if injection == "centre":
+        K, expr = 1.45 - 0.05 * s, "K = 1.45 − 0.05·s"
+    else:
+        K, expr = 0.60 - 0.025 * s, "K = 0.60 − 0.025·s"
+    lo, hi = GT_SPACING_RANGE
+    out_of_range = not (lo <= s <= hi)
+    K = max(K, 0.05)
+    return dict(name="Gupta & Thapar", r=K * math.sqrt(rho * T), K=K,
+                expression=expr, out_of_range=out_of_range,
+                note=("Conductor spacing %.1f m is outside the %.0f–%.0f m "
+                      "band the fit was made over, so K is extrapolated."
+                      % (s, lo, hi)) if out_of_range else None)
+
+
+def _grcev(rho: float, T: float, injection: str) -> dict:
+    """a_eff = K·exp[0.84 (ρT)^0.22], from the transmission-line study of
+    the effective area of large grounding grids."""
+    K = 1.0 if injection == "centre" else 0.5
+    return dict(name="Grcev", r=K * math.exp(0.84 * (rho * T) ** 0.22), K=K,
+                expression="a_eff = K·exp[0.84·(ρT)^0.22]",
+                out_of_range=False, note=None)
+
+
+def _conductor_reach(rho: float, T: float, injection: str) -> dict:
+    """The horizontal-electrode effective length applied radially: how far
+    along a conductor the front actually gets."""
+    feed = "centre" if injection == "centre" else "end"
+    L = effective_length(rho, T, feed)
+    return dict(name="Conductor reach", r=L["L_eff"], K=L["k"],
+                expression="L_eff = k·(ρT)^0.5", out_of_range=False,
+                note="The horizontal-electrode formula read as a radius; it "
+                     "is the distance the front travels along a conductor, "
+                     "not a fitted grid result.")
+
+
+def effective_area(rho: float, T: float, area: float,
+                   spacing: float = 7.0, injection: str = "centre") -> dict:
+    """Effective radius and participating area of a meshed earthing system.
+
+    Three published estimates are returned side by side rather than one
+    number, because they do not agree: at ρT = 1000 Ω·m·µs they span a
+    factor of three or so.  The spread is the honest answer — treat the
+    smallest as the design case if the consequence of getting it wrong is
+    an equipment failure, and the largest if it is only cost.
+    """
+    if rho <= 0 or T <= 0:
+        raise ValueError("Soil resistivity and front time must both be "
+                         "greater than zero.")
+    if area <= 0:
+        raise ValueError("The area covered by the earthing system must be "
+                         "greater than zero.")
+    inj = "centre" if _is_centre(injection) else "corner"
+    r_geom = math.sqrt(area / math.pi)
+
+    models = [_gupta_thapar(rho, T, spacing, inj),
+              _conductor_reach(rho, T, inj),
+              _grcev(rho, T, inj)]
+    for m in models:
+        m["r"] = min(m["r"], r_geom)          # cannot exceed the electrode
+        m["area"] = math.pi * m["r"] ** 2
+        m["fraction"] = min(1.0, m["area"] / area)
+        m["fully_used"] = m["r"] >= r_geom - 1e-9
+
+    rs = [m["r"] for m in models]
+    governing = min(models, key=lambda m: m["r"])
+
+    return dict(rho=rho, T=T, spacing=spacing, injection=inj,
+                area=area, geometric_radius=r_geom,
+                models=models, governing=governing["name"],
+                r_min=min(rs), r_max=max(rs), r_mean=sum(rs) / len(rs),
+                spread=max(rs) / min(rs) if min(rs) > 0 else None,
+                fraction_min=min(m["fraction"] for m in models),
+                fraction_max=max(m["fraction"] for m in models),
+                fully_used=all(m["fully_used"] for m in models),
+                reference="Gupta & Thapar; Grcev — effective area of "
+                          "earthing grids under impulse")
+
+
+def impulse_response(rho: float, T: float, R_lf: float,
+                     area: float | None = None,
+                     extent: float | None = None,
+                     spacing: float = 7.0, injection: str = "centre",
+                     I_kA: float = 100.0) -> dict:
+    """Put the effective length and the effective area together into the two
+    numbers a designer acts on: how much of the electrode is working, and
+    how far the earth potential rise exceeds I·R_lf because of it.
+
+    The impulse coefficient A = Z_imp / R_lf is estimated to first order
+    from the resistance of a disc electrode, R = ρ/(4r): if only a radius
+    r_eff participates instead of the full r_geom, the impedance rises in
+    the ratio of the radii.  It is an estimate, not a measurement — a real
+    number needs an impulse test or a full transmission-line model — but it
+    is the right order and it points the right way, which is what a warning
+    has to do.
+    """
+    feed = "centre" if _is_centre(injection) else "end"
+    lin = effective_length(rho, T, feed)
+
+    area_res = None
+    if area and area > 0:
+        area_res = effective_area(rho, T, area, spacing, injection)
+
+    if area_res:
+        r_eff = area_res["r_min"]
+        r_geom = area_res["geometric_radius"]
+    else:
+        r_eff = lin["L_eff"]
+        r_geom = extent if extent else r_eff
+
+    A = max(1.0, r_geom / r_eff) if r_eff > 0 else None
+    Z = R_lf * A if (R_lf is not None and A is not None) else None
+    epr_lf = R_lf * I_kA * 1000.0 if R_lf is not None else None
+    epr_imp = Z * I_kA * 1000.0 if Z is not None else None
+
+    over = None
+    if extent and extent > lin["L_eff"] + 1e-9:
+        over = extent - lin["L_eff"]
+
+    return dict(rho=rho, T=T, injection=injection, I_kA=I_kA,
+                linear=lin, area=area_res,
+                electrode_extent=extent, wasted_length=over,
+                r_effective=r_eff, r_geometric=r_geom,
+                impulse_coefficient=A, R_lf=R_lf, Z_impulse=Z,
+                EPR_lf=epr_lf, EPR_impulse=epr_imp,
+                warning="An earth resistance measured with a d.c. or 50 Hz "
+                        "tester describes the whole electrode at one "
+                        "potential. Under a lightning front only the "
+                        "effective part is carrying current, so the real "
+                        "potential rise is higher than I·R suggests. Size "
+                        "bonding and SPD coordination on the impulse value, "
+                        "not on the measured resistance.",
+                reference="Effective length and effective area under impulse "
+                          "conditions")
+
 def design(lps_class: str, rho: float, area: float, perimeter: float,
            arrangement: str = "B", d: float = 0.01, h: float = 0.5,
            rod_d: float = 0.016, foundation_volume: float | None = None,
            separation_length: float = 10.0,
-           separation_material: str = "air") -> dict:
+           separation_material: str = "air",
+           front_time: float = 1.0, injection: str = "centre",
+           mesh_spacing: float | None = None) -> dict:
     """Complete earth-termination design for a structure."""
     dc = down_conductors(lps_class, perimeter)
     if arrangement.upper() == "A":
@@ -178,8 +385,23 @@ def design(lps_class: str, rho: float, area: float, perimeter: float,
              passed=dc["n_down"] >= 2, value=dc["n_down"], limit=2, unit="-"),
     ]
 
+    # How the same electrode behaves when the current is a lightning
+    # front rather than a power-frequency fault.
+    if arrangement.upper() == "A":
+        extent = earth.get("L_used")
+        meshed = None
+    else:
+        extent = earth.get("mean_radius")
+        meshed = area if mesh_spacing else None
+    imp = impulse_response(rho, float(front_time), earth["R_total"],
+                           area=meshed, extent=extent,
+                           spacing=float(mesh_spacing or 7.0),
+                           injection=injection,
+                           I_kA=float(cls["I_max_kA"]))
+
     return dict(lps_class=lps_class.upper(), class_data=cls, rho=rho,
                 down_conductors=dc, earth=earth, separation=sep,
+                impulse=imp,
                 electrode_min_sizes=LPS_ELECTRODE_MIN, checks=checks,
                 passed=all(c["passed"] for c in checks),
                 bonding_note="Bond all incoming metallic services and, where "
