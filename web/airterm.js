@@ -175,6 +175,8 @@
      restored results, because nothing was recalculated. */
   window.esAfterRestore = function () {
     drawSoil(); drawGrid(); drawBem(); drawBuilding();
+    if (S.lightning && S.lightning.impulse && typeof renderImpulse === 'function')
+      renderImpulse(S.lightning);
     const d = S.airterm;
     if (d && d.envelope) {
       SEC.rollingSphere('aPlotRS', d);
@@ -298,6 +300,8 @@
     ['svg', 'bSection', 'Earth electrode — section'],
     ['plot', 'bPlot', 'Electrode resistance versus soil resistivity'],
     ['plot', 'lPlot', 'Minimum electrode length versus soil resistivity'],
+    ['svg', 'lImpFig', 'Effective area of the earthing system under the impulse'],
+    ['plot', 'lImpPlot', 'Effective radius versus impulse front time'],
     ['svg', 'aPlotRS', 'Rolling sphere — protected volume in elevation'],
     ['svg', 'aPlotPlan', 'Protected area — plan'],
     ['svg', 'aPlotPA', 'Protective angle'],
