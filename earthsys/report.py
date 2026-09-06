@@ -31,6 +31,7 @@ T = {
         "numerical": "Numerical analysis (boundary-element solver)",
         "building": "LV installation earthing (IEC 60364)",
         "lightning": "Lightning protection earth termination (IEC 62305)",
+        "impulse": "Behaviour under the lightning impulse",
         "airterm": "Air termination and protection zone (IEC 62305-3)",
         "sysgnd": "System neutral grounding (IEEE Std 142)",
         "checks": "Compliance summary",
@@ -69,6 +70,7 @@ T = {
         "numerical": "تحلیل عددی (روش المان مرزی)",
         "building": "زمین کردن تأسیسات فشار ضعیف (IEC 60364)",
         "lightning": "سیستم زمین صاعقه‌گیر (IEC 62305)",
+        "impulse": "رفتار سیستم زمین در برابر ضربه صاعقه",
         "airterm": "صاعقه‌گیر و محدوده حفاظت‌شده (IEC 62305-3)",
         "sysgnd": "زمین کردن نقطه خنثی سیستم (IEEE 142)",
         "checks": "جمع‌بندی انطباق با استاندارد",
@@ -98,6 +100,17 @@ T = {
 # Persian labels for the quantity names used in the tables
 LABELS_FA = {
     "Air-termination mesh size": "ابعاد شبکه صاعقه‌گیر روی بام",
+    "Impulse front time": "زمان جبهه موج ضربه",
+    "Injection point": "محل تزریق جریان صاعقه",
+    "Effective length of a horizontal electrode": "طول مؤثر الکترود افقی",
+    "Extent of the earthing system": "گستره سیستم زمین",
+    "Length beyond the reach of the front": "طول خارج از دسترس جبهه موج",
+    "Equivalent radius of the earthing system": "شعاع معادل سیستم زمین",
+    "Effective radius adopted": "شعاع مؤثر انتخابی",
+    "Impulse coefficient": "ضریب ضربه",
+    "Impedance during the front": "امپدانس در زمان جبهه موج",
+    "Peak potential rise from I·R": "افزایش پتانسیل بر مبنای I·R",
+    "Peak potential rise under the impulse": "افزایش پتانسیل در شرایط ضربه",
     "Ambient temperature": "دمای محیط",
     "Burial depth": "عمق دفن",
     "Conductor diameter": "قطر هادی",
@@ -549,8 +562,51 @@ def _sec_lightning(t, d):
         _row(t, "Separation distance", "s", (d.get("separation") or {}).get("s"), "m",
              "s = k_i·k_c·l/k_m"),
     ]
-    return (f"<h2>{t['lightning']}</h2>{_table(t, rows)}"
-            f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
+    out = (f"<h2>{t['lightning']}</h2>{_table(t, rows)}"
+           f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
+
+    imp = d.get("impulse")
+    if imp:
+        lin = imp.get("linear") or {}
+        ar = imp.get("area") or {}
+        irows = [
+            _row(t, "Impulse front time", "T", imp.get("T"), "µs",
+                 "IEC 62305-1 Table 3"),
+            _row(t, "Injection point", "-", imp.get("injection"), "", ""),
+            _row(t, "Effective length of a horizontal electrode", "L_eff",
+                 lin.get("L_eff"), "m", "L_eff = k·(ρT)^0.5"),
+            _row(t, "Extent of the earthing system", "-",
+                 imp.get("electrode_extent"), "m",
+                 "ring mean radius, or the length of each radial electrode"),
+            _row(t, "Length beyond the reach of the front", "-",
+                 imp.get("wasted_length"), "m",
+                 "no contribution to the impulse duty"),
+            _row(t, "Equivalent radius of the earthing system", "r_geom",
+                 imp.get("r_geometric"), "m", "√(A/π)"),
+            _row(t, "Effective radius adopted", "r_eff",
+                 imp.get("r_effective"), "m",
+                 ("governed by " + ar["governing"]) if ar.get("governing") else ""),
+            _row(t, "Impulse coefficient", "A = Z/R",
+                 imp.get("impulse_coefficient"), "-", "first order, R = ρ/(4r)"),
+            _row(t, "Impedance during the front", "Z", imp.get("Z_impulse"),
+                 "Ω", "estimate"),
+            _row(t, "Peak potential rise from I·R", "-",
+                 None if imp.get("EPR_lf") is None else imp["EPR_lf"] / 1000.0,
+                 "kV", f"{imp.get('I_kA')} kA"),
+            _row(t, "Peak potential rise under the impulse", "-",
+                 None if imp.get("EPR_impulse") is None
+                 else imp["EPR_impulse"] / 1000.0, "kV",
+                 "design bonding and SPDs on this value"),
+        ]
+        for mo in (ar.get("models") or []):
+            irows.append(_row(t, f"Effective radius — {mo['name']}", "r_eff",
+                              mo.get("r"), "m", mo.get("expression", "")))
+        out += f"<h3>{t.get('impulse', 'Behaviour under the lightning impulse')}</h3>"
+        out += _table(t, irows)
+        if imp.get("verdict"):
+            out += f"<div class='note'>{html.escape(imp['verdict'])}</div>"
+        out += f"<div class='note'>{html.escape(imp.get('warning', ''))}</div>"
+    return out
 
 
 def _sec_airterm(t, d):
