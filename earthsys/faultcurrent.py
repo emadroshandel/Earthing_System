@@ -97,13 +97,30 @@ def line_to_earth_fault(Un_kV: float, Z1: complex, Z2: complex, Z0: complex,
 
 def double_line_to_earth(Un_kV: float, Z1: complex, Z2: complex, Z0: complex,
                          c: float = 1.1) -> dict:
-    """Line-to-line-to-earth fault earth current, IEC 60909-0 Eq. (46)."""
-    num = SQRT3 * c * Un_kV * 1e3 * abs(Z2)
+    """Line-to-line-to-earth fault, IEC 60909-0 Eq. (45)-(47).
+
+    Two quantities come out of this fault and they are different things:
+
+        I"k2E   the current in one of the two faulted phases   Eq. (45)/(46)
+        I"kE2E  the current returning through earth, = 3 I0    Eq. (47)
+
+    The phase current needs the 120 degree rotation between the two faulted
+    phases — the `a` operator — so |Z0 - a Z2| is not |Z0 - Z2|.  Dropping the
+    rotation makes the earth current vanish whenever Z0 = Z2, which is the
+    commonest assumption there is, and an earthing system sized on a zero
+    earth current is sized on nothing.
+    """
+    a = cmath.exp(2j * math.pi / 3.0)
     den = abs(Z1 * Z2 + Z1 * Z0 + Z2 * Z0)
-    Ik2E = num / den
-    Ie = SQRT3 * c * Un_kV * 1e3 * abs(Z2 - Z0) / den   # earth return component
+    if den == 0:
+        raise ValueError("The sequence impedances give a zero denominator: "
+                         "check Z1, Z2 and Z0.")
+    U = c * Un_kV * 1e3
+    Ik2E = U * abs(Z0 - a * Z2) / den                 # phase current, Eq. (46)
+    Ie = SQRT3 * U * abs(Z2) / den                    # 3.I0 through earth (47)
     return dict(Ik2E_kA=Ik2E / 1000.0, IkE2E_kA=Ie / 1000.0,
-                formula="IEC 60909-0 Eq. (46)/(47)")
+                I3I0_kA=Ie / 1000.0,
+                formula="IEC 60909-0 Eq. (46) phase, Eq. (47) earth (3·I0)")
 
 
 def _c(z: complex) -> dict:
