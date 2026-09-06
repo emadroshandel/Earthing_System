@@ -1,4 +1,4 @@
-# EarthSystem
+# Earthing System
 
 **Earthing (grounding) system design for homes, buildings, substations and power plants.**
 
@@ -10,7 +10,7 @@ produces a printable design report in English or Persian.
 Runs three ways from the same code: a local desktop window, a local browser application, or
 entirely inside your browser with no installation at all.
 
-**▶ Live demo — no installation:** [https://emadroshandel.github.io/earthsystem/](https://emadroshandel.github.io/EarthSystem/)
+**▶ Live demo — no installation:** https://emadroshandel.github.io/Earthing_System/ 
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
