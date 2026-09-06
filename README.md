@@ -152,7 +152,7 @@ complied.
 | 4 | Substation grid | IEEE Std 80-2013 | Tolerable touch/step voltages, R_g by Sverak **and** Schwarz, GPR, E_m, E_s, and an auto-refinement search |
 | 5 | Numerical solver | Boundary-element method | Arbitrary geometry, uniform or two-layer soil, surface potential field, touch/step maps, per-segment leakage current |
 | 6 | Buildings & homes | IEC 60364-4-41 / -5-54 | Electrode resistances, R_A, Z_s, disconnection time, RCD selection, TN / TT / IT |
-| 7 | Lightning earth | IEC 62305-3 | LPS class data, l₁, Type A / Type B termination, down-conductors, separation distance s |
+| 7 | Lightning earth | IEC 62305-3 | LPS class data, l₁, Type A / Type B termination, down-conductors, separation distance s, and the behaviour under the impulse: effective length L_eff = k(ρT)^0.5, effective area of a meshed system by three published expressions, centre versus corner injection, and the impulse coefficient A = Z/R that says by how much a measured resistance understates the potential rise |
 | 8 | Air termination | IEC 62305-3 Annex A | Rolling sphere rolled numerically over the structure, protected radius r_p, sphere penetration between terminations, maximum span, roof-field and roof-edge checks, plan coverage, protective angle and mesh methods |
 | 9 | System grounding | IEEE 142, IEEE C62.92 | Method selection, NER sizing, charging current, effectively-grounded test |
 | 10 | Design report | — | One printable HTML document, English or Persian (RTL), drawings and charts embedded |
@@ -281,7 +281,7 @@ own published form.
 ## 12. Validation and tests
 
 ```bash
-python -m unittest discover -s tests -v      # 65 checks
+python -m unittest discover -s tests -v      # 90 checks
 ```
 
 Against the worked example of **IEEE Std 80-2013 Annex B** (70 × 70 m grid, ρ = 400 Ω·m,
@@ -383,7 +383,7 @@ that way.
 
 ## 17. Licence and references
 
-GPL-3.0 license — see [`LICENSE`](LICENSE). Third-party components in
+GPL-3.0 — see [`LICENSE`](LICENSE). Third-party components in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 This software implements methods published in the standards below and reproduces the
