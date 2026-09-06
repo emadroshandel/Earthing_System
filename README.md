@@ -12,7 +12,7 @@ entirely inside your browser with no installation at all.
 
 **▶ Live demo — no installation:** https://emadroshandel.github.io/Earthing_System/ 
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/validation-112%20checks-brightgreen.svg)](tests/test_validation.py)
 
