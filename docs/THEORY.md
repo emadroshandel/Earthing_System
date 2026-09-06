@@ -13,19 +13,20 @@ the result pass or fail.
 ## Contents
 
 1. [The physics of earthing](#1-the-physics-of-earthing)
-2. [Soil — page 1](#2-soil--page-1)
-3. [Fault current — page 2](#3-fault-current--page-2)
-4. [Conductor sizing — page 3](#4-conductor-sizing--page-3)
-5. [Safety criteria — the heart of page 4](#5-safety-criteria--the-heart-of-page-4)
-6. [Grid resistance — page 4](#6-grid-resistance--page-4)
-7. [Mesh and step voltage — page 4](#7-mesh-and-step-voltage--page-4)
-8. [The numerical solver — page 5](#8-the-numerical-solver--page-5)
-9. [Buildings and homes — page 6](#9-buildings-and-homes--page-6)
-10. [Lightning — page 7](#10-lightning--page-7)
-11. [System neutral grounding — page 8](#11-system-neutral-grounding--page-8)
-12. [Reading a verdict](#12-reading-a-verdict)
-13. [A suggested teaching sequence](#13-a-suggested-teaching-sequence)
-14. [Symbols](#14-symbols)
+2. [Soil — module 1](#2-soil--module-1)
+3. [Fault current — module 2](#3-fault-current--module-2)
+4. [Conductor sizing — module 3](#4-conductor-sizing--module-3)
+5. [Safety criteria — the heart of module 4](#5-safety-criteria--the-heart-of-module-4)
+6. [Grid resistance — module 4](#6-grid-resistance--module-4)
+7. [Mesh and step voltage — module 4](#7-mesh-and-step-voltage--module-4)
+8. [The numerical solver — module 5](#8-the-numerical-solver--module-5)
+9. [Buildings and homes — module 6](#9-buildings-and-homes--module-6)
+10. [Lightning — module 7](#10-lightning--module-7)
+11. [Air termination and protection zones — module 8](#11-air-termination-and-protection-zones--module-8)
+12. [System neutral grounding — module 9](#12-system-neutral-grounding--module-9)
+13. [Reading a verdict](#13-reading-a-verdict)
+14. [A suggested teaching sequence](#14-a-suggested-teaching-sequence)
+15. [Symbols](#15-symbols)
 
 ---
 
@@ -72,6 +73,10 @@ irrelevant.
 `dV/dr = −ρI/(2πr²)`. That gradient is exactly the step voltage a person walking there
 would experience. It is why step voltage is worst at the edge of the grid, not in the
 middle.
+
+![Figure 1 — Potential around a hemispherical electrode in 100 Ω·m soil, and the cumulative resistance. Half of the total earth resistance is accumulated within the first metre — which is why electrode geometry matters far more than distant soil.](figures/fig01_halfspace.png)
+
+*Figure 1 — Potential around a hemispherical electrode in 100 Ω·m soil, and the cumulative resistance. Half of the total earth resistance is accumulated within the first metre — which is why electrode geometry matters far more than distant soil.*
 
 ### 1.3 Ground potential rise, touch and step voltage
 
@@ -125,6 +130,10 @@ Now build the two circuits:
 **Those two numbers, 1.5 and 6, are the entire reason the touch and step formulas look
 different.** Nothing else changes between them.
 
+![Figure 2 — The body as a circuit. The body resistance and the foot resistance are the same in both cases; only the way the two feet are connected changes — parallel for touch, series for step.](figures/fig02_body_circuit.png)
+
+*Figure 2 — The body as a circuit. The body resistance and the foot resistance are the same in both cases; only the way the two feet are connected changes — parallel for touch, series for step.*
+
 ### 1.5 How much current is too much — Dalziel
 
 Ventricular fibrillation is an energy phenomenon, not a pure current one. Dalziel's
@@ -154,8 +163,7 @@ are explained in §5.
 
 ---
 
-## 2. Soil — page 1
-
+## 2. Soil — module 1
 ### 2.1 What resistivity is, and what moves it
 
 Soil conducts through **electrolyte in its pores**, not through the mineral grains. So
@@ -189,6 +197,10 @@ so, with `R = ΔV/I`,
 ```
 ρₐ = 2π a R          … (2.1)
 ```
+
+![Figure 3 — The Wenner four-pin array. Current is injected at C1 and collected at C2; the potential difference between P1 and P2 gives the apparent resistivity directly.](figures/fig03_wenner.png)
+
+*Figure 3 — The Wenner four-pin array. Current is injected at C1 and collected at C2; the potential difference between P1 and P2 gives the apparent resistivity directly.*
 
 **What `a` means physically.** There is a persistent teaching shortcut that "the Wenner
 array reads the resistivity down to a depth of `a`". It is a shortcut, not a theorem: the
@@ -248,6 +260,10 @@ and for Schlumberger
 Because `|K| < 1` the series converges geometrically. EarthSystem truncates it when
 `|K|ⁿ < 10⁻⁶`, which for `K = 0.8` needs 62 terms and for `K = 0.3` only 12.
 
+![Figure 4 — Apparent resistivity over a two-layer earth for a range of reflection factors, with ρ₁ = 200 Ω·m and h = 2 m. Short spacings always read ρ₁; long spacings tend to ρ₂. The transition happens around a ≈ h.](figures/fig04_two_layer.png)
+
+*Figure 4 — Apparent resistivity over a two-layer earth for a range of reflection factors, with ρ₁ = 200 Ω·m and h = 2 m. Short spacings always read ρ₁; long spacings tend to ρ₂. The transition happens around a ≈ h.*
+
 ### 2.5 Inversion — fitting the model to the field data
 
 We measure `ρₐ` at several spacings and want `(ρ₁, ρ₂, h)`. This is a three-parameter
@@ -291,6 +307,10 @@ large spacing, which is exactly what you should expect and exactly what the resi
 column shows you. For a grid buried at 0.5 m this is a perfectly serviceable model,
 because the electrode never sees the third layer.
 
+![Figure 5 — Two-layer inversion of the example traverse, with the residuals below. The fit follows the falling branch and misses the rise beyond 6 m — the signature of a third layer that a two-layer model cannot represent.](figures/fig05_inversion.png)
+
+*Figure 5 — Two-layer inversion of the example traverse, with the residuals below. The fit follows the falling branch and misses the rise beyond 6 m — the signature of a third layer that a two-layer model cannot represent.*
+
 ### 2.7 Equivalent uniform resistivity
 
 The closed-form IEEE 80 equations assume one resistivity. When the electrodes stay inside
@@ -305,8 +325,7 @@ pessimistic, and the difference is real money in copper.
 
 ---
 
-## 3. Fault current — page 2
-
+## 3. Fault current — module 2
 ### 3.1 Why symmetrical components
 
 A single line-to-earth fault is an unbalanced condition, so the three phases cannot be
@@ -376,6 +395,10 @@ D_f = √[ 1 + (T_a/t_f)(1 − e^{−2 t_f / T_a}) ]          … (3.2)
   This is worth showing students explicitly, because the two effects look like they might
   cancel and they do not.
 
+![Figure 6 — The decrement factor against fault duration for several X/R ratios. At the usual 0.5 s clearing time the DC offset contributes only a few percent; below about 0.1 s it becomes significant.](figures/fig06_decrement.png)
+
+*Figure 6 — The decrement factor against fault duration for several X/R ratios. At the usual 0.5 s clearing time the DC offset contributes only a few percent; below about 0.1 s it becomes significant.*
+
 ### 3.4 The split factor `S_f`
 
 Not all of the fault current returns through the earth grid. Any overhead earth wire,
@@ -426,8 +449,7 @@ over-focus on the first and under-focus on the second.
 
 ---
 
-## 4. Conductor sizing — page 3
-
+## 4. Conductor sizing — module 3
 ### 4.1 The adiabatic assumption
 
 A fault lasts a fraction of a second. In that time essentially no heat escapes the
@@ -503,6 +525,10 @@ A grid welded exothermically can use half the copper of the same grid bolted tog
 This one dropdown on the conductor page changes the material cost of a substation more
 than any other single input.
 
+![Figure 7 — Conductor sizing. (a) The required area against fault duration for three materials. (b) The same 10 kA, 0.5 s duty sized for three joint types — the joint, not the metal, usually sets the size.](figures/fig08_conductor.png)
+
+*Figure 7 — Conductor sizing. (a) The required area against fault duration for three materials. (b) The same 10 kA, 0.5 s duty sized for three joint types — the joint, not the metal, usually sets the size.*
+
 ### 4.4 The other three constraints
 
 Thermal sizing is necessary but not sufficient. EarthSystem also applies:
@@ -522,7 +548,7 @@ always the mechanical minimum, and for substations almost always the thermal one
 
 ---
 
-## 5. Safety criteria — the heart of page 4
+## 5. Safety criteria — the heart of module 4
 
 ### 5.1 The surface layer, and why it works
 
@@ -555,6 +581,10 @@ thickness needed and will tell you when no achievable thickness can close the ga
 with fines. Washed granite is ~4 MΩ·m dry but ~1300 Ω·m wet. Always design with the wet
 value unless the yard is roofed.
 
+![Figure 8 — (a) The surface-layer derating factor against thickness. The benefit saturates: beyond about 150 mm a thicker layer buys very little. (b) Tolerable touch and step voltages against clearing time, showing the 1/√t behaviour and the difference between the 50 kg and 70 kg criteria.](figures/fig07_tolerable.png)
+
+*Figure 8 — (a) The surface-layer derating factor against thickness. The benefit saturates: beyond about 150 mm a thicker layer buys very little. (b) Tolerable touch and step voltages against clearing time, showing the 1/√t behaviour and the difference between the 50 kg and 70 kg criteria.*
+
 ### 5.2 The two body weights
 
 `k = 0.116` (50 kg) or `0.157` (70 kg). The 50 kg criterion gives tolerable voltages about
@@ -578,8 +608,7 @@ step circuit.
 
 ---
 
-## 6. Grid resistance — page 4
-
+## 6. Grid resistance — module 4
 ### 6.1 From a hemisphere to a grid
 
 For a hemisphere of radius `r`, (1.1) gives `R = ρ/(2πr)`. A real grid is a flat mesh, not
@@ -604,6 +633,10 @@ area barely changes it. Doubling the copper in a 70 × 70 m grid changes `R_g` b
 percent. So — **you do not add copper to reduce resistance; you add copper to even out the
 potential.** Students who understand this stop trying to fix touch-voltage failures by
 "adding more earth".
+
+![Figure 9 — The IEEE 80 Annex B grid, without and with perimeter rods. Adding twenty 7.5 m rods changes the resistance by only about 5 %, but it changes the mesh voltage far more — because the rods raise the effective mesh length and set K_ii to 1.](figures/fig09_layout.png)
+
+*Figure 9 — The IEEE 80 Annex B grid, without and with perimeter rods. Adding twenty 7.5 m rods changes the resistance by only about 5 %, but it changes the mesh voltage far more — because the rods raise the effective mesh length and set K_ii to 1.*
 
 ### 6.2 Schwarz — when rods are present
 
@@ -631,8 +664,7 @@ true two-layer Green's function, earns its place.
 
 ---
 
-## 7. Mesh and step voltage — page 4
-
+## 7. Mesh and step voltage — module 4
 This is the part of IEEE 80 that looks most like arbitrary curve-fitting. It is not — every
 factor has a job. Here is what each one does.
 
@@ -645,6 +677,10 @@ near it — the corner has metal on only two sides instead of four.
 
 So the design quantity `E_m` is defined as *the touch voltage at the centre of the corner
 mesh*. It is not an average; it is the worst case.
+
+![Figure 10 — Earth-surface potential computed by the boundary-element solver for the Annex B grid. The potential is nearly flat inside the grid and falls steeply outside it; the small dips are the mesh centres.](figures/fig10_surface_potential.png)
+
+*Figure 10 — Earth-surface potential computed by the boundary-element solver for the Annex B grid. The potential is nearly flat inside the grid and falls steeply outside it; the small dips are the mesh centres.*
 
 ### 7.2 The mesh factor `K_m`
 
@@ -685,6 +721,10 @@ depart from 1 for rectangles, L-shapes and irregular outlines.
 uniformly. It concentrates at the edges and especially at the corners — the same
 edge-singularity behaviour you meet in electrostatics. `K_i` grows linearly with `n`
 because a larger grid has proportionally more of its current forced out at the perimeter.
+
+![Figure 11 — The same solution as a surface. The 'table top' shape is the whole objective of an earth grid: a flat interior means small touch voltages, and the steep edges are where step voltage is worst.](figures/fig11_potential_3d.png)
+
+*Figure 11 — The same solution as a surface. The 'table top' shape is the whole objective of an earth grid: a flat interior means small touch voltages, and the steep edges are where step voltage is worst.*
 
 ### 7.4 The step factor `K_s`
 
@@ -733,10 +773,13 @@ The physics behind each:
 
 The last row is the one students get wrong most often.
 
+![Figure 12 — The principal design lever. Mesh and step voltage against conductor spacing for the Annex B case, with the tolerable limits. The design becomes compliant when the mesh-voltage curve crosses below its limit.](figures/fig14_sweep.png)
+
+*Figure 12 — The principal design lever. Mesh and step voltage against conductor spacing for the Annex B case, with the tolerable limits. The design becomes compliant when the mesh-voltage curve crosses below its limit.*
+
 ---
 
-## 8. The numerical solver — page 5
-
+## 8. The numerical solver — module 5
 ### 8.1 What the closed forms cannot do
 
 IEEE 80's equations assume a rectangular (or L/T-shaped) grid, uniform soil and — crucially
@@ -765,6 +808,10 @@ plus one more, current conservation, `Σ_j I_j = I_G`. Together:
 `j`. This is a **potential-coefficient matrix**, exactly analogous to the capacitance
 coefficient matrix in electrostatics — and indeed the two problems are mathematically
 identical, because both solve Laplace's equation with the same boundary conditions.
+
+![Figure 13 — The boundary-element formulation. (a) The electrode is divided into segments, each leaking a uniform current, all held at one potential. (b) The insulating soil surface is enforced by an image source of the same sign at the mirrored depth.](figures/fig15_bem_method.png)
+
+*Figure 13 — The boundary-element formulation. (a) The electrode is divided into segments, each leaking a uniform current, all held at one potential. (b) The insulating soil surface is enforced by an image source of the same sign at the mirrored depth.*
 
 ### 8.3 The Green's function and the image
 
@@ -849,10 +896,17 @@ at the edges, which flattens the potential in the interior. A disagreement much 
 about 15 % means the grid is violating an assumption of the closed forms — usually shape
 irregularity or strong soil layering — and the numerical answer is the one to believe.
 
+![Figure 14 — Touch voltage over the reachable area, with the tolerable contour drawn in green. Everything outside that contour fails. This is what the closed-form equations cannot show you: exactly where the problem is.](figures/fig12_touch_map.png)
+
+*Figure 14 — Touch voltage over the reachable area, with the tolerable contour drawn in green. Everything outside that contour fails. This is what the closed-form equations cannot show you: exactly where the problem is.*
+
+![Figure 15 — A traverse across the middle of the grid. Touch voltage is largest at the grid edge; step voltage peaks just outside the perimeter conductor, where the surface gradient is steepest.](figures/fig13_profile.png)
+
+*Figure 15 — A traverse across the middle of the grid. Touch voltage is largest at the grid edge; step voltage peaks just outside the perimeter conductor, where the surface gradient is steepest.*
+
 ---
 
-## 9. Buildings and homes — page 6
-
+## 9. Buildings and homes — module 6
 ### 9.1 The system types, and what actually differs
 
 The letters are a code: the **first** letter is how the source is earthed, the **second**
@@ -869,6 +923,10 @@ is how the installation's exposed metal is earthed.
 The single most important teaching point: **in TN the fault current is large and the
 criterion is on time; in TT the fault current is small and the criterion is on voltage.**
 Everything else follows.
+
+![Figure 16 — The two fault paths. In TN the return is metallic and the fault current is large enough to operate an overcurrent device; in TT it returns through the soil and is far too small, so the criterion becomes a limit on touch voltage and an RCD is required.](figures/fig16_tn_tt.png)
+
+*Figure 16 — The two fault paths. In TN the return is metallic and the fault current is large enough to operate an overcurrent device; in TT it returns through the soil and is far too small, so the criterion becomes a limit on touch voltage and an RCD is required.*
 
 ### 9.2 The TN criterion
 
@@ -952,6 +1010,10 @@ twice. Four rods at 6 m spacing give about 3.1× the benefit of one; four rods a
 spacing give barely 2×. The software computes the utilisation factor so students can see
 this directly.
 
+![Figure 17 — (a) Rod resistance against length for three soils — the logarithm means length always beats diameter. (b) Rods in parallel never reach the ideal R₁/n, and the shortfall grows as they are crowded together.](figures/fig17_electrodes.png)
+
+*Figure 17 — (a) Rod resistance against length for three soils — the logarithm means length always beats diameter. (b) Rods in parallel never reach the ideal R₁/n, and the shortfall grows as they are crowded together.*
+
 ### 9.6 The seasonal factor nobody plans for
 
 `R_A` is measured once, in whatever season the commissioning happened. Soil dries in
@@ -962,8 +1024,7 @@ PASS badge.
 
 ---
 
-## 10. Lightning — page 7
-
+## 10. Lightning — module 7
 ### 10.1 Why power-frequency thinking fails
 
 A lightning stroke has a rise time of about 1 µs, which corresponds to significant energy
@@ -997,6 +1058,10 @@ protection class. It is a proxy for "enough soil volume to disperse the charge".
 If `r_e < l₁`, add `l_r = l₁ − r_e` horizontally or `l_v = (l₁ − r_e)/2` vertically at each
 down-conductor. The software computes these directly.
 
+![Figure 18 — The minimum electrode length of IEC 62305-3 Figure 3. For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.](figures/fig18_lps_l1.png)
+
+*Figure 18 — The minimum electrode length of IEC 62305-3 Figure 3. For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.*
+
 ### 10.3 Separation distance — the derivation
 
 A down-conductor carrying a fraction of the stroke current develops a voltage along its
@@ -1022,8 +1087,168 @@ puncture rather than flash over. Students almost always guess the other way.
 
 ---
 
-## 11. System neutral grounding — page 8
+## 11. Air termination and protection zones — module 8
+### 11.1 What the rolling sphere actually is
 
+Module 7 asks where the lightning current goes once it is in the building. This module asks
+the earlier question: **where does the flash attach in the first place, and what does that
+attachment point protect?**
+
+A downward leader descends in steps of a few tens of metres, and at each step it has not yet
+"chosen" where it will land. It commits only when some earthed object comes within the
+**striking distance** — the separation at which the field between the leader tip and that
+object is enough to launch the connecting upward leader. The striking distance is set by the
+charge already in the channel, and therefore by the peak current the stroke will carry:
+
+```
+r_s ≈ 10 · I^0.65          (metres, I in kA)          … (11.1)
+```
+
+Now roll that idea around. Draw a sphere of radius `r_s` centred on the leader tip. The
+first earthed object the sphere touches is the object that gets struck. Sweep the leader tip
+over every possible approach and the sphere sweeps out a surface: **everything the sphere can
+touch is a possible strike point, and everything it cannot reach is protected.** That single
+sentence is the whole of the rolling sphere method, and every closed-form result below is
+derived from it rather than tabulated.
+
+The class fixes the radius, because the class fixes the *smallest* current the system must
+catch. A smaller minimum current means a shorter striking distance, a smaller sphere, and a
+sphere that can nestle into more places — so a higher protection level is a *smaller* sphere:
+
+| Class | `I_min` | Rolling sphere `R` | Mesh size | Interception probability |
+|-------|---------|--------------------|-----------|--------------------------|
+| I     | 3 kA    | 20 m               | 5 × 5 m   | 0.99 |
+| II    | 5 kA    | 30 m               | 10 × 10 m | 0.97 |
+| III   | 10 kA   | 45 m               | 15 × 15 m | 0.91 |
+| IV    | 16 kA   | 60 m               | 20 × 20 m | 0.84 |
+
+Note the direction of the trade: class IV misses about one flash in six of those below its
+design current — but those are the weak strokes, which do the least damage.
+
+### 11.2 Deriving the protected radius
+
+Take one vertical air termination of height `h` standing on flat ground. A sphere resting on
+the ground has its centre at height `R`. It touches the tip when the horizontal distance from
+the mast is
+
+```
+a(h) = √(2·R·h − h²)                              … (11.2)
+```
+
+which is just the circle equation `x² + (R − h)² = R²` rearranged. Anything on the ground
+closer than `a(h)` is under the arc and cannot be reached, so `a(h)` is the protected radius
+at ground level. If instead you are protecting a plane at height `h_x` — a roof, a tank top,
+a switchyard platform — the same construction on that plane gives
+
+```
+r_p = a(h) − a(h_x)                               … (11.3)
+```
+
+This is the formula every handbook quotes, and (11.2) is where it comes from.
+
+Two consequences are worth dwelling on, because both are counter-intuitive:
+
+- `a(h)` is maximum at `h = R` and **decreases** beyond it. Geometrically the sphere starts
+  to nestle in beside a very tall mast. Physically the mast has become tall enough to be
+  struck on its *side*, so its tip no longer shields the ground beside it. Once `h ≥ R` the
+  mast body itself holds the sphere off at exactly `R`, and the protected radius saturates:
+  `r_p = R − a(h_x)`. A taller mast is not indefinitely better.
+- The protective angle method (§11.5) is *not* valid above `h = R` for exactly this reason:
+  a cone has no way to express a radius that stops growing.
+
+### 11.3 The sag between two terminations
+
+Put two terminations of equal height `h` a distance `d` apart. A sphere resting on both has
+its centre `√(R² − (d/2)²)` above the line joining the tips, so the lowest point the sphere
+reaches on that span is depressed below the tips by the **penetration**, or sag:
+
+```
+p = R − √(R² − (d/2)²)                            … (11.4)
+```
+
+The protected height at mid-span is therefore `h − p`. Set that equal to the plane you are
+protecting and solve for `d` to get the largest spacing you may use:
+
+```
+d_max = 2·√(R² − (R − h)²) = 2·a(h)               … (11.5)
+```
+
+This is the single most useful number on the page. It is also the number that catches people
+out: on a 10 m building under class III (`R = 45 m`), 1 m rods on the two roof edges 20 m
+apart give `p = 1.13 m` against a rod height of 1 m — the sphere reaches the roof by 130 mm
+and the design fails. The remedy is 1.2 m rods, or one more rod, not a bigger earth
+electrode. EarthSystem reports `p`, the protected height at mid-span, and the tip height that
+would be required at the spacing you entered.
+
+### 11.4 Why roof edges and corners are special
+
+A sphere resting on the *ground* beside the wall reaches the roof edge while it is still far
+from the middle of the roof. So an air termination in the centre of a flat roof can protect
+the whole roof field and still leave every edge and corner exposed. That is not a quirk of
+the arithmetic; it is why IEC 62305-3 clause 5.2.3 asks for terminations on the corners and
+along the exposed edges — in practice a perimeter conductor with short rods at the corners —
+rather than relying on a single central mast.
+
+EarthSystem tests the roof field and the roof edges as two separate criteria, because the
+remedy for each is different, and reports them separately in the elevation and in the report.
+
+### 11.5 The protective angle method, and its limits
+
+The protective angle method replaces the arc with a straight cone: a termination of height
+`h` protects a cone of half-angle `α`, so a circle of radius `h·tan α` on the reference
+plane. `α` is read from IEC 62305-3 Figure 1 as a function of `h` and the class, and the
+method is permitted **only for simple shapes and only while `h ≤ R`**.
+
+Two cautions belong with it:
+
+- Figure 1 is published as a *graph*, not as a table of numbers. The values in
+  `earthsys/airterm.py` are a digitisation of that graph and should be checked against your
+  own copy of the standard before they go into a submitted design. The rolling sphere, by
+  contrast, is derived exactly from (11.2)–(11.4), which is why EarthSystem treats it as the
+  governing result and shows the angle only for comparison.
+- The two methods do not always agree, and neither is uniformly conservative. The program
+  reports both radii side by side and says which is the smaller, so the disagreement is
+  visible rather than hidden.
+
+### 11.6 The mesh method
+
+On a large flat roof, rolling a sphere would demand an impractical forest of rods. The mesh
+method instead covers the surface with a conductor grid fine enough that no point of the
+surface is further from a conductor than the mesh size for the class (5, 10, 15 or 20 m). The
+mesh must follow the roof edges, take the shortest possible route, and be bonded to
+down-conductors at typically 10–20 m of perimeter per conductor (Table 4). It is the normal
+solution for a warehouse or a plant building; the rolling sphere is the normal solution for
+a mast, a tank farm or an irregular structure.
+
+### 11.7 How the module computes it
+
+For anything more complicated than one or two masts on flat ground — masts of different
+heights, a rod standing on a roof, a catenary wire, a building whose own edges intercept the
+flash — there is no closed form. EarthSystem therefore rolls the sphere numerically:
+
+1. Every solid surface is **sampled into capture points**: the tips and shafts of the
+   terminations, the roof line, the wall tops, any catenary.
+2. A ball of radius `R` is **marched** over that point set from left to right. It either
+   slides along the ground until it first touches a capture point, or pivots about the point
+   it is resting on until it meets the next point — or falls back to the ground.
+3. Each resting position, touching two supports, contributes one **arc of radius `R`** to the
+   boundary of the protected volume. The sequence of arcs is the envelope drawn on the
+   elevation.
+4. The envelope is sampled into a height profile `z(x)`; anything below it is protected and
+   anything on or above it can be touched.
+
+The march reproduces (11.2) and (11.4) to within the sampling resolution, and the test suite
+asserts exactly that — the closed form and the numerical roll check each other. What the
+march adds is every case the closed form cannot express.
+
+A last word on what this module does *not* do. It decides where the flash attaches and what
+that attachment protects. It says nothing about the current once it is in the conductor —
+that is module 7, and the two must both pass. A perfect air termination discharging into an
+inadequate earth termination simply moves the damage.
+
+---
+
+## 12. System neutral grounding — module 9
 ### 11.1 The problem with an ungrounded system
 
 An "ungrounded" system is not isolated from earth; it is capacitively coupled to it through
@@ -1075,7 +1300,7 @@ not a bolt-on but a system-level decision.
 
 ---
 
-## 12. Reading a verdict
+## 13. Reading a verdict
 
 Every compliance row in EarthSystem can be expanded to show four things. Teach students to
 read them in this order:
@@ -1100,7 +1325,7 @@ aloud in class at least once.
 
 ---
 
-## 13. A suggested teaching sequence
+## 14. A suggested teaching sequence
 
 Four sessions of about two hours, each ending with the students running the software
 themselves.
@@ -1121,11 +1346,14 @@ Reproduce IEEE 80 Annex B step by step by hand, then in the software, and confir
 intermediate value. Exercise: it fails on mesh voltage — have each student fix it by a
 different lever and compare the resulting designs on cost and robustness.
 
-**Session 4 — Numerical methods and the rest (chapters 8–11).**
+**Session 4 — Numerical methods and the rest (chapters 8–12).**
 Run the same grid through the boundary-element solver and compare. Exercise: make the grid
 L-shaped and observe that the closed-form and numerical answers now diverge; discuss which
-to believe. Finish with a domestic TT design and a lightning termination, which take ten
-minutes each and consolidate everything.
+to believe. Then a domestic TT design and a lightning earth termination, ten minutes each.
+Finish on the rolling sphere: put 1 m rods on the two edges of a 20 m roof under class III,
+watch it fail by 130 mm, and have the students find the three different ways to fix it —
+taller rods, a third rod, or a finer mesh. It is the clearest demonstration in the whole
+course that geometry, not resistance, is what protects a structure from a direct strike.
 
 **Assessment idea.** Give each student a different soil traverse and fault level and ask
 for a complete design report, generated by the software but with a written justification of
@@ -1134,7 +1362,7 @@ wrong inputs, and knowing which inputs matter is the actual skill.
 
 ---
 
-## 14. Symbols
+## 15. Symbols
 
 | Symbol | Meaning | Unit |
 |---|---|---|
