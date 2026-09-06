@@ -65,7 +65,7 @@ server, the whole engine, the report generator — is Python standard library. P
 bundled, so the application works offline.
 
 ```bash
-git clone https://github.com/emadroshandel/earthsystem.git
+git clone https://github.com/emadroshandel/Earthing_System.git
 cd earthsystem
 pip install -r requirements.txt        # numpy; pywebview optional
 ```
