@@ -440,6 +440,15 @@
             <div class="field wide"><label>Insulating material k<sub>m</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
               <select id="lMat"><option value="air">Air (k_m = 1)</option><option value="concrete">Concrete / brick (k_m = 0.5)</option></select><div class="fh">What lies between the down-conductor and the metalwork you are separating it from. Concrete and brick need twice the distance of air, because they puncture rather than flash over.</div></div>
           </fieldset>
+          <fieldset><legend>Behaviour under the lightning impulse</legend>
+            <div class="field"><label>Front time T<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lFront" type="number" value="1" step="0.25" min="0.01"><span class="u">µs</span><div class="fh">How fast the current rises to its peak. IEC 62305-1 Table 3 gives 10 µs for the first positive stroke, 1 µs for the first negative and 0.25 µs for a subsequent negative one. The shorter the front, the less of the electrode has time to take part, so 0.25 µs is the severe case.</div></div>
+            <div class="field wide"><label>Injection point<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+              <select id="lInj"><option value="centre">Centre of the earthing system</option>
+                <option value="corner">Edge or corner</option></select><div class="fh">Where the down-conductor that takes the stroke joins the earthing system. Injecting at the centre lets the current spread in every direction; injecting at a corner leaves it a quadrant, and roughly halves the area that takes part.</div></div>
+            <div class="field"><label>Conductor spacing <span class="muted">(meshed systems)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lMesh" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Spacing between the conductors of the earthing grid, if the structure sits on one. Leave blank for a plain ring or radial electrode — the effective length is then reported on its own, without the grid effective-area estimates.</div></div>
+            <div class="rowbtns"><button id="lPull" class="ghost"
+              title="Take the resistivity, plan area, perimeter and conductor spacing from the substation grid page">&#8634; Pull from substation grid</button></div>
+          </fieldset>
           <div class="rowbtns"><button class="primary" id="lRun">Design earth termination</button></div>
         </div></div>
       </div>
@@ -449,6 +458,12 @@
         <div class="card"><h3>Details</h3><div class="body" id="lOut"></div></div>
         <div class="card"><h3>Minimum electrode length l₁ vs soil resistivity</h3>
           <div class="body tight"><div id="lPlot" class="plot"></div></div></div>
+        <div class="card"><h3>Under the lightning impulse — effective length and effective area</h3>
+          <div class="body" id="lImp"><div class="empty">Run the design.</div></div></div>
+        <div class="card"><h3>What the front actually reaches</h3>
+          <div class="body tight"><div id="lImpFig" class="drawing"></div></div></div>
+        <div class="card"><h3>Effective radius versus front time</h3>
+          <div class="body tight"><div id="lImpPlot" class="plot"></div></div></div>
       </div>
     </div>
   </section>
