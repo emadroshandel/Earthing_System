@@ -140,6 +140,15 @@ MEANING = {
         "At least two down-conductors are required so the current divides, "
         "which halves the voltage drop along each one and therefore halves the "
         "separation distance needed to prevent a dangerous side flash."),
+    "lps_impulse": (
+        "Under a lightning front the electrode does not behave the way the "
+        "resistance tester says it does. The front is over in a microsecond "
+        "or two, and in that time the current has only travelled a limited "
+        "distance along the buried conductor — the series inductance holds "
+        "the far end back while the soil is already bleeding the current "
+        "away near the injection point. Beyond that effective length the "
+        "electrode carries almost nothing, so extra length buys nothing and "
+        "the real potential rise is higher than I·R would suggest."),
     "bem_touch": (
         "The numerical solver reports the largest touch voltage anywhere the "
         "person can both stand on the soil and reach earthed metal — the "
@@ -556,8 +565,117 @@ def explain_lightning(result: dict) -> dict:
                 f"separation distance s, which is {_fmt((result.get('separation') or {}).get('s'), 2)} m here.")
             continue
 
+    _explain_impulse(result)
     result["narrative"] = _narrative_lightning(result)
     return result
+
+
+def _explain_impulse(result: dict) -> None:
+    """Turn the effective-length numbers into the two sentences a designer
+    acts on: is any of this electrode wasted, and by how much does the
+    measured resistance understate the potential rise."""
+    imp = result.get("impulse")
+    if not imp:
+        return
+    imp["meaning"] = MEANING["lps_impulse"]
+
+    lin = imp.get("linear") or {}
+    L_eff = lin.get("L_eff")
+    ext = imp.get("electrode_extent")
+    lines = []
+
+    if ext:
+        if imp.get("wasted_length"):
+            lines.append(
+                f"The earthing system extends {_fmt(ext, 1)} m, but under a "
+                f"{_fmt(imp.get('T'), 2)} µs front the "
+                f"current only travels {_fmt(L_eff, 1)} m along it. The last "
+                f"{_fmt(imp.get('wasted_length'), 1)} m is doing nothing for "
+                f"the lightning duty — it still helps at power frequency, but "
+                f"it is not the way to improve the impulse behaviour.")
+        else:
+            lines.append(
+                f"The earthing system extends {_fmt(ext, 1)} m and the front "
+                f"travels {_fmt(L_eff, 1)} m in {_fmt(imp.get('T'), 2)} µs, "
+                f"so the whole of it participates. Lengthening it further "
+                f"would begin to waste conductor.")
+    else:
+        lines.append(
+            f"Under a {_fmt(imp.get('T'), 2)} µs front the current travels "
+            f"about {_fmt(L_eff, 1)} m along a buried horizontal conductor in "
+            f"{_fmt(imp.get('rho'))} Ω·m soil. Electrode beyond that length "
+            f"adds nothing to the lightning performance.")
+
+    ar = imp.get("area")
+    if ar:
+        worst = min(ar["models"], key=lambda m: m["r"])
+        best = max(ar["models"], key=lambda m: m["r"])
+        if ar.get("fully_used"):
+            lines.append(
+                f"Every published estimate puts the effective radius at or "
+                f"beyond the {_fmt(ar.get('geometric_radius'), 1)} m "
+                f"equivalent radius of the earthing system, so the whole area "
+                f"participates at this front time.")
+        else:
+            lines.append(
+                f"Of the {_fmt(ar.get('geometric_radius'), 1)} m equivalent "
+                f"radius of the earthing system, the published estimates put "
+                f"between {_fmt(worst['r'], 1)} m ({worst['name']}) and "
+                f"{_fmt(best['r'], 1)} m ({best['name']}) to work — between "
+                f"{_fmt(100.0 * ar['fraction_min'], 0)} % and "
+                f"{_fmt(100.0 * ar['fraction_max'], 0)} % of the area. They "
+                f"disagree by a factor of {_fmt(ar.get('spread'), 1)}, which "
+                f"is the state of the published work rather than a defect "
+                f"here; design on the smallest if the consequence is an "
+                f"equipment failure and on the largest if it is only cost.")
+        if ar["injection"] == "corner":
+            lines.append(
+                "The current is injected at an edge or corner. Moving the "
+                "injection to the centre of the earthing system roughly "
+                "doubles the effective radius for the same soil and the same "
+                "front, because the current then has every direction to "
+                "spread in rather than a quadrant. It is the cheapest "
+                "improvement available on this page.")
+        else:
+            lines.append(
+                "The current is injected at the centre, which is the "
+                "favourable case. Check that the down-conductor that will "
+                "actually take the stroke connects there and not at a corner.")
+
+    A = imp.get("impulse_coefficient")
+    if A and imp.get("EPR_impulse"):
+        if A > 1.05:
+            lines.append(
+                f"Taken together this gives an impulse coefficient of about "
+                f"{_fmt(A, 2)}: the {_fmt(imp.get('R_lf'), 2)} Ω measured at "
+                f"d.c. or 50 Hz behaves like {_fmt(imp.get('Z_impulse'), 2)} Ω "
+                f"during the front, and the peak earth potential rise for the "
+                f"class {result.get('lps_class')} current of "
+                f"{_fmt(imp.get('I_kA'), 0)} kA is around "
+                f"{_fmt((imp['EPR_impulse'] or 0) / 1000.0, 0)} kV rather than "
+                f"the {_fmt((imp.get('EPR_lf') or 0) / 1000.0, 0)} kV that "
+                f"I·R would give. This is a first-order estimate from "
+                f"R = ρ/(4r), not a measurement, but it is the right order "
+                f"and it points the right way.")
+            imp["remedy"] = [
+                "Bond every incoming metallic service at the entry point and "
+                "coordinate the SPDs against the impulse value, not against "
+                "the measured resistance.",
+                "Move the injection point towards the centre of the earthing "
+                "system if the down-conductor arrangement allows it.",
+                "Add electrode close to the injection point — more conductor "
+                "within the effective radius — rather than extending the "
+                "existing runs outwards.",
+            ]
+        else:
+            lines.append(
+                f"The whole electrode participates at this front time, so the "
+                f"impulse impedance is close to the measured "
+                f"{_fmt(imp.get('R_lf'), 2)} Ω and the peak potential rise "
+                f"for {_fmt(imp.get('I_kA'), 0)} kA is around "
+                f"{_fmt((imp['EPR_impulse'] or 0) / 1000.0, 0)} kV.")
+
+    imp["verdict"] = " ".join(lines)
 
 
 def _narrative_lightning(r: dict) -> str:
