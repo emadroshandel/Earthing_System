@@ -24,6 +24,58 @@ PROJECTS = os.path.join(BASE, "projects")
 OUTPUTS = os.path.join(BASE, "outputs")
 
 
+# --------------------------------------------------------------------------
+# input validation
+#
+# The engineering formulas divide by spacings, durations and resistivities, so
+# a zero or a blank arrives as a ZeroDivisionError and the user is shown
+# "float division by zero" — true, and useless. Each endpoint declares which of
+# its inputs the physics needs to be positive, and the message names the field.
+# --------------------------------------------------------------------------
+
+def _require_positive(p, spec):
+    """spec: {payload_key: "human name (unit)"} — each must be finite and > 0."""
+    for key, label in spec.items():
+        raw = p.get(key)
+        if raw is None or raw == "":
+            raise ValueError(f"{label} is required.")
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"{label} must be a number.")
+        if not math.isfinite(v):
+            raise ValueError(f"{label} must be a number.")
+        if v <= 0:
+            raise ValueError(f"{label} must be greater than zero — the "
+                             f"calculation divides by it.")
+
+
+def _require_rows(rows, label="measurement"):
+    """A survey or geometry table needs at least one usable row."""
+    if not rows:
+        raise ValueError(f"Add at least one {label} row before running this.")
+
+
+def _require_spacings(rows):
+    """Every pin spacing divides into the array formula, so a zero or a blank
+    in the table has to be caught by name rather than deep in the maths."""
+    for i, r in enumerate(rows or [], 1):
+        for key, label in (("a", "pin spacing"), ("s", "spacing")):
+            if key in r:
+                try:
+                    v = float(r[key])
+                except (TypeError, ValueError):
+                    raise ValueError(f"Row {i}: the {label} must be a number.")
+                if not math.isfinite(v) or v <= 0:
+                    raise ValueError(
+                        f"Row {i}: the {label} must be greater than zero.")
+                break
+        mn = r.get("d", 1)
+        if mn is not None and float(mn) <= 0:
+            raise ValueError(f"Row {i}: the potential-pin spacing MN must be "
+                             f"greater than zero.")
+
+
 def clean(obj):
     """Make a value JSON-safe (NaN/Inf -> None, numpy scalars -> float)."""
     if isinstance(obj, dict):
@@ -84,11 +136,17 @@ def api_meta(_):
 
 
 def api_soil_reduce(p):
+    _require_rows(p.get("rows"), "survey")
+    _require_spacings(p.get("rows"))
+
     rows = soil.reduce_survey(p.get("rows", []), p.get("array", "wenner"))
     return dict(rows=rows)
 
 
 def api_soil_invert(p):
+    _require_rows(p.get("rows"), "survey")
+    _require_spacings(p.get("rows"))
+
     rows = p.get("rows")
     array = p.get("array", "wenner")
     if rows:
@@ -108,6 +166,11 @@ def api_soil_invert(p):
 
 
 def api_fault(p):
+    _require_positive(p, {"Un_kV": "Nominal voltage Un (kV)",
+                          "tf": "Fault duration tf (s)",
+                          "ts": "Shock duration ts (s)",
+                          "frequency": "Frequency (Hz)"})
+
     Un = float(p.get("Un_kV", 20.0))
     c = float(p.get("c", 1.1))
     mode = p.get("mode", "impedance")
@@ -158,6 +221,9 @@ def api_fault(p):
 
 
 def api_conductor(p):
+    _require_positive(p, {"I_kA": "Fault current through the conductor (kA)",
+                          "tc": "Duration tc (s)"})
+
     out = {}
     if p.get("standard", "ieee80") == "ieee80":
         Tm = p.get("Tm")
@@ -189,6 +255,23 @@ def api_conductor(p):
     return out
 
 
+def _require_grid(p):
+    _require_positive(p, {
+        "rho": "Soil resistivity (ohm.m)",
+        "ts": "Shock duration (s)",
+        "Lx": "Grid length Lx (m)",
+        "Ly": "Grid width Ly (m)",
+        "D": "Conductor spacing D (m)",
+        "h": "Burial depth h (m)",
+        "d": "Conductor diameter d (m)"})
+    if float(p.get("n_rods", 0) or 0) > 0 and float(p.get("Lr", 0) or 0) <= 0:
+        raise ValueError("Rod length Lr (m) must be greater than zero when "
+                         "ground rods are included.")
+    if float(p.get("D", 7)) > max(float(p.get("Lx", 70)), float(p.get("Ly", 70))):
+        raise ValueError("Conductor spacing D (m) cannot be larger than the "
+                         "grid itself.")
+
+
 def _geometry(p) -> ieee80.GridGeometry:
     return ieee80.GridGeometry(
         Lx=float(p.get("Lx", 70)), Ly=float(p.get("Ly", 70)),
@@ -200,6 +283,8 @@ def _geometry(p) -> ieee80.GridGeometry:
 
 
 def api_ieee80(p):
+    _require_grid(p)
+
     g = _geometry(p)
     res = ieee80.design(
         float(p.get("rho", 100.0)), g, float(p.get("IG_kA", 1.0)),
@@ -211,6 +296,8 @@ def api_ieee80(p):
 
 
 def api_ieee80_optimise(p):
+    _require_grid(p)
+
     g = _geometry(p)
     res = ieee80.optimise(
         float(p.get("rho", 100.0)), g, float(p.get("IG_kA", 1.0)),
@@ -231,6 +318,9 @@ def api_ieee80_optimise(p):
 
 
 def api_bem(p):
+    _require_rows(p.get("items"), "electrode")
+    _require_positive(p, {"segment_length": "Segment length (m)"})
+
     if not bem.HAVE_NUMPY:
         raise RuntimeError("The numerical solver needs numpy. "
                            "Install it with:  pip install numpy")
@@ -299,6 +389,10 @@ def api_bem(p):
 
 
 def api_building(p):
+    _require_positive(p, {"rho": "Soil resistivity (ohm.m)",
+                          "U0": "Voltage to earth U0 (V)"})
+    _require_rows(p.get("electrodes"), "electrode")
+
     return reasoning.explain_building(iec60364.assess(
         p.get("system", "TT"), float(p.get("U0", 230.0)),
         float(p.get("rho", 100.0)), p.get("electrodes", []),
@@ -319,6 +413,10 @@ def api_electrode(p):
 
 
 def api_rods_required(p):
+    _require_positive(p, {"rho": "Soil resistivity (ohm.m)",
+                          "target_R": "Target resistance (ohm)",
+                          "L": "Rod length (m)", "d": "Rod diameter (m)"})
+
     return iec60364.rods_required(
         float(p.get("rho", 100.0)), float(p.get("target_R", 10.0)),
         float(p.get("L", 3.0)), float(p.get("d", 0.016)),
@@ -326,6 +424,8 @@ def api_rods_required(p):
 
 
 def api_lightning(p):
+    _require_positive(p, {"rho": "Soil resistivity (ohm.m)"})
+
     return reasoning.explain_lightning(iec62305.design(
         p.get("lps_class", "III"), float(p.get("rho", 100.0)),
         float(p.get("area", 200.0)), float(p.get("perimeter", 60.0)),
@@ -348,6 +448,9 @@ def api_airterm(p):
 
 
 def api_sysgnd(p):
+    _require_positive(p, {"V_ll_kV": "Line voltage (kV)",
+                          "frequency": "Frequency (Hz)"})
+
     cc = ieee142.charging_current(
         float(p.get("V_ll_kV", 6.6)), float(p.get("cable_km", 0.0)),
         float(p.get("C0_uF_per_km", 0.25)), float(p.get("motors_kVA", 0.0)),
