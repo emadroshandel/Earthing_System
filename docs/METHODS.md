@@ -243,7 +243,56 @@ An earthing resistance below 10 Ω is recommended (informative).
 
 ---
 
-## 8. System neutral grounding — IEEE Std 142
+## 8. Air termination and protection zone — IEC 62305-3
+
+Class parameters (Table 2 and Table 4):
+
+| Class | Rolling sphere `R` | Mesh | Down-conductor spacing | `k_i` |
+|-------|--------------------|------|------------------------|-------|
+| I     | 20 m | 5 × 5 m   | 10 m | 0.08 |
+| II    | 30 m | 10 × 10 m | 10 m | 0.06 |
+| III   | 45 m | 15 × 15 m | 15 m | 0.04 |
+| IV    | 60 m | 20 × 20 m | 20 m | 0.04 |
+
+Rolling sphere, Annex A.2. Half-chord of a ground-resting sphere at height `z`:
+
+```
+a(z) = sqrt(2*R*z - z^2)                       (0 <= z <= 2R)
+```
+
+Radius protected by one vertical termination of height `h`, measured on a plane at `h_x`:
+
+```
+r_p = a(h)   - a(h_x)        for h <  R
+r_p = R      - a(h_x)        for h >= R        (the mast body holds the sphere off)
+```
+
+Penetration of the sphere between two terminations of equal height, spacing `d`:
+
+```
+p     = R - sqrt(R^2 - (d/2)^2)
+d_max = 2 * sqrt(R^2 - (R - h)^2) = 2*a(h)     (sphere just reaches the plane)
+```
+
+Protected height at mid-span = `h - p`; the arrangement complies when that is at or above
+the plane being protected.
+
+General geometry: solid surfaces are sampled into capture points and a ball of radius `R` is
+marched over them; each resting position touching two supports contributes an arc of radius
+`R` to the boundary of the protected volume. The march reproduces the closed forms above and
+extends to arrangements they cannot express.
+
+Protective angle, Annex A.1: `r = h * tan(alpha)`, with `alpha` from Figure 1 as a function
+of `h` and the class. Valid only for simple shapes and only while `h <= R`. Figure 1 is
+published as a graph; the values in `earthsys/airterm.py` are a digitisation of it and the
+rolling sphere governs.
+
+Mesh method, Annex A.3: conductor spacing not greater than the class mesh size in both
+directions, following the roof edges, bonded to down-conductors at the Table 4 spacing.
+
+---
+
+## 9. System neutral grounding — IEEE Std 142
 
 **Charging current** — 3I_C0 = 3·2πf·C₀·V_LN plus the machine allowances of Table 1.
 
