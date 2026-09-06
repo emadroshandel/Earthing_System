@@ -950,8 +950,107 @@ window.SEC = (function () {
     });
   }
 
+  /* ==================================================================== 9
+     Effective area under the lightning impulse — plan.
+
+     The whole point of the picture is the difference between the electrode
+     you paid for and the part of it that is carrying current while the
+     front is still rising, so both are drawn to the same scale on the same
+     sheet and dimensioned against each other. */
+  function impulsePlan(hostId, r) {
+    const imp = r && r.impulse;
+    if (!imp) return;
+    const rg = imp.r_geometric || 0;
+    if (!(rg > 0)) return;
+
+    const ar = imp.area;
+    const models = (ar && ar.models) ? ar.models.slice() : [];
+    /* injection at the centre, or out at the edge of the electrode.
+       "centre" and "corner" share a first letter, so test the whole word. */
+    const inj = String(imp.injection || 'centre').trim().toLowerCase();
+    const edge = !(inj === 'centre' || inj === 'center' || inj === 'middle');
+    const ix = edge ? -rg * 0.70 : 0, iy = edge ? -rg * 0.70 : 0;
+    const half = rg * 1.20 + 2;
+
+    DRAW.scene(hostId, {
+      width: 760, height: 430, equal: true,
+      xmin: -half, xmax: half, ymin: -half, ymax: half
+    }, s => {
+      const p = s.p;
+      s.title('Effective area under the impulse — plan',
+        `${num(imp.T, 2)} µs front in ${num(imp.rho, 0)} Ω·m soil, `
+        + (edge ? 'injected at the edge' : 'injected at the centre'));
+
+      /* the electrode itself */
+      s.circleM(0, 0, rg, {
+        fill: 'none', stroke: p.ink2, 'stroke-width': 1.6, 'stroke-dasharray': '7 5'
+      }, 'mid');
+      if (ar && ar.spacing > 0) {
+        const g = [], sp = ar.spacing;
+        for (let x = -rg; x <= rg + 1e-9; x += sp) {
+          const h = Math.sqrt(Math.max(0, rg * rg - x * x));
+          if (h < sp * 0.2) continue;
+          g.push(`<line x1="${s.X(x).toFixed(1)}" y1="${s.Y(-h).toFixed(1)}"
+                        x2="${s.X(x).toFixed(1)}" y2="${s.Y(h).toFixed(1)}"
+                        stroke="${p.copper}" stroke-width=".9" opacity=".55"/>`);
+          g.push(`<line x1="${s.X(-h).toFixed(1)}" y1="${s.Y(x).toFixed(1)}"
+                        x2="${s.X(h).toFixed(1)}" y2="${s.Y(x).toFixed(1)}"
+                        stroke="${p.copper}" stroke-width=".9" opacity=".55"/>`);
+        }
+        s.push('back', `<g opacity=".8">${g.join('')}</g>`);
+      }
+
+      /* the participating disc, smallest estimate shaded */
+      const sorted = models.slice().sort((a, b) => a.r - b.r);
+      const rmin = sorted.length ? sorted[0].r : imp.r_effective;
+      s.circleM(ix, iy, rmin, {
+        fill: p.zoneFill, stroke: p.zoneEdge, 'stroke-width': 1.8
+      }, 'back');
+      sorted.slice(1).forEach(mo => s.circleM(ix, iy, mo.r, {
+        fill: 'none', stroke: p.zoneEdge, 'stroke-width': 1.1,
+        'stroke-dasharray': '4 4', opacity: .8
+      }, 'mid'));
+
+      /* where the stroke current enters */
+      const IX = s.X(ix), IY = s.Y(iy), bolt = 15;
+      s.push('front', `<path d="M${(IX - 5).toFixed(1)},${(IY - bolt * 1.7).toFixed(1)}
+        l9,0 l-5,${(bolt * .72).toFixed(1)} l7,0 l-13,${bolt.toFixed(1)} l3.5,-${(bolt * .62).toFixed(1)}
+        l-6,0 Z" fill="${p.bad}" stroke="${p.panel}" stroke-width=".8"/>`);
+      s.circleW(ix, iy, 4.5, { fill: p.bad, stroke: p.panel, 'stroke-width': 1.3 }, 'front');
+
+      /* Labels: what was built, and what is working.  The leaders are aimed
+         away from the shaded disc so that nothing is written over it. */
+      s.leader(rg * 0.707, -rg * 0.707, 26, 22,
+        ['earthing system, ' + m(rg) + ' radius',
+         'all of it works at 50 Hz'], { fill: p.ink2 });
+      const away = edge ? -1 : 1;               // point the labels off-centre
+      sorted.forEach((mo, i) => {
+        if (i > 1) return;                      // two labels is enough
+        const ang = i === 0 ? Math.PI * 0.75 * away : Math.PI * 1.25 * away;
+        s.leader(ix + mo.r * Math.cos(ang), iy + mo.r * Math.sin(ang),
+          Math.cos(ang) < 0 ? -46 : 46, Math.sin(ang) > 0 ? -22 : 22,
+          [mo.name + ' — r_eff ' + m(mo.r),
+           num(100 * mo.fraction, 0) + ' % of the area works'],
+          { fill: p.zoneEdge });
+      });
+
+      s.legend([
+        { label: 'earthing system', stroke: p.ink2, dash: '7 5', fill: 'none' },
+        { label: 'effective area', fill: p.zoneFill, stroke: p.zoneEdge },
+        { label: 'other estimates', stroke: p.zoneEdge, dash: '4 4', fill: 'none' },
+        { label: 'stroke injected here', fill: p.bad }
+      ], { x: 760 - 58, y: 42 });
+      s.note(ar
+        ? `Shaded: the smallest of three published estimates, which disagree by a factor `
+          + `of ${num(ar.spread, 1)}. Take it as the design case.`
+        : `Without a conductor spacing only the effective length is available: the front `
+          + `reaches ${m(imp.linear.L_eff)} along a buried conductor here.`);
+      s.scalebar();
+    });
+  }
+
   return {
     fourPin, soil, electrode, gridSection, bemSection,
-    rollingSphere, protectiveAngle, zonePlan, meshPlan
+    rollingSphere, protectiveAngle, zonePlan, meshPlan, impulsePlan
   };
 })();
