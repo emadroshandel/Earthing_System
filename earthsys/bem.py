@@ -344,17 +344,67 @@ class Network:
             masked = touch
         i, j = np.unravel_index(np.argmax(masked), masked.shape)
         touch = masked if False else touch
-        dx = (xlim[1] - xlim[0]) / (nx - 1)
-        dy = (ylim[1] - ylim[0]) / (ny - 1)
-        gx = np.abs(np.gradient(V, dx, axis=1))
-        gy = np.abs(np.gradient(V, dy, axis=0))
-        grad = np.hypot(gx, gy) * step
+        # Step voltage is the potential difference between two feet `step`
+        # apart, so it has to be differenced at that distance.  Taking
+        # np.gradient over the plot grid instead differences over 2*dx, which
+        # makes the answer a function of the plot resolution rather than of
+        # the physics: on the IEEE 80 Annex B grid it read 218 V at nx = 31
+        # and 562 V at nx = 181 for the same model, and the default nx = 61
+        # under-read the converged value by about 30 % — in the unsafe
+        # direction, feeding a pass/fail check.  Evaluate the field at
+        # +/- step/2 about each point instead; the cost is four field
+        # evaluations, and the answer no longer moves with nx.
+        st = float(step)
+
+        def _V(px, py):
+            pts = np.column_stack([np.asarray(px, dtype=float).ravel(),
+                                   np.asarray(py, dtype=float).ravel(),
+                                   np.zeros(np.size(px))])
+            return np.asarray(self.potential_at(pts)).reshape(np.shape(px))
+
+        def _stepfield(px, py, V0):
+            """|dV| over one step in the worst direction, differenced at the
+            step distance itself.  For a locally linear field this is
+            |grad V| * step, which is what the step voltage is."""
+            return np.hypot(np.abs(_V(px + st, py) - V0),
+                            np.abs(_V(px, py + st) - V0))
+
+        Xq, Yq = np.meshgrid(np.asarray(sp["x"], dtype=float),
+                             np.asarray(sp["y"], dtype=float))
+        grad = _stepfield(Xq, Yq, V)
+
+        # The worst step is almost always just outside the electrode, and a
+        # coarse plot grid can miss it entirely — the value used to swing by
+        # 2.6x with nx alone.  Sample the perimeter densely as well, so the
+        # answer does not depend on the resolution the user chose for the
+        # picture.
+        b = self.touch_bbox(0.0)
+        peri_max, peri_at = 0.0, None
+        if all(np.isfinite(b)):
+            n_per = 240
+            xs = np.linspace(b[0] - st, b[1] + st, n_per)
+            ys = np.linspace(b[2] - st, b[3] + st, n_per)
+            rx = np.concatenate([xs, xs,
+                                 np.full(n_per, b[0] - st),
+                                 np.full(n_per, b[1] + st)])
+            ry = np.concatenate([np.full(n_per, b[2] - st),
+                                 np.full(n_per, b[3] + st), ys, ys])
+            rV = _V(rx, ry)
+            rS = _stepfield(rx, ry, rV)
+            k = int(np.argmax(rS))
+            peri_max, peri_at = float(rS[k]), [float(rx[k]), float(ry[k])]
         si, sj = np.unravel_index(np.argmax(grad), grad.shape)
+        s_grid = float(grad[si, sj])
+        s_at = [float(sp["x"][sj]), float(sp["y"][si])]
+        if peri_max > s_grid:
+            s_grid, s_at = peri_max, peri_at
         return dict(
             touch_max=float(touch[i, j]),
             touch_at=[float(sp["x"][j]), float(sp["y"][i])],
-            step_max=float(grad[si, sj]),
-            step_at=[float(sp["x"][sj]), float(sp["y"][si])],
+            step_max=s_grid, step_at=s_at,
+            step_note=("differenced over the %.2f m step itself and sampled "
+                       "along the electrode perimeter, so it does not depend "
+                       "on the plot resolution" % st),
             touch_box=list(box), GPR=self.V, surface=sp)
 
     def current_distribution(self):
