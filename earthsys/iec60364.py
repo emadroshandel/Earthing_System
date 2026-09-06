@@ -46,11 +46,15 @@ def rods_parallel(rho: float, L: float, d: float, n: int, s: float,
         "hollow_square": [0.0, 1.0, 1.66, 2.15, 2.54, 2.90, 3.20, 3.45, 3.70, 3.90],
         "square": [0.0, 1.0, 1.66, 2.15, 2.54, 2.87, 3.15, 3.39, 3.61, 3.80],
     }
+    # The table is indexed from n = 1: tab[0] is lambda(1) = 0, because a
+    # single rod has no neighbour to couple to.  Indexing it with n instead of
+    # n-1 uses the next rod count's factor and makes rods_parallel(n=1)
+    # disagree with rod() — check that first if this is ever touched again.
     tab = lam_table.get(arrangement, lam_table["line"])
-    if n < len(tab):
-        lam = tab[n]
+    if n <= len(tab):
+        lam = tab[n - 1]
     else:                       # extrapolate the slowly varying tail
-        lam = tab[-1] + 0.19 * (n - (len(tab) - 1))
+        lam = tab[-1] + 0.19 * (n - len(tab))
     Rn = R1 / n * (1.0 + lam * alpha)
     eta = R1 / (n * Rn) if Rn else 1.0
     return dict(R=Rn, R_single=R1, n=n, spacing=s, alpha=alpha, lam=lam,
@@ -116,20 +120,22 @@ def ring(rho: float, radius: float, d: float, h: float) -> dict:
     """Buried ring electrode of mean radius `radius`, wire diameter d, depth h.
 
     Dwight (IEEE Std 142 Table 4.2), ring of DIAMETER D at depth s/2 made
-    from wire of radius a:
+    from wire of DIAMETER d:
 
-        R = rho/(2 pi^2 D) [ ln(8D/a) + ln(4D/s) ]
+        R = rho/(2 pi^2 D) [ ln(8D/d) + ln(4D/s) ]
 
-    written here with D = 2·radius and s = 2h.
+    written here with D = 2·radius and s = 2h.  The second argument of the
+    first logarithm is the wire diameter, not its radius; using the radius
+    adds ln 2 to the bracket and over-states R by about 5 %, which the
+    numerical solver in bem.py disagrees with.
     """
-    a = d / 2.0
     D = 2.0 * radius
     s = 2.0 * h
     R = rho / (2.0 * math.pi ** 2 * D) * (
-        math.log(8.0 * D / a) + math.log(4.0 * D / s))
+        math.log(8.0 * D / d) + math.log(4.0 * D / s))
     return dict(R=R, type="Ring electrode", radius=radius, d=d, h=h, rho=rho,
                 circumference=2.0 * math.pi * radius,
-                formula="R = ρ/(2π²D)·[ln(8D/a) + ln(4D/s)],  D = 2r, s = 2h")
+                formula="R = ρ/(2π²D)·[ln(8D/d) + ln(4D/s)],  D = 2r, s = 2h")
 
 
 def foundation(rho: float, volume_m3: float) -> dict:
