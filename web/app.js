@@ -972,9 +972,11 @@ $('#lRun').onclick = e => run(e.target, async () => {
   const p = {
     lps_class: V('lCls'), rho: N('lRho', 100), area: N('lArea', 100), perimeter: N('lPer', 40),
     arrangement: V('lArr'), d: N('lD', .01), h: N('lH', .5), rod_d: N('lRodD', .016),
-    separation_length: N('lLen', 10), separation_material: V('lMat')
+    separation_length: N('lLen', 10), separation_material: V('lMat'),
+    front_time: N('lFront', 1), injection: V('lInj')
   };
   if (NB('lVol') !== null) p.foundation_volume = NB('lVol');
+  if (NB('lMesh') !== null) p.mesh_spacing = NB('lMesh');
   const d = await api('/api/lightning', p);
   S.lightning = d; markNav('lightning', d.passed);
   const e2 = d.earth, dc = d.down_conductors;
@@ -1024,8 +1026,95 @@ $('#lRun').onclick = e => run(e.target, async () => {
     xaxis: { title: { text: 'Soil resistivity (Ω·m)' }, gridcolor: css('--line') },
     yaxis: { title: { text: 'Minimum length l₁ (m)' }, gridcolor: css('--line') }
   });
+  renderImpulse(d);
   toast('Earth termination designed.', 'ok');
 });
+
+/* Take the resistivity and the plan geometry from the substation grid page,
+   so the impulse behaviour is evaluated on the earthing system that is
+   actually there rather than on a ring the user has not built. */
+$('#lPull').onclick = () => {
+  const Lx = N('gLx', 0), Ly = N('gLy', 0);
+  if (!(Lx > 0 && Ly > 0)) return toast('Fill in the substation grid page first.', 'err');
+  $('#lRho').value = N('gRho', 100);
+  $('#lArea').value = Math.round(Lx * Ly);
+  $('#lPer').value = Math.round(2 * (Lx + Ly));
+  $('#lMesh').value = N('gD', 7);
+  toast('Geometry taken from the substation grid.', 'ok');
+};
+
+/* The impulse panel: what the front reaches, what that leaves working, and
+   by how much the measured resistance understates the potential rise. */
+function renderImpulse(d) {
+  const imp = d && d.impulse;
+  if (!imp) { $('#lImp').innerHTML = '<div class="empty">Run the design.</div>'; return; }
+  const lin = imp.linear || {}, ar = imp.area;
+  const pc = v => (v == null ? '—' : fmt(100 * v, 0) + ' %');
+
+  let html = rows([
+    ['Front time', 'T', imp.T, 'µs', 'IEC 62305-1 Table 3: 10 / 1 / 0.25 µs'],
+    ['Effective length of a horizontal electrode', 'L_eff', lin.L_eff, 'm', lin.formula],
+    ['  · coefficient k', 'k', lin.k, '–', lin.feed === 'centre' ? 'centre-fed' : 'fed at one end'],
+    imp.electrode_extent != null && ['Extent of the earthing system', '—', imp.electrode_extent, 'm', 'ring mean radius, or the length of each radial electrode'],
+    imp.wasted_length != null && ['Length beyond the reach of the front', '—', imp.wasted_length, 'm', 'contributes at 50 Hz, not to the impulse'],
+    ar && ['Equivalent radius of the earthing system', 'r_geom', ar.geometric_radius, 'm', '√(A/π)'],
+    ar && ['Conductor spacing used', 's', ar.spacing, 'm', 'Gupta & Thapar fitted over 3–15 m'],
+    ['Effective radius adopted (smallest estimate)', 'r_eff', imp.r_effective, 'm', ar ? 'governed by ' + ar.governing : lin.formula],
+    ['Impulse coefficient', 'A = Z/R', imp.impulse_coefficient, '–', 'first order from R = ρ/(4r)'],
+    ['Resistance at d.c. or 50 Hz', 'R_E', imp.R_lf, 'Ω', 'as computed above'],
+    ['Impedance during the front', 'Z', imp.Z_impulse, 'Ω', 'estimate'],
+    ['Peak earth potential rise, I·R', '—', imp.EPR_lf / 1000, 'kV', fmt(imp.I_kA, 0) + ' kA, class ' + d.lps_class],
+    ['Peak earth potential rise, impulse', '—', imp.EPR_impulse / 1000, 'kV', 'the number to design bonding on']
+  ]);
+
+  if (ar) {
+    html += `<table class="data" style="margin-top:10px"><thead><tr>
+      <th>Effective radius — published estimates</th><th>Expression</th>
+      <th style="text-align:right">r_eff (m)</th><th style="text-align:right">Area used</th></tr></thead><tbody>` +
+      ar.models.map(mo => `<tr><td>${esc(mo.name)}${mo.note ? `<div class="muted small">${esc(mo.note)}</div>` : ''}</td>
+        <td class="sym">${esc(mo.expression)}</td>
+        <td class="n">${fmt(mo.r, 1)}</td>
+        <td class="n">${pc(mo.fraction)}</td></tr>`).join('') +
+      '</tbody></table>';
+  }
+
+  if (imp.verdict) {
+    html += `<div class="verdictbox ${imp.impulse_coefficient > 1.5 ? 'bad' : 'ok'}" style="margin-top:12px">
+      <div class="vhead"><span class="badge ${imp.impulse_coefficient > 1.5 ? 'bad' : 'ok'}">${
+        imp.impulse_coefficient > 1.5 ? 'IMPULSE PERFORMANCE IS WORSE THAN THE RESISTANCE SUGGESTS' : 'THE WHOLE ELECTRODE PARTICIPATES'
+      }</span></div><p>${esc(imp.verdict)}</p></div>`;
+  }
+  if (imp.meaning) html += `<div class="note info">${esc(imp.meaning)}</div>`;
+  if (imp.remedy && imp.remedy.length)
+    html += `<div class="note info"><b>What to do about it</b><ol>${imp.remedy.map(r => `<li>${esc(r)}</li>`).join('')}</ol></div>`;
+  html += `<div class="note"><b>Do not quote the measured resistance as the lightning performance.</b> ${esc(imp.warning)}</div>`;
+  $('#lImp').innerHTML = html;
+
+  if (window.SEC) SEC.impulsePlan('lImpFig', d);
+
+  /* effective radius against front time, so the reader can see where the
+     electrode stops being fully used */
+  const T = [], step = 0.05;
+  for (let t = 0.05; t <= 12.0001; t += step) T.push(Math.round(t * 1000) / 1000);
+  const rho = imp.rho, sp = ar ? ar.spacing : 7;
+  const centre = imp.injection === 'centre' || imp.injection === 'center';
+  const Kgt = centre ? Math.max(0.05, 1.45 - 0.05 * sp) : Math.max(0.05, 0.6 - 0.025 * sp);
+  const Kgr = centre ? 1 : 0.5, kc = centre ? 1.55 : 1.4;
+  const traces = [
+    { x: T, y: T.map(t => Kgt * Math.sqrt(rho * t)), mode: 'lines', name: 'Gupta & Thapar', line: { color: PAL[0], width: 2.4 } },
+    { x: T, y: T.map(t => kc * Math.sqrt(rho * t)), mode: 'lines', name: 'Conductor reach', line: { color: PAL[2], width: 2.4, dash: 'dot' } },
+    { x: T, y: T.map(t => Kgr * Math.exp(0.84 * Math.pow(rho * t, 0.22))), mode: 'lines', name: 'Grcev', line: { color: PAL[3], width: 2.4, dash: 'dash' } },
+    { x: [imp.T], y: [imp.r_effective], mode: 'markers', name: 'design point', marker: { size: 12, color: PAL[1] } }
+  ];
+  if (imp.r_geometric) traces.push({
+    x: [T[0], T[T.length - 1]], y: [imp.r_geometric, imp.r_geometric], mode: 'lines',
+    name: 'electrode radius', line: { color: css('--ink-3') || '#8b98a5', width: 1.6, dash: 'longdash' }
+  });
+  plot('lImpPlot', traces, {
+    xaxis: { title: { text: 'Front time T (µs)' }, gridcolor: css('--line') },
+    yaxis: { title: { text: 'Effective radius (m)' }, gridcolor: css('--line') }
+  });
+}
 
 /* =========================================================== 8. SYSGND === */
 $('#sRun').onclick = e => run(e.target, async () => {
@@ -1084,7 +1173,9 @@ const FIGS = [
   ['nPlotTouch', 'Touch voltage distribution'],
   ['nPlotProf', 'Potential, touch and step voltage along a traverse'],
   ['bPlot', 'Electrode resistance versus soil resistivity'],
-  ['lPlot', 'Minimum electrode length versus soil resistivity']
+  ['lPlot', 'Minimum electrode length versus soil resistivity'],
+  ['lImpFig', 'Effective area of the earthing system under the impulse'],
+  ['lImpPlot', 'Effective radius versus impulse front time']
 ];
 function reportSections() {
   const map = [['soil', 'Soil model'], ['fault', 'Fault current'], ['conductor', 'Conductor sizing'],
