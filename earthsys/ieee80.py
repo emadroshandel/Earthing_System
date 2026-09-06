@@ -31,9 +31,16 @@ def surface_derating(rho: float, rho_s: float, hs: float) -> dict:
         C_s = 1 - 0.09 (1 - rho/rho_s) / (2 h_s + 0.09)
     """
     if rho_s <= 0 or hs <= 0:
-        return dict(Cs=1.0, note="No surface layer.")
+        # No surface layer at all: the person is standing on the native soil,
+        # so the resistivity under the feet IS rho and there is nothing to
+        # derate.  Returning Cs = 1 while the caller still multiplies by a
+        # crushed-rock rho_s would credit a layer that is not there and raise
+        # the tolerable voltage instead of lowering it — Eq. (27) itself tends
+        # to Cs = rho/rho_s as h_s -> 0, i.e. Cs * rho_s -> rho.
+        return dict(Cs=1.0, rho=rho, rho_s=rho, rho_surface=rho, hs=hs,
+                    note="No surface layer — the native soil is the surface.")
     Cs = 1.0 - 0.09 * (1.0 - rho / rho_s) / (2.0 * hs + 0.09)
-    return dict(Cs=Cs, rho=rho, rho_s=rho_s, hs=hs,
+    return dict(Cs=Cs, rho=rho, rho_s=rho_s, rho_surface=rho_s, hs=hs,
                 formula="IEEE Std 80-2013 Eq. (27)")
 
 
@@ -48,15 +55,17 @@ def tolerable_voltages(rho: float, rho_s: float, hs: float, ts: float,
     cs = surface_derating(rho, rho_s, hs)
     Cs = cs["Cs"]
     k = 0.157 if int(body_weight) == 70 else 0.116
-    rs = rho_s if rho_s > 0 else rho
+    # The resistivity actually under the feet: the surface layer where there
+    # is one, the native soil where there is not.
+    rs = cs.get("rho_surface", rho_s if rho_s > 0 else rho)
     E_step = (1000.0 + 6.0 * Cs * rs) * k / math.sqrt(ts)
     E_touch = (1000.0 + 1.5 * Cs * rs) * k / math.sqrt(ts)
     return dict(E_step=E_step, E_touch=E_touch, Cs=Cs, k=k,
                 body_weight=body_weight, ts=ts, rho=rho, rho_s=rho_s, hs=hs,
                 RB=1000.0,
                 Ib=k / math.sqrt(ts),
-                formula=("IEEE Std 80-2013 Eq. (30)/(32) for 50 kg, "
-                         "Eq. (29)/(31) for 70 kg"))
+                formula=("IEEE Std 80-2013 Eq. (29)/(31) for 50 kg, "
+                         "Eq. (30)/(32) for 70 kg"))
 
 
 # ---------------------------------------------------------------------------
