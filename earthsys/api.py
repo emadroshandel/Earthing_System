@@ -128,6 +128,7 @@ def api_meta(_):
         fuse_gg={str(k): v for k, v in iec60364.FUSE_GG.items()},
         mcb_multipliers=iec60364.MCB_MULTIPLIERS,
         lps_classes=iec62305.LPS_CLASS,
+        impulse_fronts=iec62305.IMPULSE_FRONTS,
         lps_l1={"rho": materials.LPS_L1_RHO, "l1": materials.LPS_L1},
         lps_electrodes=materials.LPS_ELECTRODE_MIN,
         grounding_methods=ieee142.GROUNDING_METHODS,
@@ -425,6 +426,16 @@ def api_rods_required(p):
 
 def api_lightning(p):
     _require_positive(p, {"rho": "Soil resistivity (ohm.m)"})
+    if p.get("front_time") not in (None, ""):
+        _require_positive(p, {"front_time": "Impulse front time (us)"})
+
+    mesh = p.get("mesh_spacing")
+    if mesh is not None and str(mesh) != "":
+        if float(mesh) <= 0:
+            raise ValueError("Earthing-system conductor spacing (m) must be "
+                             "greater than zero, or left blank.")
+    else:
+        mesh = None
 
     return reasoning.explain_lightning(iec62305.design(
         p.get("lps_class", "III"), float(p.get("rho", 100.0)),
@@ -432,7 +443,9 @@ def api_lightning(p):
         p.get("arrangement", "B"), float(p.get("d", 0.01)),
         float(p.get("h", 0.5)), float(p.get("rod_d", 0.016)),
         p.get("foundation_volume"), float(p.get("separation_length", 10.0)),
-        p.get("separation_material", "air")))
+        p.get("separation_material", "air"),
+        float(p.get("front_time", 1.0)), p.get("injection", "centre"),
+        None if mesh is None else float(mesh)))
 
 
 def api_airterm(p):
