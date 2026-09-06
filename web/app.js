@@ -489,7 +489,9 @@ $('#cRun').onclick = e => run(e.target, async () => {
   kpis('cKpis', [
     { value: fmt(ie.area_mm2) + ' <small>mm²</small>', label: 'IEEE 80 minimum area' },
     { value: fmt(d.iec.area_mm2) + ' <small>mm²</small>', label: 'IEC 60364 adiabatic area' },
-    { value: fmt(d.selected_mm2) + ' <small>mm²</small>', label: 'Selected standard size', state: 'ok' },
+    d.off_scale
+      ? { value: 'over ' + fmt(d.required_mm2) + ' <small>mm²</small>', label: 'Beyond a single conductor', state: 'bad' }
+      : { value: fmt(d.selected_mm2) + ' <small>mm²</small>', label: 'Selected standard size', state: 'ok' },
     { value: fmt(ie.diameter_mm) + ' <small>mm</small>', label: 'Equivalent diameter' },
     { value: fmt(ie.area_kcmil) + ' <small>kcmil</small>', label: 'IEEE 80 area (kcmil)' }
   ]);
@@ -507,9 +509,11 @@ $('#cRun').onclick = e => run(e.target, async () => {
     d.pe && ['Protective conductor', 'S_PE', d.pe.area_mm2, 'mm²', d.pe.rule],
     d.bonding && ['Main protective bonding', '—', d.bonding.main_bonding_mm2, 'mm²', d.bonding.formula],
     d.bonding && ['Supplementary bonding (exposed–extraneous)', '—', d.bonding.supplementary_exposed_extraneous_mm2, 'mm²', ''],
-    ['Selected standard size', 'A_std', d.selected_mm2, 'mm²', 'largest of the criteria above'],
+    ['Selected standard size', 'A_std', d.off_scale ? '— none large enough' : d.selected_mm2, 'mm²',
+      d.off_scale ? 'the duty exceeds the standard table' : 'largest of the criteria above'],
     ['Conductor diameter for the grid modules', 'd', d.diameter_m, 'm', '']
-  ]) + `<div class="formula">A = I / √( (TCAP·10⁻⁴)/(t_c·α_r·ρ_r) · ln[(K₀+T_m)/(K₀+T_a)] )</div>`;
+  ]) + (d.off_scale ? `<div class="note"><b>No single standard conductor covers this duty.</b> ${esc(d.note)}</div>` : '')
+    + `<div class="formula">A = I / √( (TCAP·10⁻⁴)/(t_c·α_r·ρ_r) · ln[(K₀+T_m)/(K₀+T_a)] )</div>`;
   // area vs duration
   const ts = [], as1 = [], as2 = [];
   for (let i = 0; i < 60; i++) {
@@ -521,7 +525,8 @@ $('#cRun').onclick = e => run(e.target, async () => {
   plot('cPlot', [
     { x: ts, y: as1, mode: 'lines', name: 'IEEE 80', line: { width: 2.5, color: PAL[0] } },
     { x: ts, y: as2, mode: 'lines', name: 'IEC 60364 adiabatic', line: { width: 2.5, color: PAL[1], dash: 'dash' } },
-    { x: [ie.tc], y: [d.selected_mm2], mode: 'markers', name: 'selected', marker: { size: 11, color: PAL[2] } }
+    { x: [ie.tc], y: [d.off_scale ? d.required_mm2 : d.selected_mm2], mode: 'markers',
+      name: d.off_scale ? 'required' : 'selected', marker: { size: 11, color: PAL[2] } }
   ], {
     xaxis: { type: 'log', title: { text: 'Fault duration (s)' }, gridcolor: css('--line') },
     yaxis: { title: { text: 'Required area (mm²)' }, gridcolor: css('--line') }
