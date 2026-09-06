@@ -89,7 +89,7 @@ python desktop.py                    # native window via pywebview
 python START_EarthSystem.py          # fallback if batch files are blocked
 ```
 
-**No installation at all** — open the [live demo](https://emadroshandel.github.io/earthsystem/).
+**No installation at all** — open the [live demo](https://emadroshandel.github.io/Earthing_System/).
 The same Python engine runs in your browser through Pyodide; nothing is uploaded anywhere.
 
 Then load one of the example projects with the **Import** button:
