@@ -247,11 +247,30 @@ def api_conductor(p):
         out["pe"] = conductor.pe_from_line_conductor(float(p["S_line_mm2"]))
         out["bonding"] = conductor.bonding_conductors(out["pe"]["area_mm2"])
     chosen = out.get("ieee80", out["iec"])
-    out["selected_mm2"] = max(
-        chosen.get("standard_mm2") or 0,
-        out["iec"].get("standard_mm2") or 0,
-        out["min_buried"]["copper_mm2"] if p.get("iec_material", "copper") == "copper"
-        else out["min_buried"]["steel_mm2"])
+    # A requirement larger than the biggest standard conductor comes back as
+    # standard_mm2 = None.  Folding that into `or 0` used to hand the user the
+    # 16 mm2 minimum for a duty needing over 1000 mm2 — a wrong answer that
+    # looks like a right one.  Carry the requirement through instead and say
+    # plainly that no single conductor covers it.
+    required = max(chosen.get("area_mm2") or 0.0,
+                   out["iec"].get("area_mm2") or 0.0)
+    floor = (out["min_buried"]["copper_mm2"]
+             if p.get("iec_material", "copper") == "copper"
+             else out["min_buried"]["steel_mm2"])
+    std = max(chosen.get("standard_mm2") or 0, out["iec"].get("standard_mm2") or 0)
+    if std <= 0 and required > 0:
+        out["selected_mm2"] = None
+        out["required_mm2"] = required
+        out["off_scale"] = True
+        out["note"] = (
+            f"The duty needs {required:.0f} mm², which is larger than the "
+            f"largest single conductor in the standard table "
+            f"({materials.STD_AREAS_MM2[-1]:.0f} mm²). Use two or more "
+            f"conductors in parallel, or reduce the fault duration.")
+        out["diameter_m"] = materials.diameter_from_area(required) / 1000.0
+        return out
+    out["selected_mm2"] = max(std, floor)
+    out["off_scale"] = False
     out["diameter_m"] = materials.diameter_from_area(out["selected_mm2"]) / 1000.0
     return out
 
