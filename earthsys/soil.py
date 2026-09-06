@@ -224,10 +224,21 @@ def equivalent_uniform(rho1: float, rho2: float, h: float,
     """Equivalent uniform resistivity for the closed-form IEEE 80 equations.
 
     method
-      'top'      : rho1 (conservative when rho2 > rho1)
+      'top'      : rho1 — note this is NOT the conservative choice when
+                   rho2 > rho1: a grid whose plan size greatly exceeds h
+                   drives current into the lower layer, so taking rho1
+                   under-states Rg, the GPR and the mesh voltage.
       'weighted' : depth-weighted average over the electrode penetration
       'auto'     : weighted when electrodes cross the interface, else rho1
+
+    Any other value is rejected.  A mis-spelt method used to fall through to
+    rho1 with the note "electrodes stay in the upper layer" attached, which is
+    a wrong number carrying a false explanation.
     """
+    if method not in ("top", "weighted", "auto"):
+        raise ValueError(
+            f"Unknown equivalent-resistivity method {method!r}: "
+            f"use 'top', 'weighted' or 'auto'.")
     depth = max(grid_depth + rod_length, grid_depth)
     if method == "top":
         rho_e, note = rho1, "Top-layer resistivity used."
@@ -236,7 +247,11 @@ def equivalent_uniform(rho1: float, rho2: float, h: float,
         d2 = max(0.0, depth - h)
         rho_e = (rho1 * d1 + rho2 * d2) / max(depth, 1e-9)
         note = ("Depth-weighted average over the electrode penetration "
-                f"({d1:.2f} m in layer 1, {d2:.2f} m in layer 2).")
+                f"({d1:.2f} m in layer 1, {d2:.2f} m in layer 2). This is a "
+                f"first approximation only — where the two layers differ by "
+                f"more than about a factor of three, run the numerical "
+                f"solver, which takes the layered soil directly and does not "
+                f"need an equivalent value at all.")
     else:
         rho_e, note = rho1, "Electrodes stay in the upper layer; rho1 used."
     return dict(rho_equivalent=rho_e, penetration=depth, note=note)
