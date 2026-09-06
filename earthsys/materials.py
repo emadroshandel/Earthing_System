@@ -33,7 +33,7 @@ IEEE80_MATERIALS = {
         rho_r=1.78, TCAP=3.42),
     "cu_hard_brazed": dict(
         name="Copper, commercial hard-drawn (brazed joints)",
-        conductivity=97.0, alpha_r=0.00381, K0=242.0, Tm=250.0,
+        conductivity=97.0, alpha_r=0.00381, K0=242.0, Tm=450.0,
         rho_r=1.78, TCAP=3.42),
     "cu_hard_bolted": dict(
         name="Copper, commercial hard-drawn (bolted / pressure joints)",
@@ -130,7 +130,7 @@ K_FACTORS_SEPARATE = {  # PE not incorporated in a cable, initial temp 30 degC
     ("copper", "bare"):    dict(k=228, Ti=30, Tf=500, label="Cu, bare (no fire risk)"),
     ("aluminium", "pvc70"): dict(k=95, Ti=30, Tf=160, label="Al, PVC 70 °C"),
     ("aluminium", "xlpe"):  dict(k=116, Ti=30, Tf=250, label="Al, XLPE / EPR"),
-    ("aluminium", "bare"):  dict(k=148, Ti=30, Tf=300, label="Al, bare"),
+    ("aluminium", "bare"):  dict(k=125, Ti=30, Tf=300, label="Al, bare"),
     ("steel", "pvc70"):    dict(k=52, Ti=30, Tf=160, label="Steel, PVC 70 °C"),
     ("steel", "xlpe"):     dict(k=64, Ti=30, Tf=250, label="Steel, XLPE / EPR"),
     ("steel", "bare"):     dict(k=82, Ti=30, Tf=500, label="Steel, bare"),
@@ -233,7 +233,13 @@ def diameter_from_area(a_mm2: float) -> float:
 
 
 def next_standard_area(a_mm2: float):
-    """Smallest standard metric area not less than a_mm2 (None if off-scale)."""
+    """Smallest standard metric area not less than a_mm2 (None if off-scale).
+
+    None means "larger than any single standard conductor in the table", not
+    "no requirement".  Callers must not fold it into `or 0` — see
+    api.api_conductor, which reports the requirement and the shortfall
+    instead of silently selecting the smallest size in the list.
+    """
     for a in STD_AREAS_MM2:
         if a >= a_mm2:
             return a
