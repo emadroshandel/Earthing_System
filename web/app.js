@@ -1,3 +1,20 @@
+/*
+ * EarthSystem — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+ * Copyright (C) 2026 Emad Roshandel
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* EarthSystem — browser application
    Talks to the local Python server; all engineering is done server-side. */
 'use strict';
@@ -310,7 +327,11 @@ $('#soilAdd').onclick = () => soilAdd();
 $('#soilClear').onclick = () => { $('#soilTable tbody').innerHTML = ''; soilTableSync(); };
 $('#soilDemo').onclick = () => {
   $('#soilTable tbody').innerHTML = '';
-  [[1, 320], [1.5, 245], [2, 182], [3, 162], [4, 168], [6, 182], [9, 198], [12, 214], [16, 228], [20, 236]]
+  /* A genuine two-layer site (about 300 Ω·m over 110 Ω·m, h ≈ 2.5 m) with
+     ±2.5 % reading scatter.  Version 1.1 shipped an H-type three-layer
+     curve here, whose two-layer fit (RMS 12.8 %) is not physical. */
+  [[1, 292], [1.5, 279], [2, 272], [3, 229], [4, 202], [6, 156], [8, 132], [12, 120],
+   [16, 112], [24, 112], [32, 109], [40, 108]]
     .forEach(([a, r]) => soilAdd(a, r));
   toast('Example Wenner traverse loaded.');
 };
@@ -372,7 +393,7 @@ $('#soilRun').onclick = e => run(e.target, async () => {
       ? { a: r.spacing, s: r.spacing, rho: r.rho, d: mn }
       : { a: r.spacing, s: r.spacing, R: r.rho, d: mn }),
     grid_depth: N('soilDepth', 0.5), rod_length: N('soilRod', 0),
-    equivalent_method: V('soilEquiv')
+    equivalent_method: V('soilEquiv'), grid_area: N('soilArea', 0)
   };
   const d = await api('/api/soil/invert', payload);
   S.soil = d; markNav('soil', true);
@@ -381,7 +402,7 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     { value: fmt(d.rho2) + ' <small>Ω·m</small>', label: 'Lower layer ρ₂' },
     { value: fmt(d.h) + ' <small>m</small>', label: 'Layer thickness h' },
     { value: fmt(d.K, 3), label: 'Reflection factor K' },
-    { value: fmt(d.rms_pct, 2) + ' %', label: 'RMS fit error', state: d.rms_pct < 8 ? 'ok' : 'bad' },
+    { value: fmt(d.rms_pct, 2) + ' %', label: 'RMS fit error (' + d.fit_quality + ')', state: d.fit_warning ? 'bad' : 'ok' },
     { value: fmt(d.equivalent.rho_equivalent) + ' <small>Ω·m</small>', label: 'Equivalent uniform ρ' }
   ]);
   plot('soilPlot', [
@@ -402,10 +423,12 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     ['Equivalent uniform resistivity', 'ρ', d.equivalent.rho_equivalent, 'Ω·m', d.equivalent.note]
   ]) + `<table class="data"><thead><tr><th>a (m)</th><th style="text-align:right">Measured ρₐ</th><th style="text-align:right">Fitted ρₐ</th><th style="text-align:right">Δ (%)</th></tr></thead><tbody>` +
     d.spacings.map((a, i) => `<tr><td class="n">${fmt(a)}</td><td class="n">${fmt(d.measured[i])}</td><td class="n">${fmt(d.fitted[i])}</td><td class="n">${fmt(d.residual_pct[i], 2)}</td></tr>`).join('') +
-    `</tbody></table><div class="note info">The two-layer model is fitted by minimising the relative
+    `</tbody></table>` + (d.fit_warning ? `<div class="note warn"><b>Fit quality.</b> ${esc(d.fit_warning)}</div>` : '') +
+    (d.fit_note ? `<div class="note info"><b>Fit quality.</b> ${esc(d.fit_note)}</div>` : '') +
+    `<div class="note info">The two-layer model is fitted by minimising the relative
      error over all spacings (IEEE Std 81-2012 §8.5). Use the equivalent uniform resistivity for the
      closed-form IEEE 80 equations, and the layered model itself for the numerical solver.</div>`;
-  toast('Soil model fitted.', 'ok');
+  toast(d.fit_warning ? 'Soil model fitted — but read the fit-quality warning before using it.' : 'Soil model fitted.', d.fit_warning ? 'err' : 'ok');
 });
 
 /* ============================================================ 2. FAULT === */
@@ -606,12 +629,36 @@ function renderGrid(d) {
   });
 }
 $('#gRun').onclick = e => run(e.target, async () => renderGrid(await api('/api/ieee80/design', gridPayload())));
-$('#gPull').onclick = () => {
-  if (S.soil) set('gRho', fmt(S.soil.equivalent.rho_equivalent, 1));
-  if (S.fault) { set('gIG', fmt(S.fault.IG_kA, 4)); set('gTs', S.fault.ts); }
+/* A poor two-layer fit must not flow silently into the grid design. */
+function confirmPoorFit() {
+  const b = $('#gPull');
+  if (b.dataset.ack === '1') { b.dataset.ack = ''; return true; }
+  b.dataset.ack = '1';
+  toast('The soil fit is poor (' + fmt(S.soil.rms_pct, 1) + ' % RMS) — see module 1. Press Pull inputs again to use it anyway.', 'err');
+  return false;
+}
+$('#gPull').onclick = e => run(e.target, async () => {
   if (S.conductor) set('gd', S.conductor.diameter_m.toFixed(4));
-  toast('Inputs pulled from the earlier modules.');
-};
+  if (S.fault) { set('gIG', fmt(S.fault.IG_kA, 4)); set('gTs', S.fault.ts); }
+  let msg = 'Inputs pulled from the earlier modules.';
+  if (S.soil && S.soil.fit_warning && !confirmPoorFit()) return;
+  if (S.soil) {
+    const m = V('soilEquiv');
+    if (S.soil.rho1 && S.soil.rho2 && S.soil.h && (m === 'auto' || m === 'grid')) {
+      /* collapse the layered soil for THIS grid: its area and buried length */
+      const g = gridPayload();
+      const eq = await api('/api/soil/equivalent', {
+        rho1: S.soil.rho1, rho2: S.soil.rho2, h: S.soil.h, equivalent_method: 'grid',
+        Lx: g.Lx, Ly: g.Ly, D: g.D, h_grid: g.h, n_rods: g.n_rods, Lr: g.Lr });
+      S.soil.equivalent = eq;
+      set('gRho', fmt(eq.rho_equivalent, 1));
+      msg = `Equivalent ρ = ${fmt(eq.rho_equivalent, 1)} Ω·m for this ${fmt(g.Lx)} × ${fmt(g.Ly)} m grid (grid-size rule, F = ${fmt(eq.F, 3)}). Pull again if you change the grid size.`;
+    } else {
+      set('gRho', fmt(S.soil.equivalent.rho_equivalent, 1));
+    }
+  }
+  toast(msg, 'ok');
+});
 $('#gOpt').onclick = e => run(e.target, async () => {
   const p = gridPayload(); p.D_min = 1.5; p.D_step = 0.5;
   const d = await api('/api/ieee80/optimise', p);
@@ -916,7 +963,7 @@ $('#bRun').onclick = e => run(e.target, async () => {
     electrodes: BUILD_ITEMS.map(it => { const o = { ...it }; delete o._R; return o; }),
     device: { kind: V('bDev'), rating_A: N('bRating', 32), curve: V('bCurve') },
     circuit: V('bCircuit'), Z_line: N('bZl', 0), Z_pe: N('bZpe', 0),
-    Z_source: N('bZs', 0), UL: N('bUL', 50)
+    Z_source: N('bZs', 0), UL: N('bUL', 50), separation: N('bSep', 0)
   };
   const d = await api('/api/building', p);
   S.building = d; markNav('building', d.passed);
@@ -937,7 +984,8 @@ $('#bRun').onclick = e => run(e.target, async () => {
     rows([
       ['Voltage to earth', 'U₀', d.U0, 'V', ''],
       ['Soil resistivity', 'ρ', d.rho, 'Ω·m', ''],
-      ['Combined electrode resistance', 'R_A', d.RA, 'Ω', `${d.combination.n} electrode(s) in parallel`],
+      ['Combined electrode resistance', 'R_A', d.RA, 'Ω', d.combination.note || `${d.combination.n} electrode(s) in parallel`],
+      d.combination.mutual && ['Ideal parallel value (no mutual resistance)', '—', d.combination.ideal, 'Ω', 'for comparison only'],
       ['Earth-fault loop impedance', 'Z_s', d.Zs, 'Ω', ''],
       ['Operating current', 'I_a', d.device.Ia, 'A', d.device.basis],
       ['Maximum disconnection time', 't', d.disconnection.t, 's', d.disconnection.rule],
