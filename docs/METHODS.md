@@ -1,4 +1,4 @@
-# EarthSystem — methods and equations
+# Earthing System — methods and equations
 
 Every equation the software applies, with its source clause. Symbols follow the
 originating standard.
@@ -20,11 +20,15 @@ originating standard.
     Schlumberger    ρₐ(s) = ρ₁ [ 1 + 2 Σₙ Kⁿ / (1 + (2nh/s)²)^{3/2} ]
 
 **Inversion** — (ρ₁, ρ₂, h) are optimised in log space with a dependency-free
-Nelder–Mead simplex, minimising Σ((ρ_model − ρ_meas)/ρ_meas)². Nine starting points
-are tried to avoid local minima. The reported RMS error is that residual in percent.
+Nelder–Mead simplex, minimising Σ((ρ_model − ρ_meas)/ρ_meas)². Twenty-seven starting
+points are tried to avoid local minima. The reported RMS error is that residual in percent;
+a fit is graded good (RMS ≤ 3 %), acceptable (≤ 5 %) or poor, and a non-monotonic curve
+(H- or K-type) is flagged as three-layer.
 
-**Equivalent uniform resistivity** (IEEE Std 80-2013 §13.4) — depth-weighted average
-over the electrode penetration when the electrodes cross the interface, otherwise ρ₁.
+**Equivalent uniform resistivity** — for a grid, the disc rule
+ρ_eq = ρ₁(F/4r + 1/L_T)/(1/4r + 1/L_T), r = √(A/π), with F(K, h/r) the two-layer disc
+factor (THEORY §2.7). Without the grid area: depth-weighted average over the electrode
+penetration when the electrodes cross the interface, otherwise ρ₁.
 
 ---
 
@@ -92,6 +96,10 @@ need not exceed 25 mm² copper.
              R₂ = ρ/(2πn_R L_R)·[ ln(8L_R/d_R) − 1 + 2k₁L_R(√n_R − 1)²/√A ]
              R_m = ρ/(πL_C)·[ ln(2L_C/L_R) + k₁L_C/√A − k₂ + 1 ]
              R_g = (R₁R₂ − R_m²)/(R₁ + R₂ − 2R_m)                Eq. (56)–(60)
+
+*Automatic* uses Sverak for a grid without rods and, with rods, Sverak's grid-only value
+multiplied by the Schwarz rod factor R_g/R₁ — so adding rods can never appear to raise
+R_g, as it did in version 1.1 (2.776 → 2.867 Ω for Annex B with 20 rods).
 
 with h′ = √(d·h) and k₁, k₂ from the Figure 25 fits, bilinearly interpolated in h/√A:
 
@@ -185,6 +193,13 @@ its density; profiles along an arbitrary traverse.
     Buried plate          R = ρ/(8a) + ρ/(4πs)·[1 − 7a²/12s² + 33a⁴/40s⁴]
     Foundation            R ≈ 0.2ρ/∛V
     Mesh                  Sverak, as above
+
+λ: BS 7430 Table 5 where tabulated (line; hollow square of 4–20 rods), otherwise
+λ = (1/n) Σᵢ Σ_{j≠i} s/d_ij for the actual layout.
+
+**Combining bonded electrodes** — mutual resistance R_ij = min(ρ/(2π max(D, rᵢ+rⱼ)), Rᵢ, Rⱼ)
+with rᵢ = ρ/(2πRᵢ); R_A = 1/(1ᵀ[R]⁻¹1). D is the stated separation; without one the
+equivalent hemispheres are taken as touching.
 
 For a flat tape the equivalent radius is a = w/4.
 
