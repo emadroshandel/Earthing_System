@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Soil resistivity: field-data reduction and two-layer model inversion.
 
@@ -208,53 +223,196 @@ def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
         curve_x.append(a)
         curve_y.append(fwd(a, rho1, rho2, h))
 
+    fq = fit_quality(xs, ys, resid, rms)
     return dict(rho1=rho1, rho2=rho2, h=h, K=K, rms_pct=rms,
                 fitted=fitted, residual_pct=resid, array=array,
                 curve_x=curve_x, curve_y=curve_y,
-                spacings=xs, measured=ys)
+                spacings=xs, measured=ys, **fq)
+
+
+def fit_quality(xs, ys, resid, rms) -> dict:
+    """Judge whether a two-layer model describes the traverse at all.
+
+    A two-layer apparent-resistivity curve is monotonic in the spacing.  A
+    curve that falls and then rises (H-type) or rises and then falls
+    (K-type) has at least three layers, and the best two-layer fit then
+    produces a thin fictitious top layer whose rho1 and h mean nothing
+    (tutorial §2.7).  Version 1.1 reported such fits without comment — the
+    built-in demo traverse was one, with RMS 12.8 % — and the equivalent
+    resistivity derived from them could be passed straight into the grid
+    design.
+    """
+    worst = max((abs(r) for r in resid), default=0.0)
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    yv = [ys[i] for i in order]
+    i_min = min(range(len(yv)), key=lambda i: yv[i])
+    i_max = max(range(len(yv)), key=lambda i: yv[i])
+    three = False
+    shape = ""
+    excursion = 0.0
+    if 0 < i_min < len(yv) - 1:
+        rise = min(yv[0], yv[-1]) / yv[i_min] - 1.0
+        if rise > 0.10:
+            three, shape, excursion = True, "H-type (falls, then rises)", rise
+    if 0 < i_max < len(yv) - 1:
+        drop = 1.0 - max(yv[0], yv[-1]) / yv[i_max]
+        if drop > 0.10 and drop > excursion:
+            three, shape, excursion = True, "K-type (rises, then falls)", drop
+    if rms <= 3.0 and worst <= 6.0:
+        q = "good"
+    elif rms <= 5.0 and worst <= 10.0:
+        q = "acceptable"
+    else:
+        q = "poor"
+    warn = note = ""
+    if q == "poor" or (three and excursion > 0.25):
+        warn = (f"The two-layer model does not describe this traverse well "
+                f"(RMS {rms:.1f} %, largest residual {worst:.0f} %).")
+        if three:
+            warn += (f" The curve is {shape} by {100 * excursion:.0f} %, the "
+                     f"signature of at least three layers; the fitted ρ₁ and h "
+                     f"are then not physical.")
+        warn += (" Before using the result, fit the part of the traverse that "
+                 "matters for the electrode (spacings comparable with its "
+                 "size), check the readings, or use the apparent resistivity "
+                 "at a spacing about equal to the grid radius as a first "
+                 "estimate.")
+    elif three:
+        note = (f"The curve is mildly {shape} ({100 * excursion:.0f} %), so a "
+                f"third layer is present; the two-layer fit is {q} and usable, "
+                f"but compare the residuals at the spacings that matter for "
+                f"your electrode.")
+    return dict(fit_quality=q, max_residual_pct=worst,
+                three_layer_suspected=three, fit_warning=warn, fit_note=note)
 
 
 # ---------------------------------------------------------------------------
 # Equivalent uniform soil
 # ---------------------------------------------------------------------------
 
+def disc_factor(K: float, h_over_r: float) -> float:
+    """F(K, h/r): resistance of a surface disc of radius r on two-layer soil,
+    relative to the same disc on uniform soil of resistivity rho1.
+
+        R_disc = rho1 F / (4 r)
+        F = 1 + (4/(pi r)) sum_{n>=1} K^n [ r atan(r/(n h))
+                                             - (n h/2) ln(1 + r^2/(n h)^2) ]
+
+    (tutorial Eq. 6.5, the grid analogue of the foot-disc solution of §5.1).
+    For n h >> r the bracket tends to r^2/(2 n h), so the tail of the series
+    is summed in closed form with  sum K^n/n = -ln(1 - K).
+    """
+    K = max(-0.9999, min(0.9999, float(K)))
+    if abs(K) < 1e-12:
+        return 1.0
+    q = max(float(h_over_r), 1e-6)          # h / r, with r = 1
+    N = int(min(200000, max(400, 40.0 / q)))
+    S = 0.0
+    part = 0.0                               # sum K^n / n over n <= N
+    Kn = 1.0
+    for n in range(1, N + 1):
+        Kn *= K
+        nh = n * q
+        S += Kn * (math.atan(1.0 / nh) - 0.5 * nh * math.log1p(1.0 / (nh * nh)))
+        part += Kn / n
+        if abs(Kn) < 1e-15:
+            break
+    # closed-form tail:  bracket ~ 1/(2 n q)  for n q >> 1
+    tail = (1.0 / (2.0 * q)) * (-math.log(1.0 - K) - part)
+    return 1.0 + 4.0 / math.pi * (S + tail)
+
+
 def equivalent_uniform(rho1: float, rho2: float, h: float,
                        grid_depth: float = 0.5, rod_length: float = 0.0,
-                       method: str = "auto") -> dict:
+                       method: str = "auto", area: float | None = None,
+                       total_length: float | None = None) -> dict:
     """Equivalent uniform resistivity for the closed-form IEEE 80 equations.
 
     method
-      'top'      : rho1 — note this is NOT the conservative choice when
-                   rho2 > rho1: a grid whose plan size greatly exceeds h
-                   drives current into the lower layer, so taking rho1
-                   under-states Rg, the GPR and the mesh voltage.
-      'weighted' : depth-weighted average over the electrode penetration
-      'auto'     : weighted when electrodes cross the interface, else rho1
+      'grid'     : rho1 F(K, h/r) with r = sqrt(A/pi) — the resistivity that
+                   gives a disc of the grid's area the resistance it has on
+                   the two-layer soil (tutorial §6.4).  This is the only rule
+                   that looks as deep as the grid's current actually goes: a
+                   70 m grid drives its current tens of metres down, however
+                   shallow it is buried.  Needs the grid area.  When the
+                   total buried length L_T is also given, the conductor
+                   term rho1/L_T (the near field, which lies in the upper
+                   layer) is kept at rho1:
+                       rho = rho1 (F/4r + 1/L_T) / (1/4r + 1/L_T),
+                   the ratio of Eq. 6.5 in layered and in uniform soil, so
+                   that uniform soil returns rho1 exactly.
+                   Without L_T it is the far-field value rho1 F.
+      'top'      : rho1 — NOT the conservative choice when rho2 > rho1.
+      'weighted' : depth-weighted average over the electrode penetration.
+                   Suitable only for small electrodes (a rod or two) whose
+                   size is comparable with their depth.
+      'auto'     : 'grid' when the area is known, otherwise the old
+                   penetration rule with a warning.
 
-    Any other value is rejected.  A mis-spelt method used to fall through to
-    rho1 with the note "electrodes stay in the upper layer" attached, which is
-    a wrong number carrying a false explanation.
+    Version 1.1 had no 'grid' rule: 'auto' weighted the layers by the burial
+    depth only, which for the IEEE 80 Annex B grid in 2 m of 400 ohm-m put
+    the closed-form R_g at +191 % (over 100 ohm-m) and -66 % (over
+    1600 ohm-m, unsafe) of the two-layer numerical solution.
+
+    Any other method name is rejected.
     """
-    if method not in ("top", "weighted", "auto"):
+    if method not in ("top", "weighted", "auto", "grid"):
         raise ValueError(
             f"Unknown equivalent-resistivity method {method!r}: "
-            f"use 'top', 'weighted' or 'auto'.")
+            f"use 'grid', 'top', 'weighted' or 'auto'.")
     depth = max(grid_depth + rod_length, grid_depth)
+    has_area = area is not None and float(area) > 0
+    if method == "grid" and not has_area:
+        raise ValueError("The grid-size rule needs the grid area (m²).")
+    K = (rho2 - rho1) / (rho2 + rho1) if (rho1 + rho2) > 0 else 0.0
+    out = dict(penetration=depth, method_used=None, K=K)
     if method == "top":
         rho_e, note = rho1, "Top-layer resistivity used."
+        out["method_used"] = "top"
+    elif method == "grid" or (method == "auto" and has_area):
+        A = float(area)
+        r = math.sqrt(A / math.pi)
+        F = disc_factor(K, h / r)
+        out.update(method_used="grid", area=A, r_equiv=r, F=F)
+        if total_length and float(total_length) > 0:
+            LT = float(total_length)
+            ratio = (F / (4.0 * r) + 1.0 / LT) / (1.0 / (4.0 * r) + 1.0 / LT)
+            rho_e = rho1 * ratio
+            out.update(total_length=LT, ratio=ratio)
+            how = (f"the conductor term ρ₁/L_T stays in layer 1, so "
+                   f"ρ = ρ₁ (F/4r + 1/L_T)/(1/4r + 1/L_T) = ρ₁ × {ratio:.3f}")
+        else:
+            rho_e = rho1 * F
+            how = "ρ = ρ₁F (far field only; the grid page refines it with L_T)"
+        note = (f"Grid-size rule: the grid is treated as a disc of radius "
+                f"r = √(A/π) = {r:.1f} m on the two-layer soil; h/r = "
+                f"{h / r:.3f} and F(K, h/r) = {F:.3f}; {how}. Unlike a "
+                f"depth average, this sees as deep as the grid's current "
+                f"goes (about one radius). Checked against the two-layer "
+                f"numerical solver for 48 grids (10–70 m, h = 1–30 m, "
+                f"ρ₂/ρ₁ = 0.1–25): conservative in every case, typically by "
+                f"3–20 %; rods reaching a more conductive layer are not "
+                f"credited. Use the numerical solver for the final design.")
+        if abs(rho2 / rho1 - 1.0) > 2.0 or abs(rho1 / rho2 - 1.0) > 2.0:
+            note += (" The layers differ by more than a factor of three, so "
+                     "the numerical solver is strongly recommended.")
     elif method == "weighted" or (method == "auto" and depth > h):
         d1 = min(h, depth)
         d2 = max(0.0, depth - h)
         rho_e = (rho1 * d1 + rho2 * d2) / max(depth, 1e-9)
+        out["method_used"] = "weighted"
         note = ("Depth-weighted average over the electrode penetration "
-                f"({d1:.2f} m in layer 1, {d2:.2f} m in layer 2). This is a "
-                f"first approximation only — where the two layers differ by "
-                f"more than about a factor of three, run the numerical "
-                f"solver, which takes the layered soil directly and does not "
-                f"need an equivalent value at all.")
+                f"({d1:.2f} m in layer 1, {d2:.2f} m in layer 2). This suits "
+                f"small electrodes only — for a grid, give its area so the "
+                f"grid-size rule can be used, or run the numerical solver.")
     else:
-        rho_e, note = rho1, "Electrodes stay in the upper layer; rho1 used."
-    return dict(rho_equivalent=rho_e, penetration=depth, note=note)
+        rho_e = rho1
+        out["method_used"] = "top"
+        note = ("Electrodes stay in the upper layer; ρ₁ used. For a grid "
+                "this can be badly wrong — give the grid area so the "
+                "grid-size rule can be used.")
+    out.update(rho_equivalent=rho_e, note=note)
+    return out
 
 
 def reduce_survey(rows: Iterable[dict], array: str = "wenner") -> List[dict]:
