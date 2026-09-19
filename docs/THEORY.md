@@ -1,4 +1,4 @@
-# EarthSystem — the physics and mathematics behind every page
+# Earthing System — the physics and mathematics behind every page
 
 A teaching companion. `METHODS.md` lists *what* each equation is and where it comes from;
 this document explains *why* it has that form, derives it where the derivation is short
@@ -313,15 +313,44 @@ because the electrode never sees the third layer.
 
 ### 2.7 Equivalent uniform resistivity
 
-The closed-form IEEE 80 equations assume one resistivity. When the electrodes stay inside
-the upper layer, use `ρ₁`. When rods penetrate the lower layer, EarthSystem uses a
-depth-weighted average over the electrode penetration. This is an engineering
-approximation, and it is the reason the numerical solver exists: **the boundary-element
-method uses the layered model directly and needs no equivalent value at all.**
+The closed-form IEEE 80 equations assume one resistivity, so the two fitted layers have
+to be collapsed into one number. The question is *how deep the electrode's current goes*
+— and for a grid the answer is about one grid radius, however shallow the grid is buried.
+A 70 m grid at 0.5 m in 2 m of topsoil drives most of its current into the lower layer.
 
-A useful teaching exercise: model the same grid both ways and compare. When
-`ρ₂ ≪ ρ₁` and rods reach the lower layer, the closed-form result is often 20–40 %
-pessimistic, and the difference is real money in copper.
+Version 1.2 therefore treats the grid as a disc of the same area, radius `r = √(A/π)`, on
+the two-layer earth. The disc on a two-layer earth has an exact image-series solution
+(the same one used for the foot and the surface layer in §5):
+
+```
+R_disc = ρ₁ F / (4r)
+F(K, h/r) = 1 + (4/πr) Σₙ Kⁿ [ r·atan(r/nh) − (nh/2)·ln(1 + r²/n²h²) ]          … (2.8)
+```
+
+The conductor near field (Sverak's `ρ/L_T` term) lies in the upper layer and keeps `ρ₁`,
+so the equivalent resistivity is
+
+```
+ρ_eq = ρ₁ · (F/4r + 1/L_T) / (1/4r + 1/L_T)                                        … (2.9)
+```
+
+which returns `ρ₁` exactly in uniform soil. **Pull inputs** on the grid page evaluates
+(2.9) for the grid actually entered there. Checked against the two-layer numerical solver
+for 48 grids (10–70 m, h = 1–30 m, ρ₂/ρ₁ = 0.1–25), the closed form with (2.9) is
+conservative in every case, typically by 3–20 %.
+
+> **What version 1.1 did.** It weighted the layers by the *burial depth* of the
+> electrodes. For the IEEE 80 Annex B grid in 2 m of 400 Ω·m that gave `ρ_eq = 400` whatever
+> the lower layer — a closed-form `R_g` of +191 % over 100 Ω·m and **−66 % over 1600 Ω·m**,
+> the unsafe direction. The depth-weighted rule is still offered, but only for small
+> electrodes (a rod or two) whose size is comparable with their depth.
+
+The numerical solver needs none of this: it uses the layered model directly.
+
+**Check the fit first.** A two-layer curve is monotonic. If the measured curve falls and
+then rises (or the reverse) the site has at least three layers, the fitted `ρ₁` and `h` are
+not physical, and module 1 now says so and asks for confirmation before a poor fit is
+pulled into the grid design.
 
 ---
 
@@ -827,6 +856,24 @@ G(field, source) = ρ/(4π) [ 1/√(r_h² + (z−z')²) + 1/√(r_h² + (z+z')²
 with `z` measured downwards from the surface. Note `ρ/4π`, not `ρ/2π` — the factor of two
 that turns it into (1.1) comes from the image term when both points are on the surface.
 
+**Two-layer soil.** With a lower layer of resistivity `ρ₂` below depth `h`, and
+`K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁)`, the image series depends on which layer the source and the field
+point are in (image depth written as `±z' + shift`):
+
+```
+both in layer 1   ρ₁/4π  Σ Kⁿ [ images at ±z' ± 2nh ]            (n = 0 is (8.3))
+field in layer 2  ρ₁(1+K)/4π  Σ Kⁿ [ z' − 2nh,  −z' − 2nh ]
+source in layer 2 ρ₁(1+K)/4π  Σ Kⁿ [ z' + 2nh,  −z' − 2nh ]
+both in layer 2   ρ₂/4π [ z',  −K at 2h − z',  (1−K²) Σ Kⁿ at −z' − 2nh ]
+```
+
+Every conductor that crosses the interface is split there, and each segment uses the
+function of its own layer, including `ρ₂` in its self term. (Version 1.1 applied the
+first line to every segment, so rods below the interface saw `ρ₁`: for the Annex B grid
+with twenty 7.5 m rods over 100 Ω·m, `R_g` came out 2.0 % low.) The potential is
+continuous across the interface to six digits, which is a useful test of the four
+functions.
+
 ### 8.4 The self term — a derivation worth doing
 
 For `i = j` the integral is singular and must be done analytically. For a segment of length
@@ -1002,8 +1049,27 @@ of the other's soil, so they interfere. The classical result:
 R_n = (R₁/n)(1 + λα),     α = ρ/(2π R₁ s)          … (9.5)
 ```
 
-where `s` is the spacing and `λ` a tabulated coefficient. The correction vanishes as
-`s → ∞` and grows as the rods crowd together.
+where `s` is the spacing and `λ` the group factor. `λ` is not an empirical number: it is
+the potential each rod receives from its neighbours, in units of `ρ/(2πs)`, averaged over
+the group,
+
+```
+λ = (1/n) Σᵢ Σ_{j≠i} s / d_ij                                      … (9.6)
+```
+
+EarthSystem uses the BS 7430 Table 5 values where they exist (rods in a line; hollow
+square with 4, 8, 12, 16, 20 rods — 4.51 for eight) and evaluates (9.6) for the actual
+layout otherwise, including the filled square. (Version 1.1 held line-like values for the
+hollow square — 3.45 for eight rods — and line values for the filled square, both
+optimistic.) The correction vanishes as `s → ∞` and grows as the rods crowd together.
+
+**Dissimilar electrodes.** The same physics applies when a foundation electrode, a ring
+and a rod group are bonded together. Module 6 represents each electrode by its
+resistance `Rᵢ` and equivalent hemisphere radius `rᵢ = ρ/(2πRᵢ)`, takes the mutual
+resistance of a pair as `min(ρ/(2π max(D, rᵢ + rⱼ)), Rᵢ, Rⱼ)` and solves `[R] I = V·1`,
+so `R_A = 1/(1ᵀ[R]⁻¹1)`. Without a stated separation `D` the hemispheres are taken as
+touching — the conservative case for one building plot. (Version 1.1 added them like
+resistors in parallel.)
 
 **Practical rule to teach:** space rods at least their own length apart, and preferably
 twice. Four rods at 6 m spacing give about 3.1× the benefit of one; four rods at 1 m
