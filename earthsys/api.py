@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 JSON API layer.
 
@@ -17,7 +32,7 @@ import os
 from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
                ieee142, materials, reasoning, report, soil)
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -159,11 +174,35 @@ def api_soil_invert(p):
         rh = p["rho"]
     res = soil.invert_two_layer(sp, rh, array)
     res["uniform_average"] = sum(rh) / len(rh)
+    area = p.get("grid_area")
+    area = float(area) if area not in (None, "", 0, "0") else None
     res["equivalent"] = soil.equivalent_uniform(
         res["rho1"], res["rho2"], res["h"],
         float(p.get("grid_depth", 0.5)), float(p.get("rod_length", 0.0)),
-        p.get("equivalent_method", "auto"))
+        p.get("equivalent_method", "auto"), area)
     return res
+
+
+def api_soil_equivalent(p):
+    """Equivalent uniform resistivity for a specific grid.
+
+    Called by the grid page's "Pull inputs" so that the two-layer model is
+    collapsed with the grid it will actually be used for (area and total
+    buried length), not with a depth that ignores the grid's size.
+    """
+    for k in ("rho1", "rho2", "h"):
+        if p.get(k) in (None, ""):
+            raise ValueError(f"Missing soil parameter {k}.")
+    g = ieee80.GridGeometry(
+        Lx=float(p.get("Lx", 70)), Ly=float(p.get("Ly", 70)),
+        D=float(p.get("D", 7)), h=float(p.get("h_grid", 0.5)),
+        n_rods=int(p.get("n_rods", 0) or 0), Lr=float(p.get("Lr", 0) or 0))
+    method = p.get("equivalent_method", "auto")
+    if method == "auto":
+        method = "grid"
+    return soil.equivalent_uniform(
+        float(p["rho1"]), float(p["rho2"]), float(p["h"]),
+        g.h, 0.0, method, g.A, g.LT)
 
 
 def api_fault(p):
@@ -420,7 +459,9 @@ def api_building(p):
         p.get("circuit", "final"),
         float(p.get("Z_line", 0.0)), float(p.get("Z_pe", 0.0)),
         float(p.get("Z_source", 0.0)), float(p.get("UL", 50.0)),
-        float(p.get("coupling", 1.0))), float(p.get("rho", 100.0)))
+        float(p.get("coupling", 1.0)),
+        (float(p["separation"]) if p.get("separation") not in (None, "", 0)
+         else None)), float(p.get("rho", 100.0)))
 
 
 def api_electrode(p):
@@ -564,6 +605,7 @@ ROUTES = {
     "/api/meta": api_meta,
     "/api/soil/reduce": api_soil_reduce,
     "/api/soil/invert": api_soil_invert,
+    "/api/soil/equivalent": api_soil_equivalent,
     "/api/fault": api_fault,
     "/api/conductor": api_conductor,
     "/api/ieee80/design": api_ieee80,
