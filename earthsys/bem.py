@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Numerical earthing analysis by the boundary-element (method-of-moments)
 technique.
@@ -16,9 +31,14 @@ the ground potential rise, and hence the earth resistance R_g = V / I_G.
 Soil models
 -----------
 * uniform         G = ρ/(4πr) with the air-surface image
-* two-layer       G from the classical image series with reflection factor
-                  K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁), valid while all electrodes stay
-                  in the upper layer
+* two-layer       G from the complete image series with reflection factor
+                  K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁).  All four Green's functions are
+                  used — source and field point each in the upper or the
+                  lower layer — and every conductor that crosses the layer
+                  interface is split there, so rods driven into the lower
+                  layer see the lower-layer resistivity.  (Version 1.1 used
+                  the upper-layer function for every segment, which put R_g
+                  about 2 % low for rods reaching a more conductive layer.)
 
 Coordinates: x, y horizontal (m); z is DEPTH, positive downwards, the soil
 surface being z = 0.
@@ -79,15 +99,57 @@ class SoilModel:
 
 
 class Segment:
-    __slots__ = ("p1", "p2", "radius", "mid", "length", "tag")
+    __slots__ = ("p1", "p2", "radius", "mid", "length", "tag", "layer")
 
-    def __init__(self, p1, p2, radius, tag=""):
+    def __init__(self, p1, p2, radius, tag="", layer=1):
         self.p1 = np.asarray(p1, dtype=float)
         self.p2 = np.asarray(p2, dtype=float)
         self.radius = float(radius)
         self.mid = 0.5 * (self.p1 + self.p2)
         self.length = float(np.linalg.norm(self.p2 - self.p1))
         self.tag = tag
+        self.layer = layer          # 1 = upper layer, 2 = lower layer
+
+
+def image_terms(soil, src_layer: int, fld_layer: int):
+    """Image series of the two-layer Green's function.
+
+    Returns a list of (coefficient, sign, shift): the image of a unit source
+    at depth z' sits at depth  sign·z' + shift  and contributes
+    coefficient / distance.  The four cases are the complete solution of
+    Laplace's equation in two horizontal layers (tutorial §8.6):
+
+      G11  source and field in layer 1  ρ₁/4π Σ Kⁿ (four images per n)
+      G21  field in layer 2             ρ₁(1+K)/4π Σ Kⁿ
+      G12  source in layer 2            ρ₁(1+K)/4π Σ Kⁿ   (reciprocal)
+      G22  both in layer 2              ρ₂/4π [1/r − K/r(2h−z') ...]
+    """
+    if soil.uniform:
+        c = soil.rho1 / (4.0 * math.pi)
+        return [(c, 1, 0.0), (c, -1, 0.0)]
+    K, h, N = soil.K, soil.h, soil.N
+    T = []
+    if src_layer == 1 and fld_layer == 1:
+        c = soil.rho1 / (4.0 * math.pi)
+        T += [(c, 1, 0.0), (c, -1, 0.0)]
+        for n in range(1, N + 1):
+            k = c * K ** n
+            T += [(k, 1, -2 * n * h), (k, 1, 2 * n * h),
+                  (k, -1, -2 * n * h), (k, -1, 2 * n * h)]
+    elif src_layer == 1 and fld_layer == 2:
+        c = soil.rho1 * (1.0 + K) / (4.0 * math.pi)
+        for n in range(0, N + 1):
+            T += [(c * K ** n, 1, -2 * n * h), (c * K ** n, -1, -2 * n * h)]
+    elif src_layer == 2 and fld_layer == 1:
+        c = soil.rho1 * (1.0 + K) / (4.0 * math.pi)
+        for n in range(0, N + 1):
+            T += [(c * K ** n, 1, 2 * n * h), (c * K ** n, -1, -2 * n * h)]
+    else:
+        c = soil.rho2 / (4.0 * math.pi)
+        T += [(c, 1, 0.0), (-c * K, -1, 2 * h)]
+        for n in range(0, N + 1):
+            T.append((c * (1.0 - K * K) * K ** n, -1, -2 * n * h))
+    return T
 
 
 class Network:
@@ -152,51 +214,67 @@ class Network:
             a = np.array(a, float)
             b = np.array(b, float)
             L = float(np.linalg.norm(b - a))
-            n = max(1, int(math.ceil(L / target)))
-            for k in range(n):
-                p1 = a + (b - a) * k / n
-                p2 = a + (b - a) * (k + 1) / n
-                self.segments.append(Segment(p1, p2, rad, tag))
+            # split at the layer interface so that every segment lies in
+            # one layer and sees that layer's Green's function
+            cuts = [0.0, 1.0]
+            s = self.soil
+            if not s.uniform and (a[2] - s.h) * (b[2] - s.h) < 0:
+                cuts.insert(1, (s.h - a[2]) / (b[2] - a[2]))
+            for t0, t1 in zip(cuts[:-1], cuts[1:]):
+                q1 = a + (b - a) * t0
+                q2 = a + (b - a) * t1
+                Lq = float(np.linalg.norm(q2 - q1))
+                n = max(1, int(math.ceil(Lq / target - 1e-9)))
+                for k in range(n):
+                    p1 = q1 + (q2 - q1) * k / n
+                    p2 = q1 + (q2 - q1) * (k + 1) / n
+                    zm = 0.5 * (p1[2] + p2[2])
+                    lay = 2 if (not s.uniform and zm > s.h) else 1
+                    self.segments.append(Segment(p1, p2, rad, tag, lay))
         return len(self.segments)
 
     # -- Green's function --------------------------------------------------
-    def _green_terms(self, field, src_pts, skip_direct=False):
+    def _green_terms(self, field, src_pts, skip_direct=False, src_layer=1):
         """Sum of image contributions between field points and source points.
 
-        field    : (M, 3) array of field points
-        src_pts  : (Q, 3) array of source quadrature points
-        returns  : (M, Q) array of potential coefficients (V per A per unit
-                   current density weight -- caller applies quadrature weights)
+        field     : (M, 3) array of field points (either layer)
+        src_pts   : (Q, 3) array of source quadrature points, all in
+                    `src_layer`
+        returns   : (M, Q) array of potential coefficients (V per A per unit
+                    current density weight -- caller applies quadrature weights)
+        skip_direct drops the singular 1/r term of a same-layer pair (the
+        caller supplies it analytically for the self term).
         """
         s = self.soil
         dx = field[:, None, 0] - src_pts[None, :, 0]
         dy = field[:, None, 1] - src_pts[None, :, 1]
         rh2 = dx * dx + dy * dy
-        zf = field[:, None, 2]
+        zf = field[:, 2]
         zs = src_pts[None, :, 2]
-
-        c = s.rho1 / (4.0 * math.pi)
-        acc = np.zeros_like(rh2)
-
-        # n = 0 terms
-        if not skip_direct:
-            acc += 1.0 / np.sqrt(np.maximum(rh2 + (zf - zs) ** 2, 1e-24))
-        acc += 1.0 / np.sqrt(np.maximum(rh2 + (zf + zs) ** 2, 1e-24))
-
-        if not s.uniform:
-            H = s.h
-            for n in range(1, s.N + 1):
-                Kn = s.K ** n
-                for sgn in (+1, -1):
-                    d = 2.0 * sgn * n * H
-                    acc += Kn / np.sqrt(np.maximum(rh2 + (zf - zs - d) ** 2, 1e-24))
-                    acc += Kn / np.sqrt(np.maximum(rh2 + (zf + zs - d) ** 2, 1e-24))
-        return c * acc
+        out = np.zeros_like(rh2)
+        if s.uniform:
+            masks = [(1, np.ones(len(field), bool))]
+        else:
+            in2 = zf > s.h
+            masks = [(1, ~in2), (2, in2)]
+        for fl, m in masks:
+            if not m.any():
+                continue
+            zfm = zf[m][:, None]
+            r2 = rh2[m]
+            acc = np.zeros_like(r2)
+            for coef, sgn, shift in image_terms(s, src_layer, fl):
+                if skip_direct and sgn == 1 and shift == 0.0 and fl == src_layer:
+                    continue
+                zi = sgn * zs + shift
+                acc += coef / np.sqrt(np.maximum(r2 + (zfm - zi) ** 2, 1e-24))
+            out[m] = acc
+        return out
 
     def _coeff_column(self, field, seg: Segment, nq: int, skip_direct=False):
         t, w = _gauss(nq)
         pts = seg.p1[None, :] + (seg.p2 - seg.p1)[None, :] * t[:, None]
-        G = self._green_terms(field, pts, skip_direct)
+        G = self._green_terms(field, pts, skip_direct, seg.layer)
         return G @ w                                  # average over the segment
 
     # -- assembly and solution --------------------------------------------
@@ -248,7 +326,8 @@ class Network:
         # ---- exact self terms -------------------------------------------
         for j, sj in enumerate(segs):
             L, a = sj.length, sj.radius
-            self_direct = rho1 / (2.0 * math.pi * L) * (math.log(2.0 * L / a) - 1.0)
+            rho_j = self.soil.rho2 if sj.layer == 2 else rho1
+            self_direct = rho_j / (2.0 * math.pi * L) * (math.log(2.0 * L / a) - 1.0)
             tfp = sj.p1[None, :] + (sj.p2 - sj.p1)[None, :] * tf[:, None]
             img = self._coeff_column(tfp, sj, 16, skip_direct=True) @ wf
             P[j, j] = self_direct + float(img)
