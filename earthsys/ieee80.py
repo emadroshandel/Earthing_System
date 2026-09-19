@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Substation / power-plant earth grid design to IEEE Std 80-2013.
 
@@ -239,10 +254,32 @@ def grid_resistance(rho: float, g: GridGeometry, method: str = "auto") -> dict:
         chosen = sv
     elif method == "schwarz":
         chosen = sc
+    elif (g.n_rods > 0 and g.Lr > 0 and math.isfinite(sc["Rg"])
+          and math.isfinite(sc.get("R1", float("nan"))) and sc["R1"] > 0):
+        # Automatic, grid with rods.  Version 1.1 switched from Sverak (no
+        # rods) to Schwarz (rods); the two formulas differ by about 5 % for
+        # the same grid, so adding rods could appear to RAISE R_g (Annex B:
+        # 2.776 -> 2.867 ohm).  Keep Sverak's grid value as the baseline and
+        # apply the rod benefit Schwarz predicts, R_g / R_1, so the two
+        # cases are always compared on the same footing.
+        g0 = GridGeometry(**{**asdict(g), "n_rods": 0, "Lr": 0.0})
+        base = sverak_resistance(rho, g0.A, g0.LT, g0.h)["Rg"]
+        factor = min(1.0, sc["Rg"] / sc["R1"])
+        chosen = dict(Rg=base * factor,
+                      method="Sverak × Schwarz rod factor",
+                      base=base, rod_factor=factor)
     else:
-        chosen = sc if (g.n_rods > 0 and math.isfinite(sc["Rg"])) else sv
-    return dict(Rg=chosen["Rg"], chosen=chosen["method"],
-                sverak=sv, schwarz=sc)
+        chosen = sv
+    out = dict(Rg=chosen["Rg"], chosen=chosen["method"],
+               sverak=sv, schwarz=sc)
+    if "rod_factor" in chosen:
+        out.update(sverak_grid_only=chosen["base"], rod_factor=chosen["rod_factor"],
+                   note=("Automatic: Sverak's value for the grid conductors "
+                         f"({chosen['base']:.4g} Ω) times the rod benefit from "
+                         f"Schwarz, R_g/R₁ = {chosen['rod_factor']:.4f}. Both "
+                         "closed forms understate the benefit of perimeter "
+                         "rods; the numerical solver shows the full effect."))
+    return out
 
 
 # ---------------------------------------------------------------------------
