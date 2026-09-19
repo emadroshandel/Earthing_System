@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Earthing for homes, buildings and LV installations.
 
@@ -30,34 +45,83 @@ def rod(rho: float, L: float, d: float) -> dict:
                 formula="R = ρ/(2πL)·[ln(8L/d) − 1]")
 
 
+# BS 7430:2011 Table 5 (identical in ENA EREC S34).  Hollow square: rods
+# spaced s round the perimeter of a square, m per side, n = 4(m - 1).
+BS7430_LAMBDA_LINE = {1: 0.0, 2: 1.00, 3: 1.66, 4: 2.15, 5: 2.54, 6: 2.87,
+                      7: 3.15, 8: 3.39, 9: 3.61, 10: 3.81}
+BS7430_LAMBDA_HOLLOW = {4: 2.71, 8: 4.51, 12: 5.48, 16: 6.13, 20: 6.63}
+
+
+def rod_positions_unit(n: int, arrangement: str):
+    """Rod positions for spacing s = 1 (used to compute lambda)."""
+    if arrangement == "line":
+        return [(float(i), 0.0) for i in range(n)]
+    if arrangement == "hollow_square":
+        # n rods at unit spacing round a square of perimeter n
+        per = float(n)
+        side = per / 4.0
+        pts = []
+        for i in range(n):
+            t = float(i)
+            if t < side:
+                pts.append((t, 0.0))
+            elif t < 2 * side:
+                pts.append((side, t - side))
+            elif t < 3 * side:
+                pts.append((3 * side - t, side))
+            else:
+                pts.append((0.0, per - t))
+        return pts
+    # filled square: m x m lattice (row-major, truncated to n)
+    m = max(1, int(math.ceil(math.sqrt(n))))
+    return [(float(i % m), float(i // m)) for i in range(n)]
+
+
+def rod_group_lambda(n: int, arrangement: str = "line"):
+    """Group factor lambda of BS 7430 for n equal rods at spacing s.
+
+    By definition lambda = (1/n) sum_i sum_{j != i} s / d_ij — each rod's
+    potential raised by its neighbours, in units of rho/(2 pi s), averaged
+    over the group (tutorial Eq. 9.7).  The published values of BS 7430
+    Table 5 are used where they exist; otherwise the sum is evaluated for
+    the actual layout.  (Version 1.1 used line-like values for the hollow
+    square — 3.45 instead of 4.51 for eight rods — and the line values for
+    a filled square, both on the optimistic side.)
+    """
+    if n <= 1:
+        return 0.0, "single rod"
+    if arrangement == "hollow_square" and n < 4:
+        arrangement = "line"            # fewer than four rods cannot enclose
+    if arrangement == "line" and n in BS7430_LAMBDA_LINE:
+        return BS7430_LAMBDA_LINE[n], "BS 7430 Table 5"
+    if arrangement == "hollow_square" and n in BS7430_LAMBDA_HOLLOW:
+        return BS7430_LAMBDA_HOLLOW[n], "BS 7430 Table 5"
+    pts = rod_positions_unit(n, arrangement)
+    tot = 0.0
+    for i, (xi, yi) in enumerate(pts):
+        for j, (xj, yj) in enumerate(pts):
+            if i != j:
+                tot += 1.0 / max(math.hypot(xi - xj, yi - yj), 1e-9)
+    return tot / n, "computed from the layout (Σ s/d over neighbours)"
+
+
 def rods_parallel(rho: float, L: float, d: float, n: int, s: float,
                   arrangement: str = "line") -> dict:
     """n rods in parallel with mutual-resistance (utilisation) allowance.
 
     Uses the classical parallel-rod expression
         R_n = R_1/n * (1 + lambda * a),   a = rho/(2 pi R_1 s)
-    with lambda taken from the standard curves for rods in a line, a hollow
-    square or a full square (IEEE Std 142 / ENA EREC S34).
+    with lambda from BS 7430 Table 5 (rods in a line, hollow square) and,
+    for any other count or a filled square, from the geometry itself
+    (rod_group_lambda).
     """
     R1 = rod(rho, L, d)["R"]
     alpha = rho / (2.0 * math.pi * R1 * s)
-    lam_table = {
-        "line": [0.0, 1.0, 1.66, 2.15, 2.54, 2.87, 3.15, 3.39, 3.61, 3.80],
-        "hollow_square": [0.0, 1.0, 1.66, 2.15, 2.54, 2.90, 3.20, 3.45, 3.70, 3.90],
-        "square": [0.0, 1.0, 1.66, 2.15, 2.54, 2.87, 3.15, 3.39, 3.61, 3.80],
-    }
-    # The table is indexed from n = 1: tab[0] is lambda(1) = 0, because a
-    # single rod has no neighbour to couple to.  Indexing it with n instead of
-    # n-1 uses the next rod count's factor and makes rods_parallel(n=1)
-    # disagree with rod() — check that first if this is ever touched again.
-    tab = lam_table.get(arrangement, lam_table["line"])
-    if n <= len(tab):
-        lam = tab[n - 1]
-    else:                       # extrapolate the slowly varying tail
-        lam = tab[-1] + 0.19 * (n - len(tab))
+    lam, lam_src = rod_group_lambda(n, arrangement)
     Rn = R1 / n * (1.0 + lam * alpha)
     eta = R1 / (n * Rn) if Rn else 1.0
     return dict(R=Rn, R_single=R1, n=n, spacing=s, alpha=alpha, lam=lam,
+                lam_source=lam_src,
                 utilisation=eta, arrangement=arrangement,
                 type=f"{n} × vertical rods ({arrangement})",
                 formula="R_n = (R₁/n)(1 + λα),  α = ρ/(2πR₁s)")
@@ -164,15 +228,82 @@ ELECTRODE_FUNCS = {
 }
 
 
-def parallel_combination(resistances, coupling: float = 1.0) -> dict:
-    """Combine electrodes in parallel with an optional coupling (>1 = worse)."""
-    vals = [r for r in resistances if r and r > 0]
+def parallel_combination(resistances, coupling: float = 1.0,
+                         rho: float | None = None,
+                         separation: float | None = None) -> dict:
+    """Combine electrodes that are bonded together, with mutual resistance.
+
+    Electrodes in the same soil raise each other's potential, so they never
+    add like resistors in parallel.  Each electrode i is represented by its
+    self-resistance R_i and its equivalent hemisphere radius
+    r_i = rho/(2 pi R_i); the mutual resistance of a pair a distance D apart
+    is that of two point sources, rho/(2 pi D), never more than the smaller
+    self-resistance:
+
+        R_ij = min( rho/(2 pi max(D, r_i + r_j)),  R_i,  R_j ).
+
+    With all electrodes at one potential V the currents follow from
+    [R] I = V 1, so  R_A = 1 / (1ᵀ [R]⁻¹ 1).  When the separation is not
+    given the hemispheres are taken as just touching (D = r_i + r_j) — the
+    conservative assumption for electrodes on one building plot.  Version
+    1.1 applied no mutual resistance (R_A = 1/Σ 1/R_i), which credited the
+    villa example's two corner rods with −13 % where a numerical model of
+    the foundation gives −6 %.
+
+    `coupling` is an additional multiplier (default 1.0) kept for
+    compatibility.
+    """
+    vals = [float(r) for r in resistances if r and r > 0 and math.isfinite(r)]
     if not vals:
         return dict(R=float("inf"), n=0)
-    inv = sum(1.0 / r for r in vals)
-    R = coupling / inv
-    return dict(R=R, n=len(vals), ideal=1.0 / inv, coupling=coupling,
-                components=vals)
+    ideal = 1.0 / sum(1.0 / r for r in vals)
+    n = len(vals)
+    if n == 1 or not rho or rho <= 0:
+        R = coupling * ideal
+        return dict(R=R, n=n, ideal=ideal, coupling=coupling,
+                    components=vals, mutual=False,
+                    note=("Single electrode." if n == 1 else
+                          "Combined without mutual resistance (ρ not given)."))
+    radii = [rho / (2.0 * math.pi * r) for r in vals]
+    M = [[0.0] * n for _ in range(n)]
+    sep_used = []
+    for i in range(n):
+        M[i][i] = vals[i]
+        for j in range(i + 1, n):
+            touch = radii[i] + radii[j]
+            D = max(float(separation), touch) if separation else touch
+            Rm = min(rho / (2.0 * math.pi * D), vals[i], vals[j])
+            M[i][j] = M[j][i] = Rm
+            sep_used.append(D)
+    # solve [M] x = 1 by Gaussian elimination (n is small; no numpy needed)
+    A = [row[:] + [1.0] for row in M]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(A[r][c]))
+        A[c], A[p] = A[p], A[c]
+        piv = A[c][c]
+        if abs(piv) < 1e-15:
+            R = coupling * ideal
+            return dict(R=R, n=n, ideal=ideal, coupling=coupling,
+                        components=vals, mutual=False,
+                        note="Mutual-resistance matrix singular; ideal parallel used.")
+        for r in range(n):
+            if r != c:
+                f = A[r][c] / piv
+                for k in range(c, n + 1):
+                    A[r][k] -= f * A[c][k]
+    x = [A[i][n] / A[i][i] for i in range(n)]
+    Rmut = 1.0 / sum(x)
+    Rmut = max(Rmut, ideal)
+    R = coupling * Rmut
+    how = (f"electrodes {separation:g} m apart" if separation else
+           "equivalent hemispheres taken as touching (no separation given)")
+    return dict(R=R, n=n, ideal=ideal, coupling=coupling, components=vals,
+                mutual=True, R_mutual_model=Rmut,
+                increase_pct=100.0 * (Rmut / ideal - 1.0),
+                equivalent_radii=radii, separations=sep_used,
+                note=(f"Mutual resistance included ({how}): "
+                      f"{Rmut:.4g} Ω against {ideal:.4g} Ω for an ideal "
+                      f"parallel combination (+{100.0 * (Rmut / ideal - 1.0):.1f} %)."))
 
 
 def rods_required(rho: float, target_R: float, L: float, d: float,
@@ -352,7 +483,7 @@ def assess(system: str, U0: float, rho: float, electrodes: list,
            device: dict, circuit: str = "final",
            Z_line: float = 0.0, Z_pe: float = 0.0,
            Z_source: float = 0.0, UL: float = 50.0,
-           coupling: float = 1.0) -> dict:
+           coupling: float = 1.0, separation: float | None = None) -> dict:
     """Full LV earthing assessment for a home / building installation.
 
     electrodes : list of {"type": key, ...params}
@@ -372,7 +503,8 @@ def assess(system: str, U0: float, rho: float, electrodes: list,
         except TypeError as exc:
             results.append(dict(R=float("nan"), type=kind, error=str(exc)))
 
-    comb = parallel_combination([r.get("R") for r in results], coupling)
+    comb = parallel_combination([r.get("R") for r in results], coupling,
+                                rho, separation)
     RA = comb["R"]
 
     t_max = max_disconnection_time(sysu, U0, circuit)
