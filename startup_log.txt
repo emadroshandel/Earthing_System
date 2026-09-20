@@ -1,9 +1,8 @@
 ============================================================ 
-EarthSystem launcher   Sun 06/09/2026  0:22:52.10                        
-Folder: C:\0_WorksAndProjects\LocalLib\EMAD\Emad Apps\EarthSystem\                                               
+EarthSystem launcher   Sun 20/09/2026  0:38:50.99                        
+Folder: C:\0_WorksAndProjects\LocalLib\EMAD\0_Emad Apps\EarthSystem_Tutorial Empowering\                                               
 ============================================================ 
 --- trying: py -3
 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 15:23:48) [MSC v.1942 64 bit (AMD64)]
 *** SELECTED: py -3
   Using: py -3
-Server exit code: 0
