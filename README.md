@@ -304,10 +304,6 @@ grid the numerical corner-mesh touch voltage is **931 V** against the closed-for
 
 ### Changes in 1.2.0
 
-Six defects found while writing the second edition of the tutorial
-(*Earthing System Design — Theory and Practice*, Appendix D) are fixed; each has a
-regression test in `tests/test_v12_fixes.py` that fails on 1.1.
-
 1. **Equivalent resistivity for grids.** The automatic rule weighted the layers by burial
    depth and ignored the grid size (Annex B grid in 2 m of 400 Ω·m: −66 % over 1600 Ω·m).
    It now treats the grid as a disc on the two-layer earth; **Pull inputs** recomputes it
@@ -324,14 +320,6 @@ regression test in `tests/test_v12_fixes.py` that fails on 1.1.
 6. **Soil fit quality.** Fits are graded, three-layer (H/K-type) curves are flagged, a poor
    fit asks for confirmation before it is pulled into the grid design, and the built-in
    example traverse is now a genuine two-layer site.
-
-### Changes in 1.3.1
-
-The software's name is written correctly everywhere a user sees it — the window title, the
-application header, the loading screen, the design report, the server banner and the
-documentation — as **Earthing System** (two words), matching the repository name. File
-names, the `earthsys` package and the `"app": "EarthSystem"` tag inside saved project files
-are unchanged, so existing projects and shortcuts keep working.
 
 ### Changes in 1.3.0
 
@@ -357,26 +345,7 @@ verdicts remain those of IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
 5. **API** gains `/api/standards`; `/api/meta` returns the registry.
 6. Tests: `tests/test_v13_standards.py` (18 tests).
 
-## 13. Running it online
-
-The same interface runs with no server. `web/boot.js` probes for `/api/health`; if there is
-no server it loads Pyodide, fetches the `earthsys` package sources, and patches `fetch` so
-that every `/api/...` call goes to the identical Python code inside the browser. `app.js`
-never learns which mode it is in, and the numbers are bit-for-bit the same.
-
-To publish your own copy, follow [`PUBLISH.md`](PUBLISH.md) — it has the exact commands.
-In short: push the repository, and the workflow in `.github/workflows/pages.yml` deploys it
-on every push to `main` (Settings → Pages → Source: **GitHub Actions**). The root
-`index.html` forwards to `web/`.
-
-> With *Source: GitHub Actions* selected, GitHub deploys nothing until a workflow exists —
-> that file is what does it. *Deploy from a branch* → `main` → `/ (root)` also works;
-> `.nojekyll` is included for that case.
-
-First load fetches about 20 MB (Pyodide plus numpy) and is then cached. Save/Open to disk
-are hidden in browser mode; Export/Import JSON still work.
-
-## 14. Limitations
+## 13. Limitations
 
 - The closed-form IEEE 80 equations assume uniform soil, a rectangular grid and uniform
   current leakage. The shape selector is recorded with the design but does not change the
@@ -395,11 +364,7 @@ are hidden in browser mode; Export/Import JSON still work.
   design.
 - See [`DISCLAIMER.md`](DISCLAIMER.md).
 
-## 15. Troubleshooting
-
-**A launcher window flashes and disappears.** Run `Diagnose.bat` — it prints and saves
-`diagnostic.txt` listing every Python it can find. The launchers also write
-`startup_log.txt` on every run.
+## 14. Troubleshooting
 
 **"Python was not found".** Install Python 3.9+ from python.org and tick *Add python.exe to
 PATH*. The launchers also search the usual Anaconda, Miniconda and per-user install
@@ -417,7 +382,7 @@ under a second.
 **The soil fit has a large RMS error.** The site is probably not two layers, or there is
 buried metal crossing the traverse. Run a perpendicular traverse and compare.
 
-## 16. Contributing
+## 15. Contributing
 
 Issues and pull requests are welcome. Useful directions:
 
@@ -430,7 +395,7 @@ Issues and pull requests are welcome. Useful directions:
 Keep the engine dependency-light — numpy is the only hard requirement, and it should stay
 that way.
 
-## 17. Licence and references
+## 16. Licence and references
 
 GNU General Public License, version 3 or later — see [`LICENSE`](LICENSE).
 
