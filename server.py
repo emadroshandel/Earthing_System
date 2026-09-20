@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
-EarthSystem — local application server.
+Earthing System — local application server.
 
 Runs a small HTTP server from the Python standard library (no web framework
 required), serving the browser interface from ./web and a JSON API backed by
@@ -44,7 +59,7 @@ from earthsys.api import (APP_VERSION, OUTPUTS, PROJECTS, ROUTES,  # noqa: E402
 # ---------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = f"EarthSystem/{APP_VERSION}"
+    server_version = f"EarthingSystem/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
@@ -140,7 +155,7 @@ def serve(port=None, open_browser=True, quiet=False):
     url = f"http://127.0.0.1:{port}/"
     if not quiet:
         print("=" * 62)
-        print(f"  EarthSystem {APP_VERSION} — earthing system design")
+        print(f"  Earthing System {APP_VERSION} — earthing system design")
         print(f"  Open in your browser:  {url}")
         np_state = "yes" if bem.HAVE_NUMPY else "NO — numerical solver disabled"
         print("  numpy available: " + np_state)
@@ -158,7 +173,7 @@ def serve(port=None, open_browser=True, quiet=False):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="EarthSystem local server")
+    ap = argparse.ArgumentParser(description="Earthing System local server")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--quiet", action="store_true")
