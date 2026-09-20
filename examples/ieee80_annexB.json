@@ -63,7 +63,7 @@
     "rRev": "00",
     "rLang": "en",
     "rFigs": true,
-    "rNotes": "Reference case used to validate EarthSystem against the worked example of IEEE Std 80-2013 Annex B (square 70 x 70 m grid, no ground rods)."
+    "rNotes": "Reference case used to validate Earthing System against the worked example of IEEE Std 80-2013 Annex B (square 70 x 70 m grid, no ground rods)."
   },
   "tables": {
     "soil": [
