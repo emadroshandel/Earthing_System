@@ -34,6 +34,7 @@ import math
 from dataclasses import dataclass, field, asdict
 
 from .materials import diameter_from_area
+from . import standards
 
 
 # ---------------------------------------------------------------------------
@@ -386,9 +387,14 @@ def design(rho: float, g: GridGeometry, IG_kA: float,
              margin_pct=(tol["E_step"] - ms["Es"]) / tol["E_step"] * 100.0),
     ]
 
+    # Informational cross-check against BS EN 50522 / IEC 60479-1 (new in 1.3.0);
+    # it never changes the verdict, which remains the IEEE 80 one.
+    xc = standards.touch_cross_check(ts, tol["E_touch"], ms["Em"], body_weight)
+
     return dict(
         geometry=g.to_dict(), tolerable=tol, resistance=res, Rg=Rg,
         GPR=GPR, IG_kA=IG_kA, mesh=ms, checks=checks, passed=passed,
+        en50522=xc, cross_check=xc["note"],
         summary=dict(Rg=Rg, GPR=GPR, Em=ms["Em"], Es=ms["Es"],
                      E_touch=tol["E_touch"], E_step=tol["E_step"],
                      spacing=g.D, n_rods=g.n_rods, LT=g.LT, area=g.A),
