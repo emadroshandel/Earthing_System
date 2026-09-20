@@ -1,5 +1,10 @@
 # Third-party notices
 
+Earthing System itself is licensed under the GNU General Public License, version 3
+or later (see `LICENSE`). The components listed below are third-party works
+under their own licences, which are reproduced here. All of them are
+GPL-compatible, so the combined work may be distributed under the GPL.
+
 ## Plotly.js — `web/vendor/plotly.min.js`
 
 Version 2.35.2, bundled so that the application works with no internet
