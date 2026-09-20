@@ -19,7 +19,7 @@ JSON API layer.
 Every endpoint is a plain function taking a dict of parameters and returning a
 dict of results.  The layer is deliberately transport-agnostic: `server.py`
 exposes it over HTTP for the desktop application, and `web/pyodide-boot.js`
-calls exactly the same functions inside the browser when EarthSystem runs from
+calls exactly the same functions inside the browser when Earthing System runs from
 GitHub Pages with no server at all.
 """
 
@@ -30,9 +30,9 @@ import math
 import os
 
 from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
-               ieee142, materials, reasoning, report, soil)
+               ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.1"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -148,6 +148,8 @@ def api_meta(_):
         lps_electrodes=materials.LPS_ELECTRODE_MIN,
         grounding_methods=ieee142.GROUNDING_METHODS,
         have_numpy=bem.HAVE_NUMPY,
+        standards=standards.REGISTRY,
+        standard_areas=standards.AREAS,
     )
 
 
@@ -558,6 +560,30 @@ def api_sysgnd(p):
     return out
 
 
+def api_standards(p):
+    """The standards registry, and the cross-check calculations of
+    earthsys.standards for the values supplied (all optional)."""
+    out = dict(registry=standards.REGISTRY, areas=standards.AREAS)
+    if p.get("t_F") not in (None, ""):
+        t = float(p["t_F"])
+        out["touch"] = dict(U_Tp=standards.en50522_touch_limit(t),
+                            ieee80_50kg=standards.ieee80_bare_touch(t, 50),
+                            ieee80_70kg=standards.ieee80_bare_touch(t, 70))
+    if all(p.get(k) not in (None, "") for k in ("f_n", "p_n", "f_d", "t_d")):
+        pc = standards.eg0_coincidence(float(p["f_n"]), float(p["p_n"]),
+                                       float(p["f_d"]), float(p["t_d"]))
+        out["eg0"] = dict(P_coinc=pc)
+        if p.get("P_fib") not in (None, ""):
+            risk = pc * float(p["P_fib"])
+            out["eg0"].update(risk=risk, band=standards.eg0_risk_band(risk))
+    if p.get("rho") not in (None, "") and p.get("f") not in (None, ""):
+        out["soil_frequency"] = standards.alipio_visacro(float(p["rho"]), float(p["f"]))
+    if all(p.get(k) not in (None, "") for k in ("rho", "I_E", "V_lim")):
+        out["epr_contour"] = standards.epr_contour_distance(
+            float(p["rho"]), float(p["I_E"]), float(p["V_lim"]))
+    return out
+
+
 def api_report(p):
     lang = p.get("lang", "en")
     html_doc = report.build(p.get("data", {}), lang)
@@ -617,6 +643,7 @@ ROUTES = {
     "/api/lightning": api_lightning,
     "/api/airterm": api_airterm,
     "/api/system-grounding": api_sysgnd,
+    "/api/standards": api_standards,
     "/api/report": api_report,
     "/api/project/save": api_project_save,
     "/api/project/list": api_project_list,
