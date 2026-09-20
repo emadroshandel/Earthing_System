@@ -1,5 +1,5 @@
 /*
- * EarthSystem — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+ * Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
  * Copyright (C) 2026 Emad Roshandel
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -15,7 +15,7 @@
  * this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* EarthSystem — browser application
+/* Earthing System — browser application
    Talks to the local Python server; all engineering is done server-side. */
 'use strict';
 
@@ -579,7 +579,7 @@ function renderGrid(d) {
     { value: fmt(t.E_step) + ' <small>V</small>', label: 'Tolerable step' }
   ]);
   $('#gChecks').innerHTML = checksHtml(d.checks, d.narrative) +
-    '';
+    (d.en50522 ? `<div class="note info"><b>Cross-check, BS EN 50522:2022.</b> ${esc(d.en50522.note)}</div>` : '');
   const g = d.geometry, r = d.resistance;
   $('#gOut').innerHTML = rows([
     ['Grid area', 'A', g.A, 'm²', ''],
@@ -608,8 +608,10 @@ function renderGrid(d) {
     ['Surface derating factor', 'C_s', t.Cs, '–', 'Eq. (27)'],
     ['Tolerable body current', 'I_B', t.Ib, 'A', `${t.body_weight} kg criterion`],
     ['Tolerable touch voltage', 'E_touch', t.E_touch, 'V', ''],
-    ['Tolerable step voltage', 'E_step', t.E_step, 'V', '']
-  ]);
+    ['Tolerable step voltage', 'E_step', t.E_step, 'V', ''],
+    d.en50522 && ['Permissible touch voltage (EN 50522)', 'U_Tp', d.en50522.U_Tp, 'V', 'BS EN 50522 Table B.3 · informational'],
+    d.en50522 && ['IEEE 80 touch limit, no surface layer', 'E_touch,0', d.en50522.E_bare_ieee80, 'V', '1000·k/√t_s']
+  ].filter(Boolean));
   // layout
   const tr = [];
   (d.layout?.conductors || []).forEach((c, i) => tr.push({
@@ -1062,7 +1064,8 @@ $('#lRun').onclick = e => run(e.target, async () => {
     ['  · k_i / k_c / k_m', '—', `${d.separation.ki} / ${fmt(d.separation.kc, 2)} / ${d.separation.km}`, '', '']
   ]) + (sup ? `<div class="note"><b>Supplementary electrodes required.</b> ${esc(sup.note)}
       Add ${fmt(sup.horizontal_each)} m horizontally, or ${fmt(sup.vertical_each)} m vertically, at each down-conductor.</div>` : '') +
-    `<div class="note info">${esc(d.bonding_note)}</div>`;
+    `<div class="note info">${esc(d.bonding_note)}</div>` +
+    (d.soil_frequency ? `<div class="note info"><b>Frequency-dependent soil (CIGRE TB 781).</b> ${esc(d.soil_frequency.note)}</div>` : '');
   const meta = S.meta;
   const xs = [], series = {};
   for (let r = 100; r <= 3000; r += 50) xs.push(r);
