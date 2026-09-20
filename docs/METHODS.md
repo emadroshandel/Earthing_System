@@ -356,3 +356,32 @@ energy I_f²·R_N·t.
 **Effectively grounded** (IEEE C62.92) — X₀/X₁ ≤ 3 and R₀/X₁ ≤ 1. When satisfied, 80 %
 rated arresters are normally acceptable; otherwise use full-rated arresters and check the
 temporary-overvoltage duty.
+
+## 10. Cross-checks against other standards — `earthsys/standards.py` (1.3)
+
+These are reported for information only. No verdict depends on them.
+
+**Permissible touch voltage** (BS EN 50522:2022 Table B.3, the same as IEC 61936-1).
+`U_Tp(t_F)` is interpolated linearly in log–log coordinates between 0.05 s (716 V) and 10 s
+(85 V), and clamped outside that range. Module 4 reports it beside the IEEE 80 bare-soil
+limit `1000·k/√t_s`.
+
+**Coincidence probability** (ENA EG-0, AS 2067).
+`P_coinc = f_n·p_n·(f_d + t_d)·T / 31 536 000`. The risk bands are: below 10⁻⁶ negligible,
+above 10⁻⁴ intolerable, and ALARP between.
+
+**Frequency-dependent soil** (CIGRE TB 781, Alipio–Visacro median parameters).
+`σ = σ0 + σ0·h(σ0)·(f/1 MHz)^0.54` with `h = 1.26·σ0^−0.73` (σ in mS/m) and
+`ε_r∞ = 12`. Module 7 evaluates it at `f = 1/(4T)`.
+
+**EPR contour** (AS/NZS 3835.1, EREC S34, AS/NZS 4853). For a far-field hemisphere,
+`x = ρ·I_E/(2π·V_lim)`.
+
+**Inductive coupling** (CIGRE TB 95, AS/NZS 4853). `D_e = 658.5·√(ρ/f)` and
+`z_m = π²f·10⁻⁴ + j·4πf·10⁻⁴·ln(D_e/d)` Ω/km, valid for `d ≪ D_e`. The induced EMF is
+`E = k·|z_m|·L·I`.
+
+**HVDC electrode** (EPRI EL-2020). `Δθ_max = V²/(2ρλ)` and `m = M·I·t/(z·F)`.
+
+**Bonding networks** (IEEE 1100, BS EN 50310). The mesh opening is `a ≤ c/(10·f_max)`, and a
+bonding strap has `|Z| = 2πf·(1 µH/m)·ℓ`.
