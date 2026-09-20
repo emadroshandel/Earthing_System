@@ -1,4 +1,21 @@
-/* EarthSystem — on-demand field explanations.
+/*
+ * Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+ * Copyright (C) 2026 Emad Roshandel
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* Earthing System — on-demand field explanations.
  *
  * Every input that needs one carries its explanation in a <div class="fh">
  * inside the field, and a small ? badge on the label. The text is hidden
