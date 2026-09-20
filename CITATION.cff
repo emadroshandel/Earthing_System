@@ -1,13 +1,13 @@
 cff-version: 1.2.0
-title: "EarthSystem: earthing system design for homes, buildings, substations and power plants"
+title: "Earthing System: earthing system design for homes, buildings, substations and power plants"
 message: "If you use this software in academic work, please cite it as below."
 type: software
 authors:
   - family-names: Roshandel
     given-names: Emad
     orcid: ""
-license: MIT
-repository-code: "https://github.com/emadroshandel/earthsystem"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/emadroshandel/Earthing_System"
 abstract: >-
   An open-source earthing (grounding) system design application implementing
   IEEE Std 80, IEC 60364-4-41 and -5-54, IEC 62305-3, IEC 60909 and IEEE Std
