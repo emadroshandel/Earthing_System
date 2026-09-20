@@ -1,4 +1,4 @@
-# EarthSystem requirements
+# Earthing System requirements
 #
 # The calculation engine, the web server and the report generator use only the
 # Python standard library.  numpy is needed for the numerical (boundary-element)
