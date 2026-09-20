@@ -1,6 +1,6 @@
 # Disclaimer
 
-EarthSystem is an engineering aid, not an authority.
+Earthing System is an engineering aid, not an authority.
 
 Every result it produces is conditional on the inputs it was given: the soil
 model, the fault current, the clearing time, the geometry and the material
