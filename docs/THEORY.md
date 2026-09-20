@@ -27,6 +27,7 @@ the result pass or fail.
 13. [Reading a verdict](#13-reading-a-verdict)
 14. [A suggested teaching sequence](#14-a-suggested-teaching-sequence)
 15. [Symbols](#15-symbols)
+16. [The wider standards landscape](#16-the-wider-standards-landscape)
 
 ---
 
@@ -257,7 +258,7 @@ and for Schlumberger
 - Let `a → ∞`: the series converges to a value that can be shown to give `ρₐ → ρ₂`.
   Correct — a very wide array only sees the bottom layer.
 
-Because `|K| < 1` the series converges geometrically. EarthSystem truncates it when
+Because `|K| < 1` the series converges geometrically. Earthing System truncates it when
 `|K|ⁿ < 10⁻⁶`, which for `K = 0.8` needs 62 terms and for `K = 0.3` only 12.
 
 ![Figure 4 — Apparent resistivity over a two-layer earth for a range of reflection factors, with ρ₁ = 200 Ω·m and h = 2 m. Short spacings always read ρ₁; long spacings tend to ρ₂. The transition happens around a ≈ h.](figures/fig04_two_layer.png)
@@ -267,7 +268,7 @@ Because `|K| < 1` the series converges geometrically. EarthSystem truncates it w
 ### 2.5 Inversion — fitting the model to the field data
 
 We measure `ρₐ` at several spacings and want `(ρ₁, ρ₂, h)`. This is a three-parameter
-non-linear least-squares problem. EarthSystem minimises the **relative** residual
+non-linear least-squares problem. Earthing System minimises the **relative** residual
 
 ```
 Φ(ρ₁, ρ₂, h) = Σᵢ [ (ρₐ,model(aᵢ) − ρₐ,meas(aᵢ)) / ρₐ,meas(aᵢ) ]²          … (2.6)
@@ -444,7 +445,7 @@ resistance `R_g`.
 `S_f` is one of the most influential and most-often-fudged numbers in the whole design.
 With no metallic return, `S_f = 1`. A transmission substation with eight shielded lines
 may see `S_f ≈ 0.12` — meaning **88 % of the fault current never enters the soil**, and
-the grid can be eight times smaller than a naive design would suggest. EarthSystem offers
+the grid can be eight times smaller than a naive design would suggest. Earthing System offers
 the IEEE 80 Annex C guide values as one-click chips, but a real project should use the
 utility's own study.
 
@@ -537,7 +538,7 @@ material and insulation combinations are few and standard.
 Consequences for teaching: the two standards **will not** give the same answer, and it is
 not a mistake. IEEE 80 lets you choose `T_m` freely and use the true material constants;
 IEC fixes `T_f` at the insulation limit. For a bare buried copper conductor IEEE 80 with
-`T_m = 1084 °C` allows a much smaller conductor than IEC with `T_f = 500 °C`. EarthSystem
+`T_m = 1084 °C` allows a much smaller conductor than IEC with `T_f = 500 °C`. Earthing System
 computes both and selects the larger, which is the defensible engineering position.
 
 ### 4.3 What actually limits `T_m` in practice
@@ -560,7 +561,7 @@ than any other single input.
 
 ### 4.4 The other three constraints
 
-Thermal sizing is necessary but not sufficient. EarthSystem also applies:
+Thermal sizing is necessary but not sufficient. Earthing System also applies:
 
 - **Mechanical and corrosion minima** (IEC 60364-5-54 Table 54.1). A buried conductor not
   protected against corrosion must be at least 25 mm² copper regardless of what the
@@ -603,7 +604,7 @@ Read it as a *fraction of the ideal benefit that the layer actually delivers*:
 - The 0.09 is `2b/... ` in disguise — it comes from the 0.08 m foot radius.
 
 **The saturation is the teaching point.** Going from 50 mm to 100 mm buys a lot; going
-from 200 mm to 300 mm buys almost nothing. EarthSystem's remedy text computes the exact
+from 200 mm to 300 mm buys almost nothing. Earthing System's remedy text computes the exact
 thickness needed and will tell you when no achievable thickness can close the gap.
 
 **A trap worth teaching:** `ρ_s` for crushed rock collapses when it is wet or contaminated
@@ -788,7 +789,7 @@ the grid help less than the local conductor does.
 
 ### 7.6 How to read a failure
 
-When `E_m` exceeds `E_touch`, EarthSystem tells you which lever to pull and by how much.
+When `E_m` exceeds `E_touch`, Earthing System tells you which lever to pull and by how much.
 The physics behind each:
 
 | Lever | Effect | Why |
@@ -912,7 +913,7 @@ Concretely: for a segment and its own surface image at depth 0.8 m, midpoint col
 underestimates the image contribution by about 21 %. Accumulated over a whole grid this
 biased the computed earth resistance **5 to 15 % low** — an error in the unsafe direction.
 
-EarthSystem therefore uses **Galerkin double quadrature** (averaging over the field segment
+Earthing System therefore uses **Galerkin double quadrature** (averaging over the field segment
 as well as the source segment) for all near pairs, including the self-image pair, and keeps
 cheap collocation only for far pairs. This is the single most important implementation
 detail in `bem.py`, and it is the sort of thing that separates a solver you can trust from
@@ -1029,7 +1030,7 @@ R = ρ/(4πℓ) [ ln(4ℓ/a) + ln(4ℓ/s) − 2 + s/(2ℓ) − s²/(16ℓ²) + �
 
 > **A published-formula trap.** Several references — including popular open-source code —
 > quote this with `L` where Dwight's `2ℓ` belongs, which inflates the result by about 12 %
-> for a 30 m tape. EarthSystem was caught by this during validation: the boundary-element
+> for a 30 m tape. Earthing System was caught by this during validation: the boundary-element
 > solver disagreed with the "textbook" formula by 11.6 %, and it turned out the solver was
 > right. The two-method cross-check is what found it. Worth telling students as a lesson
 > about trusting a single source.
@@ -1057,7 +1058,7 @@ the group,
 λ = (1/n) Σᵢ Σ_{j≠i} s / d_ij                                      … (9.6)
 ```
 
-EarthSystem uses the BS 7430 Table 5 values where they exist (rods in a line; hollow
+Earthing System uses the BS 7430 Table 5 values where they exist (rods in a line; hollow
 square with 4, 8, 12, 16, 20 rods — 4.51 for eight) and evaluates (9.6) for the actual
 layout otherwise, including the filled square. (Version 1.1 held line-like values for the
 hollow square — 3.45 for eight rods — and line values for the filled square, both
@@ -1107,7 +1108,7 @@ up to a few megahertz. At those frequencies:
   specifies **lengths and geometry**, not resistance.
 
 That is the reason the 10 Ω figure in IEC 62305-3 is *informative* while the `l₁` geometry
-requirement is *normative*. EarthSystem's verdict text makes that distinction explicitly,
+requirement is *normative*. Earthing System's verdict text makes that distinction explicitly,
 because students routinely invert it.
 
 ### 10.2 `l₁`, and Type A versus Type B
@@ -1192,7 +1193,7 @@ the right one.
 
 For a grid rather than a single radial electrode the same argument gives an **effective
 radius** `r_eff` around the injection point, and an effective area `π r_eff²`. Three
-published expressions are in common use and EarthSystem reports all three:
+published expressions are in common use and Earthing System reports all three:
 
 ```
 Gupta & Thapar   r_eff = K (ρT)^0.5      K = 1.45 − 0.05 s   (centre-fed)
@@ -1349,7 +1350,7 @@ This is the single most useful number on the page. It is also the number that ca
 out: on a 10 m building under class III (`R = 45 m`), 1 m rods on the two roof edges 20 m
 apart give `p = 1.13 m` against a rod height of 1 m — the sphere reaches the roof by 130 mm
 and the design fails. The remedy is 1.2 m rods, or one more rod, not a bigger earth
-electrode. EarthSystem reports `p`, the protected height at mid-span, and the tip height that
+electrode. Earthing System reports `p`, the protected height at mid-span, and the tip height that
 would be required at the spacing you entered.
 
 ### 11.4 Why roof edges and corners are special
@@ -1361,7 +1362,7 @@ the arithmetic; it is why IEC 62305-3 clause 5.2.3 asks for terminations on the 
 along the exposed edges — in practice a perimeter conductor with short rods at the corners —
 rather than relying on a single central mast.
 
-EarthSystem tests the roof field and the roof edges as two separate criteria, because the
+Earthing System tests the roof field and the roof edges as two separate criteria, because the
 remedy for each is different, and reports them separately in the elevation and in the report.
 
 ### 11.5 The protective angle method, and its limits
@@ -1376,7 +1377,7 @@ Two cautions belong with it:
 - Figure 1 is published as a *graph*, not as a table of numbers. The values in
   `earthsys/airterm.py` are a digitisation of that graph and should be checked against your
   own copy of the standard before they go into a submitted design. The rolling sphere, by
-  contrast, is derived exactly from (11.2)–(11.4), which is why EarthSystem treats it as the
+  contrast, is derived exactly from (11.2)–(11.4), which is why Earthing System treats it as the
   governing result and shows the angle only for comparison.
 - The two methods do not always agree, and neither is uniformly conservative. The program
   reports both radii side by side and says which is the smaller, so the disagreement is
@@ -1396,7 +1397,7 @@ a mast, a tank farm or an irregular structure.
 
 For anything more complicated than one or two masts on flat ground — masts of different
 heights, a rod standing on a roof, a catenary wire, a building whose own edges intercept the
-flash — there is no closed form. EarthSystem therefore rolls the sphere numerically:
+flash — there is no closed form. Earthing System therefore rolls the sphere numerically:
 
 1. Every solid surface is **sampled into capture points**: the tips and shafts of the
    terminations, the roof line, the wall tops, any catenary.
@@ -1474,7 +1475,7 @@ not a bolt-on but a system-level decision.
 
 ## 13. Reading a verdict
 
-Every compliance row in EarthSystem can be expanded to show four things. Teach students to
+Every compliance row in Earthing System can be expanded to show four things. Teach students to
 read them in this order:
 
 1. **What the criterion means** — the physics being protected against. If they cannot state
@@ -1570,21 +1571,148 @@ wrong inputs, and knowing which inputs matter is the actual skill.
 
 ---
 
+## 16. The wider standards landscape
+
+Earthing System computes to IEEE 80, IEC 60364, IEC 62305 and IEEE 142 (with IEC 60909 for the
+fault current and BS 7430 for the rod factors). Version 1.3 places them among the other
+standards a designer meets. `earthsys/standards.py` holds the registry (edition, status,
+area, and whether the software *implements*, *cross-checks* or only *references* each) and
+the small calculations below. None of them changes a verdict. The tutorial *Earthing System
+Design — Theory and Practice* (2nd edition, version 2.1) derives each one: §5.4, §9.8–9.9,
+§10.8–10.9 and Appendix F.
+
+**Three families of touch-voltage criterion.**
+
+- **IEEE 80.** Dalziel, `R_B = 1000 Ω`, and the surface layer through `C_s` (§5).
+- **BS EN 50522:2022 and IEC 61936-1.** The permissible touch voltage `U_Tp(t_F)` comes
+  from the IEC 60479-1:2018 body impedance and curve c2. The tabulated values are 716, 654,
+  537, 220, 117, 96, 86 and 85 V at 0.05, 0.1, 0.2, 0.5, 1, 2, 5 and 10 s. Footwear and the
+  surface layer enter as series resistances:
+  `U_vTp = U_Tp + (R_F1 + 1.5·ρ_s)·U_Tp/Z_B(U_Tp)`. The like-for-like IEEE 80 value is the
+  bare-soil limit `1000·k/√t`. At 0.5 s it is 222 V (70 kg), against `U_Tp = 220 V`.
+- **AS 2067:2016 with ENA EG-0 and EG-1** (ENA DOC 025-2022 and 045-2022). The criterion is
+  a risk. `P_coinc = f_n·p_n·(f_d + t_d)·T / (365·24·3600)` and
+  `P_fatality = P_coinc·P_fib`. The risk is negligible below 10⁻⁶ per year, intolerable
+  above 10⁻⁴, and ALARP between.
+
+**Testing.** IEEE 81-2012 (now 81-2025) and, in the UK, ENA TS 41-24:2018. The latter adds
+current-injection and slope methods for large grids, and maintenance testing.
+
+**Fault-current distribution.** ENA EREC S34:2018 uses the reduction factor
+`r = |1 − z_m/z_s|` of each return conductor. For a cable screen, `z_m = z_s − R_scr`, so
+`r = R_scr/|z_s|`. A 0.2 Ω/km copper screen in 100 Ω·m soil gives `r = 0.29`: 71 % of the
+fault current returns in the screen. CIGRE TB 347 covers the EPR transferred by specially
+bonded screens.
+
+**Wiring rules.** AS/NZS 3000:2018 (MEN), BS 7671:2018+A4:2026 (PME), and BS 7430 (the 2011
+edition is implemented; the 2026 edition is published).
+
+**Data centres and telecommunications.** IEC 60364-5-548 (withdrawn 2002), IEEE 1100-2005
+and BS EN 50310 use a mesh bonding network with openings `a ≤ c/(10·f_max)`: 1 m at 30 MHz.
+AS/NZS 3835.1 and EREC S34 bound the EPR zone at `x = ρ·I_E/(2π·V_lim)`. For 5.48 kA in
+100 Ω·m, the 430 V boundary is at 203 m.
+
+**Frequency-dependent soil (CIGRE TB 781).**
+`σ(f) = σ0 + σ0·1.26·σ0^−0.73·(f/1 MHz)^0.54` (σ in mS/m), with the matching permittivity.
+A 1000 Ω·m soil behaves as 627 Ω·m at 250 kHz. Using the low-frequency value is conservative
+for the EPR. Module 7 reports the frequency-dependent value.
+
+**Overhead lines and renewables.**
+
+- AS/NZS 7000:2016 and CIGRE TB 839: the critical backflashover current is
+  `I_c ≈ CFO/((1 − c)·R_i)`.
+- IEC 61400-24 and IEEE 2760-2020 for wind. IEEE 2760 is sometimes miscited as 2870.
+- IEEE 2778-2020 for solar.
+
+**Pipelines and HVDC.**
+
+- AS/NZS 4853:2012 and CIGRE TB 95: the Carson mutual impedance is
+  `z_m = π²f·10⁻⁴ + j·4πf·10⁻⁴·ln(D_e/d)` Ω/km, with `D_e = 658.5·√(ρ/f)`, and the induced
+  EMF is `E = k·|z_m|·L·I_f`.
+- EPRI EL-2020: the electrode thermal limit `Δθ_max = V²/(2ρλ)` holds for any electrode
+  shape, and Faraday's law `m = M·I·t/(z·F)` gives 9.13 kg of iron per ampere-year.
+
 ## References
 
-1. IEEE Std 80-2013, *Guide for Safety in AC Substation Grounding*.
-2. IEEE Std 81-2012, *Guide for Measuring Earth Resistivity, Ground Impedance, and Earth Surface Potentials of a Grounding System*.
-3. IEEE Std 142-2007, *Recommended Practice for Grounding of Industrial and Commercial Power Systems* (Green Book).
-4. IEEE Std C62.92, *Guide for the Application of Neutral Grounding in Electrical Utility Systems*.
-5. IEC 60364-4-41:2017, *Protection against electric shock*.
-6. IEC 60364-5-54:2011, *Earthing arrangements and protective conductors*.
-7. IEC 60909-0:2016, *Short-circuit currents in three-phase a.c. systems*.
-8. IEC 62305-3:2010, *Protection against lightning — Physical damage to structures*.
-9. H. B. Dwight, "Calculation of resistances to ground", *Trans. AIEE*, vol. 55, 1936.
-10. E. D. Sunde, *Earth Conduction Effects in Transmission Systems*, Van Nostrand, 1949.
-11. S. J. Schwarz, "Analytical expressions for resistance of grounding systems",
-    *Trans. AIEE*, vol. 73, 1954.
-12. C. F. Dalziel, "Threshold 60-cycle fibrillating currents", *Trans. AIEE*, vol. 79, 1960.
-13. F. Dawalibi and D. Mukhedkar, "Optimum design of substation grounding in two-layer earth",
-    *IEEE Trans. PAS*, vol. 94, 1975.
-14. J. G. Sverak, "Sizing of ground conductors against fusing", *IEEE Trans. PAS*, vol. 100, 1981.
+**Standards implemented** (the calculations follow these editions)
+
+1. IEEE Std 80-2013, *IEEE Guide for Safety in AC Substation Grounding* (incl. Cor 1-2015)
+2. IEEE Std 81-2012, *IEEE Guide for Measuring Earth Resistivity, Ground Impedance, and Earth Surface Potentials of a Grounding System* (superseded by IEEE Std 81-2025)
+3. IEEE Std 142-2007, *IEEE Recommended Practice for Grounding of Industrial and Commercial Power Systems* (Green Book)
+4. IEEE Std C62.92 series, *IEEE Guide for the Application of Neutral Grounding in Electrical Utility Systems*
+5. IEC 60364-4-41:2005+A1:2017, *Low-voltage electrical installations — Protection against electric shock*
+6. IEC 60364-5-54:2011+A1:2021, *Earthing arrangements and protective conductors*
+7. IEC 60909-0:2016, *Short-circuit currents in three-phase a.c. systems — Calculation of currents*
+8. IEC 62305-1 and IEC 62305-3:2010, *Protection against lightning* (edition 3 of Part 3 published 2024)
+9. BS 7430:2011+A1:2015, *Code of practice for protective earthing of electrical installations* (λ tables; replaced by BS 7430:2026)
+
+**Standards cross-checked or referenced** (`earthsys/standards.py`)
+
+*Substation earthing*
+
+10. AS 2067:2016, *Substations and high voltage installations exceeding 1 kV a.c.*
+11. BS EN 50522:2022+A1:2024, *Earthing of power installations exceeding 1 kV a.c.*
+12. IEC 61936-1:2021, *Power installations exceeding 1 kV AC and 1.5 kV DC — Part 1: AC*
+13. ENA DOC 045-2022, *Substation Earthing Guide* (EG-1), Energy Networks Australia
+
+*Testing*
+
+14. ENA TS 41-24 Issue 2 (2018), *Guidelines for the design, installation, testing and maintenance of main earthing systems in substations*, Energy Networks Association (UK)
+
+*Touch and step voltage*
+
+15. IEC 60479-1:2018, *Effects of current on human beings and livestock — Part 1: General aspects* (replaces IEC TS 60479-1:2005+A1:2016); IEC 60479-2:2019, *Part 2: Special aspects*
+16. ENA DOC 025-2022, *Power System Earthing Guide — Part 1: Management Principles* (EG-0), Energy Networks Australia
+
+*Renewable generation*
+
+17. IEC 61400-24:2019+AMD1:2024, *Wind energy generation systems — Part 24: Lightning protection* (turbine earthing, built on IEC 62305-3)
+18. IEEE Std 2760-2020, *IEEE Guide for Wind Power Plant Grounding System Design for Personnel Safety*
+19. IEEE Std 2778-2020, *IEEE Guide for Solar Power Plant Grounding for Personnel Protection*
+
+*Metallic pipelines*
+
+20. AS/NZS 4853:2012, *Electrical hazards on metallic pipelines*
+21. CIGRE TB 95 (1995), *Guide on the influence of high voltage AC power systems on metallic pipelines*
+
+*Industrial and commercial installations*
+
+22. AS/NZS 3000:2018, *Electrical installations* (Wiring Rules), with Amendments 1–3
+23. BS 7671:2018+A4:2026, *Requirements for Electrical Installations* (IET Wiring Regulations, 18th Edition)
+
+*Overhead lines*
+
+24. AS/NZS 7000:2016, *Overhead line design*
+25. CIGRE TB 781 (2019), *Impact of soil-parameter frequency dependence on the response of grounding electrodes and on the lightning performance of electrical systems*
+26. CIGRE TB 839 (2021), *Procedures for estimating the lightning performance of transmission lines — new aspects*
+27. IEEE Std 1243-1997, *IEEE Guide for Improving the Lightning Performance of Transmission Lines*
+
+*HVDC*
+
+28. EPRI EL-2020 (1981), *HVDC Ground Electrode Design*, Electric Power Research Institute
+
+*Data centres*
+
+29. IEC 60364-5-548:1996, *Earthing arrangements and equipotential bonding for information technology installations* (withdrawn 2002; content now in IEC 60364-5-54 and IEC 60364-4-44)
+30. IEEE Std 1100-2005, *IEEE Recommended Practice for Powering and Grounding Electronic Equipment* (Emerald Book; inactive-reserved since 2021)
+
+*Telecommunications*
+
+31. AS/NZS 3835.1:2006, *Earth potential rise — Protection of telecommunications network users, personnel and plant — Code of practice*
+32. BS EN 50310:2016+A1:2020, *Telecommunications bonding networks for buildings and other structures*
+
+*Fault-current distribution*
+
+33. ENA EREC S34 Issue 2 (2018), *A guide for assessing the rise of earth potential at electrical installations*, Energy Networks Association (UK)
+34. CIGRE TB 347 (2008), *Earth potential rises in specially bonded screen systems*
+
+**Papers and books**
+
+35. H. B. Dwight, "Calculation of resistances to ground", *Trans. AIEE*, 55, 1936
+36. E. D. Sunde, *Earth Conduction Effects in Transmission Systems*, Van Nostrand, 1949
+37. J. R. Carson, "Wave propagation in overhead wires with ground return", *Bell Syst. Tech. J.*, 5, 1926
+38. S. J. Schwarz, "Analytical expressions for resistance of grounding systems", *Trans. AIEE*, 73, 1954
+39. C. F. Dalziel, "Threshold 60-cycle fibrillating currents", *Trans. AIEE*, 79, 1960
+40. F. Dawalibi and D. Mukhedkar, "Optimum design of substation grounding in two-layer earth", *IEEE Trans. PAS*, 94, 1975
+41. J. G. Sverak, "Sizing of ground conductors against fusing", *IEEE Trans. PAS*, 100, 1981
+42. R. Alipio and S. Visacro, "Modeling the frequency dependence of electrical parameters of soil", *IEEE Trans. Electromagnetic Compatibility*, 56(5), 2014
