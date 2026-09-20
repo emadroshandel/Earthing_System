@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Bilingual (English / Persian) design-report generator.
 
@@ -41,7 +56,7 @@ T = {
         "criterion": "Criterion", "limit": "Limit", "result": "Result",
         "pass": "PASS", "fail": "FAIL", "margin": "Margin",
         "notes": "Notes and assumptions",
-        "disclaimer": "This report was produced by EarthSystem. All results "
+        "disclaimer": "This report was produced by Earthing System. All results "
                       "must be reviewed and approved by a competent engineer "
                       "before construction. Field verification of the soil "
                       "model and of the installed earthing resistance is "
@@ -56,6 +71,11 @@ T = {
         "margin_txt": "Margin", "howfix": "How to fix it",
         "complies": "COMPLIES", "notcomplies": "DOES NOT COMPLY",
         "crosscheck": "Independent cross-check",
+        "standards": "Standards and codes of practice",
+        "standards_intro": ("Standards applied or cross-checked in this report "
+                            "(role: implemented, cross-check or reference). "
+                            "Editions are those the calculations follow."),
+        "role": "Role", "std": "Standard", "std_title": "Title", "area": "Area",
     },
     "fa": {
         "dir": "rtl", "lang": "fa",
@@ -80,7 +100,7 @@ T = {
         "criterion": "معیار", "limit": "حد مجاز", "result": "نتیجه",
         "pass": "قبول", "fail": "مردود", "margin": "حاشیه اطمینان",
         "notes": "یادداشت‌ها و مفروضات",
-        "disclaimer": "این گزارش توسط نرم‌افزار EarthSystem تولید شده است. "
+        "disclaimer": "این گزارش توسط نرم‌افزار Earthing System تولید شده است. "
                       "کلیه نتایج باید پیش از اجرا توسط مهندس ذی‌صلاح بررسی و "
                       "تأیید شود. صحت‌سنجی میدانی مدل خاک و اندازه‌گیری مقاومت "
                       "زمین اجرا شده الزامی است.",
@@ -94,6 +114,10 @@ T = {
         "margin_txt": "حاشیه اطمینان", "howfix": "راه‌های اصلاح",
         "complies": "منطبق با استاندارد", "notcomplies": "عدم انطباق",
         "crosscheck": "صحت‌سنجی مستقل",
+        "standards": "استانداردها و آیین‌نامه‌ها",
+        "standards_intro": ("استانداردهایی که در این گزارش به کار رفته یا برای "
+                            "صحت‌سنجی استفاده شده‌اند."),
+        "role": "نقش", "std": "استاندارد", "std_title": "عنوان", "area": "حوزه",
     },
 }
 
@@ -180,6 +204,9 @@ LABELS_FA = {
     "System earthing arrangement": "نوع سیستم زمین",
     "Test array": "آرایش اندازه‌گیری",
     "Tolerable step voltage": "ولتاژ گام مجاز",
+    "Permissible touch voltage (cross-check)": "ولتاژ تماس مجاز (صحت‌سنجی EN 50522)",
+    "IEEE 80 touch limit, no surface layer": "حد ولتاژ تماس IEEE 80 بدون لایه سطحی",
+    "Soil resistivity at 1/(4T)": "مقاومت ویژه خاک در فرکانس 1/(4T)",
     "Tolerable touch voltage": "ولتاژ تماس مجاز",
     "Total buried length": "طول کل هادی دفن‌شده",
     "Total electrode length": "طول کل الکترود",
@@ -485,10 +512,18 @@ def _sec_grid(t, d):
         _row(t, "Tolerable step voltage", "E_step", tol.get("E_step"), "V",
              "Eq. (30)/(32)"),
     ]
+    xc = d.get("en50522") or {}
+    if xc:
+        rows += [
+            _row(t, "Permissible touch voltage (cross-check)", "U_Tp", xc.get("U_Tp"), "V",
+                 "BS EN 50522:2022 Table B.3 / IEC 60479-1"),
+            _row(t, "IEEE 80 touch limit, no surface layer", "E_touch,0",
+                 xc.get("E_bare_ieee80"), "V", "1000·k/√t_s"),
+        ]
     f = ("<div class='formula'>R_g = ρ [ 1/L_T + 1/√(20A) ( 1 + 1/(1 + h√(20/A)) ) ]"
          "<br>E_m = ρ·K_m·K_i·I_G / L_M &nbsp;&nbsp; E_s = ρ·K_s·K_i·I_G / L_S</div>")
     return (f"<h2>{t['grid']}</h2>{_table(t, rows)}{f}"
-            f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
+            f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}")
 
 
 def _sec_bem(t, d):
@@ -562,6 +597,10 @@ def _sec_lightning(t, d):
         _row(t, "Separation distance", "s", (d.get("separation") or {}).get("s"), "m",
              "s = k_i·k_c·l/k_m"),
     ]
+    sf = d.get("soil_frequency") or {}
+    if sf:
+        rows.append(_row(t, "Soil resistivity at 1/(4T)", "ρ(f)", sf.get("rho_f"), "Ω·m",
+                         "CIGRE TB 781 (Alipio–Visacro), informational"))
     out = (f"<h2>{t['lightning']}</h2>{_table(t, rows)}"
            f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
 
@@ -675,6 +714,24 @@ def _sec_sysgnd(t, d):
 
 # ---------------------------------------------------------------------------
 
+def _sec_standards(t, data):
+    from . import standards as st
+    mods = [m for m in ("soil", "fault", "conductor", "grid", "bem", "building",
+                        "lightning", "airterm", "sysgnd") if data.get(m)]
+    if not mods:
+        return ""
+    body = "".join(
+        f"<tr><td><bdi>{html.escape(e['id'])}</bdi></td>"
+        f"<td><bdi>{html.escape(e['title'])}</bdi></td>"
+        f"<td>{html.escape(st.AREAS.get(e['area'], e['area']))}</td>"
+        f"<td>{html.escape(e['role'])}</td></tr>"
+        for e in st.for_modules(mods))
+    return (f"<h2>{t['standards']}</h2><p class='note'>{t['standards_intro']}</p>"
+            f"<table><thead><tr><th>{t['std']}</th><th>{t['std_title']}</th>"
+            f"<th>{t['area']}</th><th>{t['role']}</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>")
+
+
 def build(data: dict, lang: str = "en") -> str:
     t = T.get(lang, T["en"])
     meta = data.get("meta", {})
@@ -710,6 +767,7 @@ def build(data: dict, lang: str = "en") -> str:
         _sec_airterm(t, data.get("airterm")),
         _sec_sysgnd(t, data.get("sysgnd")),
         _figures(t, data.get("figures")),
+        _sec_standards(t, data),
     ])
 
     notes = data.get("notes") or ""
@@ -725,7 +783,7 @@ def build(data: dict, lang: str = "en") -> str:
 <style>{css}</style></head>
 <body>
 <h1>{t['title']}</h1>
-<div class="sub">{t['generated']}: {now} — EarthSystem</div>
+<div class="sub">{t['generated']}: {now} — Earthing System</div>
 <div class="meta">
   <div><b>{t['project']}:</b> <bdi>{html.escape(str(meta.get('project', '—')))}</bdi></div>
   <div><b>{t['client']}:</b> <bdi>{html.escape(str(meta.get('client', '—')))}</bdi></div>
