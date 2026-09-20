@@ -1,3 +1,18 @@
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
 Lightning protection earth-termination design to IEC 62305-3:2010.
 
@@ -17,6 +32,7 @@ import math
 
 from .materials import LPS_L1, LPS_L1_RHO, LPS_ELECTRODE_MIN
 from . import iec60364 as lv
+from . import standards
 
 LPS_CLASS = {
     "I":   dict(rolling_sphere=20, mesh="5 × 5 m",  down_spacing=10,
@@ -399,9 +415,22 @@ def design(lps_class: str, rho: float, area: float, perimeter: float,
                            injection=injection,
                            I_kA=float(cls["I_max_kA"]))
 
+    # Frequency-dependent soil (CIGRE TB 781, new in 1.3.0). Informational:
+    # the design above uses the low-frequency rho, which is conservative.
+    f_rep = 1.0 / (4.0 * float(front_time) * 1e-6)
+    av = standards.alipio_visacro(rho, f_rep)
+    soil_freq = dict(f_rep=f_rep, rho_f=av["rho"], eps_r=av["eps_r"],
+                     ratio=av["ratio"],
+                     rho_1MHz=standards.alipio_visacro(rho, 1e6)["rho"],
+                     standard="CIGRE TB 781 (Alipio-Visacro)",
+                     note=(f"At the representative frequency 1/(4T) = "
+                           f"{f_rep / 1e3:.0f} kHz the soil behaves as "
+                           f"{av['rho']:.0f} Ω·m ({av['ratio'] * 100:.0f} % of ρ); "
+                           "using the low-frequency ρ is conservative."))
+
     return dict(lps_class=lps_class.upper(), class_data=cls, rho=rho,
                 down_conductors=dc, earth=earth, separation=sep,
-                impulse=imp,
+                impulse=imp, soil_frequency=soil_freq,
                 electrode_min_sizes=LPS_ELECTRODE_MIN, checks=checks,
                 passed=all(c["passed"] for c in checks),
                 bonding_note="Bond all incoming metallic services and, where "
