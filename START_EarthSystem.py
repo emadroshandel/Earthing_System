@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
-EarthSystem — double-click starter.
+Earthing System — double-click starter.
 
 Use this if the .bat launchers do not run on your system (some security
 software blocks batch files).  Double-click this file, or from a command
@@ -35,7 +50,7 @@ def ensure(pkg, importname=None):
 
 def main():
     print("=" * 60)
-    print("  EarthSystem - Earthing System Design")
+    print("  Earthing System - earthing (grounding) system design")
     print("  Python:", sys.version.split()[0], "-", sys.executable)
     print("=" * 60)
     if sys.version_info < (3, 8):
