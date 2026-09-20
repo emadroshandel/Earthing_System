@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
+# Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+# Copyright (C) 2026 Emad Roshandel
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see <https://www.gnu.org/licenses/>.
+
 """
-EarthSystem — desktop mode.
+Earthing System — desktop mode.
 
 Starts the local server in a background thread and shows the interface in a
 native application window using pywebview.  If pywebview is not installed the
@@ -34,7 +49,7 @@ def main():
     t.start()
     time.sleep(0.6)
     url = f"http://127.0.0.1:{port}/"
-    print(f"EarthSystem {server.APP_VERSION} — {url}")
+    print(f"Earthing System {server.APP_VERSION} — {url}")
 
     try:
         import webview                                   # type: ignore
@@ -51,7 +66,7 @@ def main():
         return
 
     webview.create_window(
-        f"EarthSystem {server.APP_VERSION} — Earthing System Design",
+        f"Earthing System {server.APP_VERSION} — Earthing System Design",
         url, width=1500, height=950, min_size=(1100, 700), confirm_close=False)
     try:
         webview.start()
