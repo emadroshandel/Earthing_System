@@ -1,4 +1,21 @@
-/* EarthSystem — dual-mode boot.
+/*
+ * Earthing System — earthing system design to IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
+ * Copyright (C) 2026 Emad Roshandel
+ *
+ * This program is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* Earthing System — dual-mode boot.
  *
  * The same interface runs two ways:
  *
@@ -31,7 +48,7 @@ window.ES = (function () {
   const MODULES = [
     '__init__.py', 'materials.py', 'soil.py', 'conductor.py', 'faultcurrent.py',
     'ieee80.py', 'bem.py', 'iec60364.py', 'iec62305.py', 'ieee142.py',
-    'airterm.py', 'reasoning.py', 'report.py', 'api.py',
+    'airterm.py', 'standards.py', 'reasoning.py', 'report.py', 'api.py',
   ];
   const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
 
@@ -42,7 +59,7 @@ window.ES = (function () {
       el.id = 'boot';
       el.innerHTML = `<div class="bootbox">
         <div class="bootlogo">⏚</div>
-        <h2>EarthSystem</h2>
+        <h2>Earthing System</h2>
         <p id="bootmsg"></p>
         <div class="bootbar"><i id="bootbar"></i></div>
         <p class="bootsub" id="bootsub"></p></div>`;
@@ -85,7 +102,7 @@ window.ES = (function () {
     splash('Loading numpy…', 'needed by the boundary-element solver', 45);
     await py.loadPackage('numpy');
 
-    splash('Loading the EarthSystem engine…', '', 70);
+    splash('Loading the Earthing System engine…', '', 70);
     py.FS.mkdirTree('/home/pyodide/earthsys');
     const texts = await Promise.all(MODULES.map(async m => {
       const r = await fetch(window.ES.asset('earthsys/' + m));
