@@ -100,20 +100,46 @@ def wenner_two_layer(a: float, rho1: float, rho2: float, h: float) -> float:
     return rho1 * (1.0 + 4.0 * s)
 
 
-def schlumberger_two_layer(s_half: float, rho1: float, rho2: float, h: float) -> float:
-    """Apparent resistivity seen by a Schlumberger array (AB/2 = s_half)."""
+def schlumberger_two_layer(s_half: float, rho1: float, rho2: float, h: float,
+                           mn: float | None = None) -> float:
+    """Apparent resistivity seen by a Schlumberger array (AB/2 = s_half).
+
+    With ``mn`` (the potential-electrode separation MN) the exact finite-MN
+    expression is used (tutorial Eq. 2.9):
+
+        rho_a = rho1 [1 + (s^2 - d^2/4)/d * 2 sum K^n (1/R(s - d/2) - 1/R(s + d/2))],
+        R(x) = sqrt(x^2 + (2 n h)^2),  d = MN.
+
+    Without it (or MN -> 0) the ideal gradient array is used,
+
+        rho_a = rho1 [1 + 2 sum K^n / (1 + (2nh/s)^2)^1.5].
+
+    Version 1.3.1 always used the ideal form even though MN is an input of
+    the data reduction; the ideal form is then wrong by up to about 3 % for
+    MN = AB/10, 11 % for MN = AB/5 and 28 % for MN = AB/3 (the Wenner
+    geometry), always in the transition between the layers.
+    """
     if rho1 <= 0 or rho2 <= 0 or h <= 0:
         return float("nan")
     K = (rho2 - rho1) / (rho2 + rho1)
+    d = float(mn) if mn else 0.0
+    exact = 0.0 < d < 2.0 * s_half and d > 1e-6 * s_half
     acc = 0.0
     Kn = 1.0
+    if exact:
+        xm, xp = s_half - d / 2.0, s_half + d / 2.0
+        geom = (s_half * s_half - d * d / 4.0) / d
     for n in range(1, MAX_IMAGES + 1):
         Kn *= K
         if abs(Kn) < SERIES_TOL:
             break
-        u = 2.0 * n * h / s_half
-        acc += Kn / (1.0 + u * u) ** 1.5
-    return rho1 * (1.0 + 2.0 * acc)
+        z = 2.0 * n * h
+        if exact:
+            acc += Kn * (1.0 / math.hypot(xm, z) - 1.0 / math.hypot(xp, z))
+        else:
+            u = z / s_half
+            acc += Kn / (1.0 + u * u) ** 1.5
+    return rho1 * (1.0 + 2.0 * (geom if exact else 1.0) * acc)
 
 
 FORWARD = {"wenner": wenner_two_layer, "schlumberger": schlumberger_two_layer}
@@ -169,7 +195,8 @@ def _nelder_mead(f, x0: Sequence[float], step: Sequence[float],
 # ---------------------------------------------------------------------------
 
 def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
-                     array: str = "wenner") -> dict:
+                     array: str = "wenner",
+                     mn: Sequence[float] | None = None) -> dict:
     """Least-squares fit of a two-layer earth to measured apparent resistivity.
 
     Parameters are optimised in log space so that rho1, rho2 and h stay
@@ -178,8 +205,25 @@ def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
 
     Returns a dict with rho1, rho2, h, K, rms_pct, fitted curve and residuals.
     """
-    fwd = FORWARD.get(array, wenner_two_layer)
+    base = FORWARD.get(array, wenner_two_layer)
     xs = [float(s) for s in spacings]
+    mns = None
+    if array == "schlumberger" and mn is not None:
+        mns = [float(m) if m else 0.0 for m in mn]
+        if len(mns) != len(xs):
+            raise ValueError("One MN value is needed per Schlumberger reading.")
+    # MN for the smooth plotting curve: the ratio MN/(AB/2) of the nearest reading
+    ratios = [(x, m / x if x else 0.0) for x, m in zip(xs, mns)] if mns else []
+
+    def fwd(a, r1, r2, hh, d=None):
+        if not mns:
+            return base(a, r1, r2, hh)
+        if d is None:
+            near = min(ratios, key=lambda t: abs(math.log(t[0] / a)))
+            d = near[1] * a
+        return base(a, r1, r2, hh, d)
+
+    per_mn = mns if mns else [None] * len(xs)
     ys = [float(r) for r in rho_app]
     if len(xs) < 3:
         raise ValueError("At least three measurement points are required.")
@@ -187,8 +231,8 @@ def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
     def objective(p):
         r1, r2, hh = math.exp(p[0]), math.exp(p[1]), math.exp(p[2])
         acc = 0.0
-        for a, y in zip(xs, ys):
-            m = fwd(a, r1, r2, hh)
+        for a, y, d in zip(xs, ys, per_mn):
+            m = fwd(a, r1, r2, hh, d)
             if not math.isfinite(m) or m <= 0:
                 return 1e30
             acc += ((m - y) / y) ** 2
@@ -210,7 +254,7 @@ def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
             best_p, best_f = p, fval
 
     rho1, rho2, h = (math.exp(v) for v in best_p)
-    fitted = [fwd(a, rho1, rho2, h) for a in xs]
+    fitted = [fwd(a, rho1, rho2, h, d) for a, d in zip(xs, per_mn)]
     resid = [(m - y) / y * 100.0 for m, y in zip(fitted, ys)]
     rms = math.sqrt(best_f / len(xs)) * 100.0
     K = (rho2 - rho1) / (rho2 + rho1)
@@ -224,11 +268,72 @@ def invert_two_layer(spacings: Sequence[float], rho_app: Sequence[float],
         curve_y.append(fwd(a, rho1, rho2, h))
 
     fq = fit_quality(xs, ys, resid, rms)
+    unc = _linearised_uncertainty(fwd, xs, per_mn, best_p, best_f)
     return dict(rho1=rho1, rho2=rho2, h=h, K=K, rms_pct=rms,
+                uncertainty=unc,
                 fitted=fitted, residual_pct=resid, array=array,
+                finite_mn=bool(mns),
                 curve_x=curve_x, curve_y=curve_y,
                 spacings=xs, measured=ys, **fq)
 
+
+
+def _linearised_uncertainty(fwd, xs, mns, p, phi_min) -> dict | None:
+    """Linearised (Gauss-Newton) covariance of the fitted parameters.
+
+        C = s^2 (J^T J)^-1,   s^2 = Phi_min / (N - 3),
+        J_ij = d ln rho_a(a_i) / d ln p_j,   p = (rho1, rho2, h)
+
+    (tutorial Eq. 2.12).  Returns one-standard-deviation ranges, the relative
+    standard deviations and the correlation of rho1 with h, which is the
+    equivalence of the two-layer fit expressed as one number.  None when
+    there are no spare degrees of freedom (three readings) or J is singular.
+    """
+    n = len(xs)
+    if n <= 3:
+        return None
+    eps = 1e-5
+    J = []
+    try:
+        for a, d in zip(xs, mns):
+            row = []
+            for j in range(3):
+                up = list(p); dn = list(p)
+                up[j] += eps; dn[j] -= eps
+                fu = fwd(a, *(math.exp(v) for v in up), d)
+                fd = fwd(a, *(math.exp(v) for v in dn), d)
+                row.append((math.log(fu) - math.log(fd)) / (2 * eps))
+            J.append(row)
+    except (ValueError, ZeroDivisionError):
+        return None
+    JtJ = [[sum(J[i][r] * J[i][c] for i in range(n)) for c in range(3)] for r in range(3)]
+    # 3 x 3 inverse by cofactors
+    m = JtJ
+    det = (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+           - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+           + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+    if abs(det) < 1e-14:
+        return None
+    inv = [[0.0] * 3 for _ in range(3)]
+    for r in range(3):
+        for c in range(3):
+            rows = [i for i in range(3) if i != c]
+            cols = [k for k in range(3) if k != r]
+            minor = (m[rows[0]][cols[0]] * m[rows[1]][cols[1]]
+                     - m[rows[0]][cols[1]] * m[rows[1]][cols[0]])
+            inv[r][c] = (-1) ** (r + c) * minor / det
+    s2 = phi_min / (n - 3)
+    C = [[s2 * inv[r][c] for c in range(3)] for r in range(3)]
+    sd = [math.sqrt(max(C[i][i], 0.0)) for i in range(3)]
+    names = ("rho1", "rho2", "h")
+    out = dict(method="linearised covariance s²(JᵀJ)⁻¹, tutorial Eq. 2.12",
+               dof=n - 3)
+    for i, nm in enumerate(names):
+        v = math.exp(p[i])
+        out[nm] = dict(value=v, sd_pct=100.0 * sd[i],
+                       low_68=v * math.exp(-sd[i]), high_68=v * math.exp(sd[i]))
+    out["corr_rho1_h"] = C[0][2] / (sd[0] * sd[2]) if sd[0] > 0 and sd[2] > 0 else None
+    return out
 
 def fit_quality(xs, ys, resid, rms) -> dict:
     """Judge whether a two-layer model describes the traverse at all.
