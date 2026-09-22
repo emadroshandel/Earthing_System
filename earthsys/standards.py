@@ -309,25 +309,91 @@ def eg0_risk_band(p_fatality_per_year: float) -> str:
 # 3. Frequency-dependent soil — CIGRE TB 781 (Alipio–Visacro model)
 # ---------------------------------------------------------------------------
 
-def alipio_visacro(rho0: float, f: float, gamma: float = 0.54,
-                   eps_inf_r: float = 12.0) -> dict:
+# CIGRE TB 781 Table 3.2: parameter sets of the Alipio-Visacro causal model.
+ALIPIO_VISACRO_LEVELS = {
+    "mean":                    dict(h0=1.26, gamma=0.54, eps_inf_r=12.0),
+    "relatively_conservative": dict(h0=0.95, gamma=0.58, eps_inf_r=8.0),
+    "conservative":            dict(h0=0.70, gamma=0.62, eps_inf_r=4.0),
+}
+
+
+def alipio_visacro(rho0: float, f: float, gamma: float | None = None,
+                   eps_inf_r: float | None = None, level: str = "mean") -> dict:
     """Resistivity and relative permittivity of soil at frequency f (Hz).
 
+    CIGRE TB 781, Eq. 3.10-3.11 with the parameters of its Table 3.2:
     σ(f)  = σ0 + σ0·h(σ0)·(f/1 MHz)^γ                     (σ in mS/m)
     ε_r(f) = ε∞r + tan(πγ/2)·1e-3 /(2π ε0 (1 MHz)^γ) · σ0·h(σ0)·f^(γ-1)
-    h(σ0) = 1.26·σ0^-0.73,  γ = 0.54,  ε∞r = 12 (median parameters)
-
-    rho0 is the low-frequency (≈100 Hz) resistivity in Ω·m. Valid about
+    h(σ0) = h0·σ0^-0.73.  level = "mean" (h0 1.26, γ 0.54, ε∞r 12; the set
+    TB 781 recommends for regular engineering, its Eq. 5.3-5.4),
+    "relatively_conservative" (0.95, 0.58, 8) or "conservative" (0.70, 0.62, 4).
+    rho0 is the low-frequency (≈100 Hz) resistivity in Ω·m.  Valid about
     100 Hz – 4 MHz."""
     if rho0 <= 0 or f <= 0:
         raise ValueError("rho0 and f must be positive")
+    par = ALIPIO_VISACRO_LEVELS[level]
+    g = par["gamma"] if gamma is None else gamma
+    einf = par["eps_inf_r"] if eps_inf_r is None else eps_inf_r
     s0 = 1000.0 / rho0                       # mS/m
-    h = 1.26 * s0 ** -0.73
-    s = s0 + s0 * h * (f / 1e6) ** gamma     # mS/m
-    eps_r = eps_inf_r + (math.tan(math.pi * gamma / 2) * 1e-3
-                         / (2 * math.pi * EPS0 * (1e6) ** gamma)) * s0 * h * f ** (gamma - 1)
+    h = par["h0"] * s0 ** -0.73
+    s = s0 + s0 * h * (f / 1e6) ** g         # mS/m
+    eps_r = einf + (math.tan(math.pi * g / 2) * 1e-3
+                    / (2 * math.pi * EPS0 * (1e6) ** g)) * s0 * h * f ** (g - 1)
     return dict(rho=1000.0 / s, eps_r=eps_r, ratio=(1000.0 / s) / rho0,
-                standard="CIGRE TB 781")
+                level=level, standard="CIGRE TB 781")
+
+
+# CIGRE TB 781 Table 4.1: reduction of the impulse coefficient Z_p/R_LF by the
+# frequency dependence of the soil, for electrodes shorter than L_eff
+# (simulated for horizontal electrodes; TB 781 4.2.3 finds the same ratio for
+# grids and counterpoises).
+TB781_IC_RHO = [100.0, 300.0, 600.0, 1000.0, 2000.0, 4000.0]
+TB781_IC_FIRST = [0.98, 0.95, 0.92, 0.89, 0.82, 0.72]
+TB781_IC_SUBSEQUENT = [0.91, 0.84, 0.77, 0.70, 0.60, 0.50]
+
+
+def tb781_impulse_reduction(rho0: float, stroke: str = "first") -> dict:
+    """Factor by which frequency-dependent soil lowers the impulse impedance
+    of an electrode shorter than its effective length (CIGRE TB 781 Table 4.1,
+    log-linear interpolation in ρ0, held constant outside 100–4000 Ω·m).
+
+    Note the factor is much closer to 1 than ρ(f)/ρ0 at the representative
+    frequency: the impulse impedance does not scale with the resistivity."""
+    ys = TB781_IC_FIRST if stroke == "first" else TB781_IC_SUBSEQUENT
+    x = min(max(rho0, TB781_IC_RHO[0]), TB781_IC_RHO[-1])
+    lx = math.log(x)
+    for i in range(len(TB781_IC_RHO) - 1):
+        a, b = math.log(TB781_IC_RHO[i]), math.log(TB781_IC_RHO[i + 1])
+        if lx <= b:
+            fac = ys[i] + (ys[i + 1] - ys[i]) * (lx - a) / (b - a)
+            break
+    if rho0 < 300:
+        relevance = "not relevant (ρ0 < 300 Ω·m): ignore"
+    elif rho0 <= 700:
+        relevance = "relevant (300–700 Ω·m): recommended"
+    else:
+        relevance = "very relevant (> 700 Ω·m): mandatory for the lightning response"
+    return dict(factor=fac, stroke=stroke, relevance=relevance,
+                standard="CIGRE TB 781 Table 4.1 and Table 5.1")
+
+
+def tb781_counterpoise_zp1st(rho0: float, L: float) -> dict:
+    """First-stroke impulse impedance of tower-footing counterpoises with
+    frequency-dependent soil, CIGRE TB 781 Eq. 4.1-4.2 (from its ref. [A51]):
+        Z_P1st = 0.16·ρ0·L^-0.687          (100 ≤ ρ0 ≤ 600 Ω·m)
+        Z_P1st = 0.4·ρ0^0.89·L^-0.75       (600 < ρ0 ≤ 4000 Ω·m)
+    L in m as defined in the brochure's Figure 4.9 (length of each wire)."""
+    if not (100.0 <= rho0 <= 4000.0) or L <= 0:
+        raise ValueError("TB 781 Eq. 4.1-4.2 cover 100 ≤ ρ0 ≤ 4000 Ω·m and L > 0")
+    Z = 0.16 * rho0 * L ** -0.687 if rho0 <= 600.0 else 0.4 * rho0 ** 0.89 * L ** -0.75
+    return dict(Z_P1st=Z, rho0=rho0, L=L, standard="CIGRE TB 781 Eq. 4.1–4.2")
+
+
+def tb781_tower_ic1st(rho0: float) -> dict:
+    """First-stroke impulse coefficient of a tower footing from its measured
+    low-frequency resistance, CIGRE TB 781 Eq. 4.3-4.4:
+        IC_1st = 0.89 - 5e-5·ρ0,   Z_P1st = IC_1st·R_LF."""
+    return dict(IC_1st=0.89 - 5e-5 * rho0, standard="CIGRE TB 781 Eq. 4.3–4.4")
 
 
 # ---------------------------------------------------------------------------
