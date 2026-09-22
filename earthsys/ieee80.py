@@ -80,8 +80,8 @@ def tolerable_voltages(rho: float, rho_s: float, hs: float, ts: float,
                 body_weight=body_weight, ts=ts, rho=rho, rho_s=rho_s, hs=hs,
                 RB=1000.0,
                 Ib=k / math.sqrt(ts),
-                formula=("IEEE Std 80-2013 Eq. (29)/(31) for 50 kg, "
-                         "Eq. (30)/(32) for 70 kg"))
+                formula=("IEEE Std 80-2013 Eq. (29)/(32) for 50 kg, "
+                         "Eq. (30)/(33) for 70 kg"))
 
 
 # ---------------------------------------------------------------------------
@@ -190,21 +190,35 @@ class GridGeometry:
 # ---------------------------------------------------------------------------
 
 def sverak_resistance(rho: float, A: float, LT: float, h: float) -> dict:
-    """IEEE Std 80-2013 Eq. (52) -- Sverak.
+    """IEEE Std 80-2013 Eq. (57) -- Sverak.
 
         R_g = rho [ 1/L_T + 1/sqrt(20A) ( 1 + 1/(1 + h sqrt(20/A)) ) ]
     """
     Rg = rho * (1.0 / LT + 1.0 / math.sqrt(20.0 * A)
                 * (1.0 + 1.0 / (1.0 + h * math.sqrt(20.0 / A))))
-    return dict(Rg=Rg, method="Sverak", formula="IEEE Std 80-2013 Eq. (52)")
+    return dict(Rg=Rg, method="Sverak", formula="IEEE Std 80-2013 Eq. (57)")
 
 
 def _schwarz_k(Lx: float, Ly: float, h: float, A: float):
-    """k1, k2 from IEEE Std 80-2013 Figure 25, linear fits, bilinear in depth."""
+    """k1, k2 from IEEE Std 80-2013 Figure 24, linear fits, linear in depth.
+
+    x = length-to-width ratio.  Curve A (h = 0):         k1 = -0.04x + 1.41,
+                                                        k2 = +0.15x + 5.50
+                                Curve B (h = sqrt(A)/10): k1 = -0.05x + 1.20,
+                                                        k2 = +0.10x + 4.68
+                                Curve C (h = sqrt(A)/6):  k1 = -0.05x + 1.13,
+                                                        k2 = -0.05x + 4.40
+    Version 1.3.1 and earlier had k2 of curve A as -0.15x + 5.50; the slope
+    is positive in the standard (IEEE 80-2013 Fig. 24, IEEE 80-1986 Fig. 18).
+    The printed fit of k2 curve C (-0.05x) disagrees with the plotted curve,
+    which rises from about 4.45 to 4.6 (+0.05x); the printed fit is used as
+    the conservative reading.  Curves B and C are drawn only up to x = 4.  For a square
+    grid near the surface that put k2 0.30 low and R1 about 0.8 % high.
+    """
     ratio = max(Lx, Ly) / max(min(Lx, Ly), 1e-9)
     sqrtA = math.sqrt(A)
     tables = [
-        (0.0,          (-0.04 * ratio + 1.41, -0.15 * ratio + 5.50)),
+        (0.0,          (-0.04 * ratio + 1.41,  0.15 * ratio + 5.50)),
         (sqrtA / 10.0, (-0.05 * ratio + 1.20,  0.10 * ratio + 4.68)),
         (sqrtA / 6.0,  (-0.05 * ratio + 1.13, -0.05 * ratio + 4.40)),
     ]
@@ -220,7 +234,7 @@ def _schwarz_k(Lx: float, Ly: float, h: float, A: float):
 
 
 def schwarz_resistance(rho: float, g: GridGeometry) -> dict:
-    """IEEE Std 80-2013 Eq. (56)–(60) -- Schwarz combined grid + rod bed."""
+    """IEEE Std 80-2013 Eq. (58)–(61) -- Schwarz combined grid + rod bed."""
     A, Lc, Lx, Ly, h = g.A, g.Lc, g.Lx, g.Ly, g.h
     k1, k2 = _schwarz_k(Lx, Ly, h, A)
     sqrtA = math.sqrt(A)
@@ -242,7 +256,7 @@ def schwarz_resistance(rho: float, g: GridGeometry) -> dict:
         Rg = R1
 
     return dict(Rg=Rg, R1=R1, R2=R2, Rm=Rm, k1=k1, k2=k2, h_prime=hp,
-                method="Schwarz", formula="IEEE Std 80-2013 Eq. (56)–(60)")
+                method="Schwarz", formula="IEEE Std 80-2013 Eq. (58)–(61)")
 
 
 def grid_resistance(rho: float, g: GridGeometry, method: str = "auto") -> dict:
@@ -288,10 +302,10 @@ def grid_resistance(rho: float, g: GridGeometry, method: str = "auto") -> dict:
 # ---------------------------------------------------------------------------
 
 def geometric_factors(g: GridGeometry) -> dict:
-    """n = n_a n_b n_c n_d and the K factors, IEEE Std 80-2013 Eq. (84)–(94)."""
+    """n = n_a n_b n_c n_d and the K factors, IEEE Std 80-2013 Eq. (86)–(94), (99)."""
     A, Lc, Lp, Lx, Ly, h, d = g.A, g.Lc, g.Lp, g.Lx, g.Ly, g.h, g.d
 
-    # IEEE Std 80-2013 Eq. (85)-(88):
+    # IEEE Std 80-2013 Eq. (90)-(93):
     #   n_b = 1 for square grids
     #   n_c = 1 for square and rectangular grids
     #   n_d = 1 for square, rectangular and L-shaped grids
@@ -323,20 +337,20 @@ def geometric_factors(g: GridGeometry) -> dict:
     return dict(n=n, n_a=n_a, n_b=n_b, n_c=n_c, n_d=n_d,
                 Km=Km, Ki=Ki, Ks=Ks, Kii=Kii, Kh=Kh, D=D,
                 has_perimeter_rods=has_rods,
-                formula="IEEE Std 80-2013 Eq. (84)–(94)")
+                formula="IEEE Std 80-2013 Eq. (86)–(94), (99)")
 
 
 def effective_lengths(g: GridGeometry) -> dict:
-    """L_M (mesh) and L_S (step), IEEE Std 80-2013 Eq. (89)–(93)."""
+    """L_M (mesh) and L_S (step), IEEE Std 80-2013 Eq. (95), (96), (98)."""
     Lc, LR, Lr = g.Lc, g.LR, g.Lr
     if g.n_rods > 0 and g.rods_on_perimeter:
         factor = 1.55 + 1.22 * (Lr / math.sqrt(g.Lx ** 2 + g.Ly ** 2))
         LM = Lc + factor * LR
-        note = "Rods in the corners and along the perimeter — Eq. (91)."
+        note = "Rods in the corners and along the perimeter — Eq. (96)."
     else:
         factor = 1.0
         LM = Lc + LR
-        note = "No rods, or rods not on the perimeter — Eq. (90)."
+        note = "No rods, or rods not on the perimeter — Eq. (95)."
     LS = 0.75 * Lc + 0.85 * LR
     return dict(LM=LM, LS=LS, rod_factor=factor, note=note)
 
@@ -349,7 +363,7 @@ def mesh_step_voltages(rho: float, g: GridGeometry, IG_A: float) -> dict:
     out = dict(Em=Em, Es=Es, IG_A=IG_A, rho=rho)
     out.update(gf)
     out.update(el)
-    out["formula"] = "IEEE Std 80-2013 Eq. (85) E_m = ρ·K_m·K_i·I_G/L_M ; Eq. (92) E_s"
+    out["formula"] = "IEEE Std 80-2013 Eq. (85) E_m = ρ·K_m·K_i·I_G/L_M ; Eq. (97) E_s"
     return out
 
 
