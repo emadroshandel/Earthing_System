@@ -172,7 +172,7 @@ class TestAutomaticResistanceFormula(unittest.TestCase):
 
     def test_explicit_methods_unchanged(self):
         g = ieee80.GridGeometry(**ANNEX_B, n_rods=20, Lr=7.5)
-        self.assertAlmostEqual(ieee80.grid_resistance(400, g, "schwarz")["Rg"], 2.867, places=3)
+        self.assertAlmostEqual(ieee80.grid_resistance(400, g, "schwarz")["Rg"], 2.844, places=3)  # 2.867 before the k2 fix of 1.3.2
         self.assertAlmostEqual(ieee80.grid_resistance(400, g, "sverak")["Rg"], 2.753, places=3)
 
 
@@ -180,7 +180,7 @@ class TestRodGroupFactor(unittest.TestCase):
     """Fix 4: hollow-square lambda held line-like values (3.45 for 8 rods)."""
 
     def test_bs7430_hollow_square(self):
-        for n, lam in ((4, 2.71), (8, 4.51), (12, 5.48), (16, 6.13), (20, 6.63)):
+        for n, lam in ((4, 2.71), (8, 4.51), (12, 5.46), (16, 6.14), (20, 6.63), (76, 9.40)):  # BS 7430:2011 Table 2
             self.assertAlmostEqual(iec60364.rod_group_lambda(n, "hollow_square")[0], lam)
 
     def test_computed_lambda_matches_definition(self):
