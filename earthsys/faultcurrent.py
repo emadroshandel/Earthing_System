@@ -148,14 +148,14 @@ def _c(z: complex) -> dict:
 # ---------------------------------------------------------------------------
 
 def decrement_factor(tf: float, xr_ratio: float, f: float = 50.0) -> dict:
-    """IEEE Std 80-2013 Eq. (79):
+    """IEEE Std 80-2013 Eq. (84):
 
         D_f = sqrt( 1 + (T_a/t_f)(1 - e^(-2 t_f / T_a)) ),  T_a = X/(2*pi*f*R)
     """
     Ta = xr_ratio / (2.0 * math.pi * f)
     Df = math.sqrt(1.0 + (Ta / tf) * (1.0 - math.exp(-2.0 * tf / Ta)))
     return dict(Df=Df, Ta=Ta, tf=tf, xr_ratio=xr_ratio, f=f,
-                formula="IEEE Std 80-2013 Eq. (79)")
+                formula="IEEE Std 80-2013 Eq. (84)")
 
 
 def split_factor_simple(Rg: float, Z_return: complex | float) -> dict:
@@ -177,6 +177,10 @@ def split_factor_simple(Rg: float, Z_return: complex | float) -> dict:
                         "(IEEE Std 80-2013 Annex C)")
 
 
+# Indicative values only.  They are NOT taken from IEEE Std 80 (which gives
+# Table C.1 and the curves of Figures C.1-C.22 instead); they are a coarse
+# summary of what that table gives for a grid of about 1 ohm.  Use
+# split_factor_table_c1 for an estimate tied to the standard.
 SPLIT_FACTOR_GUIDE = [
     dict(case="Distribution substation, no transmission line, no neutral", Sf=1.00),
     dict(case="Distribution substation, 1 transmission line, 1 distribution neutral", Sf=0.60),
@@ -186,10 +190,52 @@ SPLIT_FACTOR_GUIDE = [
     dict(case="Generating station, extensive metallic network", Sf=0.05),
 ]
 
+# IEEE Std 80-2013 Table C.1: approximate equivalent impedance (ohm) of the
+# transmission-line shield wires and distribution-feeder neutrals, for 100 %
+# remote contribution.  Key (transmission lines, distribution neutrals);
+# value (Z for Rtg = 15, Rdg = 25 ohm;  Z for Rtg = 100, Rdg = 200 ohm).
+SPLIT_FACTOR_TABLE_C1 = {
+    (1, 1): (0.91 + 0.485j, 3.27 + 0.652j), (1, 2): (0.54 + 0.33j, 2.18 + 0.412j),
+    (1, 4): (0.295 + 0.20j, 1.32 + 0.244j), (1, 8): (0.15 + 0.11j, 0.732 + 0.133j),
+    (1, 12): (0.10 + 0.076j, 0.507 + 0.091j), (1, 16): (0.079 + 0.057j, 0.387 + 0.069j),
+    (2, 1): (0.685 + 0.302j, 2.18 + 0.442j), (2, 2): (0.455 + 0.241j, 1.63 + 0.324j),
+    (2, 4): (0.27 + 0.165j, 1.09 + 0.208j), (2, 8): (0.15 + 0.10j, 0.685 + 0.122j),
+    (2, 12): (0.10 + 0.07j, 0.47 + 0.087j), (2, 16): (0.08 + 0.055j, 0.366 + 0.067j),
+    (4, 1): (0.45 + 0.16j, 1.30 + 0.273j), (4, 2): (0.34 + 0.15j, 1.09 + 0.22j),
+    (4, 4): (0.23 + 0.12j, 0.817 + 0.16j), (4, 8): (0.134 + 0.083j, 0.546 + 0.103j),
+    (4, 12): (0.095 + 0.061j, 0.41 + 0.077j), (4, 16): (0.073 + 0.05j, 0.329 + 0.06j),
+    (8, 1): (0.27 + 0.08j, 0.72 + 0.152j), (8, 2): (0.23 + 0.08j, 0.65 + 0.134j),
+    (8, 4): (0.17 + 0.076j, 0.543 + 0.11j), (8, 8): (0.114 + 0.061j, 0.408 + 0.079j),
+    (8, 12): (0.085 + 0.049j, 0.327 + 0.064j), (8, 16): (0.067 + 0.041j, 0.273 + 0.052j),
+    (12, 1): (0.191 + 0.054j, 0.498 + 0.106j),
+}
+
+
+def split_factor_table_c1(Rg: float, n_lines: int, n_neutrals: int,
+                          high_resistance: bool = False) -> dict:
+    """Split factor from IEEE Std 80-2013 Table C.1.
+
+    S_f = |Z_eq| / |Z_eq + R_g|, the current divider of Eq. (C.4), with
+    Z_eq the tabulated equivalent impedance of the shield wires and feeder
+    neutrals (Rtg = 15 / Rdg = 25 ohm, or 100 / 200 ohm when
+    high_resistance).  Valid for 100 % remote contribution only.
+    """
+    key = (int(n_lines), int(n_neutrals))
+    if key not in SPLIT_FACTOR_TABLE_C1:
+        raise ValueError(f"IEEE 80 Table C.1 has no row for {key[0]} lines and "
+                         f"{key[1]} neutrals")
+    Z = SPLIT_FACTOR_TABLE_C1[key][1 if high_resistance else 0]
+    out = split_factor_simple(Rg, Z)
+    out.update(n_lines=key[0], n_neutrals=key[1],
+               Rtg_Rdg="100/200 Ω" if high_resistance else "15/25 Ω",
+               formula="S_f = |Z_eq| / |Z_eq + R_g|, Z_eq from IEEE Std 80-2013 "
+                       "Table C.1 (100 % remote contribution)")
+    return out
+
 
 def grid_current(three_I0_kA: float, Sf: float, Df: float,
                  Cp: float = 1.0) -> dict:
-    """Maximum grid current, IEEE Std 80-2013 Eq. (77)/(78).
+    """Maximum grid current, IEEE Std 80-2013 Eq. (78) and (69).
 
         I_g = S_f * 3I_0 * C_p       (symmetrical grid current)
         I_G = D_f * I_g              (maximum grid current)
@@ -198,7 +244,7 @@ def grid_current(three_I0_kA: float, Sf: float, Df: float,
     IG = Df * Ig
     return dict(Ig_kA=Ig, IG_kA=IG, Sf=Sf, Df=Df, Cp=Cp,
                 three_I0_kA=three_I0_kA,
-                formula="IEEE Std 80-2013 Eq. (77)–(78): I_G = D_f·S_f·C_p·3I₀")
+                formula="IEEE Std 80-2013 Eq. (78), (69): I_G = D_f·S_f·C_p·3I₀")
 
 
 def thermal_equivalent(Ik_kA: float, tk: float, xr_ratio: float,
