@@ -1,7 +1,9 @@
 # Earthing System — methods and equations
 
 Every equation the software applies, with its source clause. Symbols follow the
-originating standard.
+originating standard. IEEE 80 equation, figure and table numbers are those of
+IEEE Std 80-2013 as republished with Corrigendum 1-2015 (since version 1.3.2; earlier
+versions quoted some IEEE 80-2000 numbers).
 
 ---
 
@@ -17,7 +19,9 @@ originating standard.
 **Two-layer forward model** — image series with K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁)
 
     Wenner          ρₐ(a) = ρ₁ [ 1 + 4 Σₙ Kⁿ ( 1/√(1+(2nh/a)²) − 1/√(4+(2nh/a)²) ) ]
-    Schlumberger    ρₐ(s) = ρ₁ [ 1 + 2 Σₙ Kⁿ / (1 + (2nh/s)²)^{3/2} ]
+    Schlumberger    ρₐ(s) = ρ₁ [ 1 + 2 Σₙ Kⁿ / (1 + (2nh/s)²)^{3/2} ]   (MN → 0)
+                    ρₐ(s,d) = ρ₁ [ 1 + (s² − d²/4)/d · 2 Σₙ Kⁿ ( 1/R(s − d/2) − 1/R(s + d/2) ) ],
+                    R(x) = √(x² + (2nh)²), used with the MN of each reading (1.3.2)
 
 **Inversion** — (ρ₁, ρ₂, h) are optimised in log space with a dependency-free
 Nelder–Mead simplex, minimising Σ((ρ_model − ρ_meas)/ρ_meas)². Twenty-seven starting
@@ -46,9 +50,9 @@ penetration when the electrodes cross the interface, otherwise ρ₁.
 
 **IEEE Std 80-2013 clause 15**
 
-    Decrement factor        D_f = √[ 1 + (T_a/t_f)(1 − e^(−2t_f/T_a)) ],  T_a = X/(2πfR)   Eq. (79)
+    Decrement factor        D_f = √[ 1 + (T_a/t_f)(1 − e^(−2t_f/T_a)) ],  T_a = X/(2πfR)   Eq. (84)
     Split factor            S_f = |Z_r| / |Z_r + R_g|                                      Annex C
-    Grid current            I_g = S_f·C_p·3I₀ ;   I_G = D_f·I_g                            Eq. (77)–(78)
+    Grid current            I_g = S_f·C_p·3I₀ ;   I_G = D_f·I_g                            Eq. (78), (69)
 
 ---
 
@@ -90,24 +94,30 @@ need not exceed 25 mm² copper.
 
 **Resistance**
 
-    Sverak   R_g = ρ[ 1/L_T + 1/√(20A)·(1 + 1/(1 + h√(20/A))) ]  Eq. (52)
+    Sverak   R_g = ρ[ 1/L_T + 1/√(20A)·(1 + 1/(1 + h√(20/A))) ]  Eq. (57)
 
     Schwarz  R₁ = ρ/(πL_C)·[ ln(2L_C/h′) + k₁L_C/√A − k₂ ]
              R₂ = ρ/(2πn_R L_R)·[ ln(8L_R/d_R) − 1 + 2k₁L_R(√n_R − 1)²/√A ]
              R_m = ρ/(πL_C)·[ ln(2L_C/L_R) + k₁L_C/√A − k₂ + 1 ]
-             R_g = (R₁R₂ − R_m²)/(R₁ + R₂ − 2R_m)                Eq. (56)–(60)
+             R_g = (R₁R₂ − R_m²)/(R₁ + R₂ − 2R_m)                Eq. (58)–(61)
 
 *Automatic* uses Sverak for a grid without rods and, with rods, Sverak's grid-only value
 multiplied by the Schwarz rod factor R_g/R₁ — so adding rods can never appear to raise
 R_g, as it did in version 1.1 (2.776 → 2.867 Ω for Annex B with 20 rods).
 
-with h′ = √(d·h) and k₁, k₂ from the Figure 25 fits, bilinearly interpolated in h/√A:
+with h′ = √(d·h), L_x/L_y the length-to-width ratio (≥ 1), and k₁, k₂ from the Figure 24 fits,
+linearly interpolated in h between the three curves (the slope of k₂ for h = 0 was
+printed with the wrong sign before version 1.3.2):
 
 | depth | k₁ | k₂ |
 |---|---|---|
-| 0 | −0.04(L_x/L_y) + 1.41 | −0.15(L_x/L_y) + 5.50 |
+| 0 | −0.04(L_x/L_y) + 1.41 | +0.15(L_x/L_y) + 5.50 |
 | √A/10 | −0.05(L_x/L_y) + 1.20 | +0.10(L_x/L_y) + 4.68 |
-| √A/6 | −0.05(L_x/L_y) + 1.13 | −0.05(L_x/L_y) + 4.40 |
+| √A/6 | −0.05(L_x/L_y) + 1.13 | −0.05(L_x/L_y) + 4.40 ¹ |
+
+¹ As printed in the standard. The plotted curve C of Figure 24(b) rises from about 4.45 to 4.6 between
+x = 1 and 4, i.e. +0.05x + 4.40; the printed fit is kept because it is the lower-k₂, conservative reading.
+Curves B and C are drawn only up to x = 4.
 
 **Geometry factor**
 
@@ -115,23 +125,23 @@ with h′ = √(d·h) and k₁, k₂ from the Figure 25 fits, bilinearly interpo
     n_a = 2L_C/L_p
     n_b = 1 (square)          else √(L_p/(4√A))
     n_c = 1 (square/rect.)    else [L_xL_y/A]^(0.7A/(L_xL_y))
-    n_d = 1 (square/rect./L)  else D_m/√(L_x² + L_y²)             Eq. (84)–(88)
+    n_d = 1 (square/rect./L)  else D_m/√(L_x² + L_y²)             Eq. (89)–(93)
 
 **Mesh and step voltages**
 
-    K_h  = √(1 + h/h₀),  h₀ = 1 m                                Eq. (83)
-    K_ii = 1 with rods on the perimeter, else 1/(2n)^(2/n)       Eq. (82)
+    K_h  = √(1 + h/h₀),  h₀ = 1 m                                Eq. (88)
+    K_ii = 1 with rods on the perimeter, else 1/(2n)^(2/n)       Eq. (87)
     K_m  = (1/2π)·{ ln[ D²/(16hd) + (D+2h)²/(8Dd) − h/(4d) ]
-                    + (K_ii/K_h)·ln[8/(π(2n−1))] }               Eq. (81)
-    K_i  = 0.644 + 0.148n                                        Eq. (89)
-    K_s  = (1/π)·[ 1/(2h) + 1/(D+h) + (1/D)(1 − 0.5^(n−2)) ]     Eq. (94)
+                    + (K_ii/K_h)·ln[8/(π(2n−1))] }               Eq. (86)
+    K_i  = 0.644 + 0.148n                                        Eq. (94)
+    K_s  = (1/π)·[ 1/(2h) + 1/(D+h) + (1/D)(1 − 0.5^(n−2)) ]     Eq. (99)
 
-    L_M  = L_C + L_R                                  (no perimeter rods)   Eq. (90)
-    L_M  = L_C + [1.55 + 1.22(L_r/√(L_x²+L_y²))]·L_R  (perimeter rods)      Eq. (91)
-    L_S  = 0.75L_C + 0.85L_R                                                Eq. (93)
+    L_M  = L_C + L_R                                  (no perimeter rods)   Eq. (95)
+    L_M  = L_C + [1.55 + 1.22(L_r/√(L_x²+L_y²))]·L_R  (perimeter rods)      Eq. (96)
+    L_S  = 0.75L_C + 0.85L_R                                                Eq. (98)
 
     E_m  = ρ·K_m·K_i·I_G / L_M                                   Eq. (85)
-    E_s  = ρ·K_s·K_i·I_G / L_S                                   Eq. (92)
+    E_s  = ρ·K_s·K_i·I_G / L_S                                   Eq. (97)
 
 **Acceptance** — the design passes if GPR ≤ E_touch (no further analysis needed, §16.4),
 or if both E_m ≤ E_touch and E_s ≤ E_step. Auto-refine first reduces D in 0.5 m steps down
@@ -194,8 +204,10 @@ its density; profiles along an arbitrary traverse.
     Foundation            R ≈ 0.2ρ/∛V
     Mesh                  Sverak, as above
 
-λ: BS 7430 Table 5 where tabulated (line; hollow square of 4–20 rods), otherwise
-λ = (1/n) Σᵢ Σ_{j≠i} s/d_ij for the actual layout.
+λ: rods in a line, BS 7430:2011 9.5.4, λ = 2(1/2 + … + 1/n), which is exactly the
+neighbour sum below; hollow square, BS 7430:2011 Table 2 (4–76 rods); otherwise
+λ = (1/n) Σᵢ Σ_{j≠i} s/d_ij for the actual layout. (Up to 1.3.2 the line values were
+rounded ones from an older edition, e.g. 2.15 for four rods instead of 2.167.)
 
 **Combining bonded electrodes** — mutual resistance R_ij = min(ρ/(2π max(D, rᵢ+rⱼ)), Rᵢ, Rⱼ)
 with rᵢ = ρ/(2πRᵢ); R_A = 1/(1ᵀ[R]⁻¹1). D is the stated separation; without one the
@@ -235,13 +247,13 @@ type D 20·I_n, or the tabulated gG fuse currents for 0.4 s and 5 s.
 | III | 45 m | 15 × 15 m | 15 m | 0.04 |
 | IV | 60 m | 20 × 20 m | 20 m | 0.04 |
 
-**Minimum electrode length l₁** (Figure 3), linearly interpolated in ρ:
+**Minimum electrode length l₁** (Figure 3, read from the vector drawing of the 2010 edition):
 
-| ρ (Ω·m) | ≤ 500 | 1000 | 2000 | 3000 |
-|---|---|---|---|---|
-| Class I | 5 | 20 | 50 | 80 |
-| Class II | 5 | 10 | 30 | 45 |
-| Class III / IV | 5 | 5 | 5 | 5 |
+    class I      l₁ = max(5, 0.03ρ − 10)  m      (5 m to 500 Ω·m, 80 m at 3000 Ω·m)
+    class II     l₁ = max(5, 0.02ρ − 11)  m      (5 m to 800 Ω·m, 49 m at 3000 Ω·m)
+    class III/IV l₁ = 5 m
+
+Beyond 3000 Ω·m the last slope is kept; the standard recommends a type B arrangement there.
 
 Vertical electrodes need 0.5·l₁.
 
@@ -251,8 +263,8 @@ Vertical electrodes need 0.5·l₁.
 add at each down-conductor a horizontal electrode of l_r = l₁ − r_e, or a vertical one of
 l_v = (l₁ − r_e)/2.
 
-**Separation distance** — s = k_i·k_c·l/k_m, with k_c = 1 (one down-conductor), 0.66 (two),
-0.55 (three), 0.44 (four or more) and k_m = 1 (air) or 0.5 (concrete, brick).
+**Separation distance** — s = k_i·k_c·l/k_m, with k_c from Table 12: 1 (one down-conductor,
+isolated LPS), 0.66 (two), 0.44 (three or more); k_m = 1 (air) or 0.5 (concrete, brick, wood).
 
 An earthing resistance below 10 Ω is recommended (informative).
 
@@ -332,9 +344,9 @@ marched over them; each resting position touching two supports contributes an ar
 extends to arrangements they cannot express.
 
 Protective angle, Annex A.1: `r = h * tan(alpha)`, with `alpha` from Figure 1 as a function
-of `h` and the class. Valid only for simple shapes and only while `h <= R`. Figure 1 is
-published as a graph; the values in `earthsys/airterm.py` are a digitisation of it and the
-rolling sphere governs.
+of `h` and the class. Valid only for simple shapes and only while `h <= R`; constant below
+h = 2 m. Figure 1 is published as a graph; since 1.3.2 the values in `earthsys/airterm.py` are
+read from its vector drawing (±0.3°). The rolling sphere governs.
 
 Mesh method, Annex A.3: conductor spacing not greater than the class mesh size in both
 directions, following the roof edges, bonded to down-conductors at the Table 4 spacing.
@@ -372,7 +384,16 @@ above 10⁻⁴ intolerable, and ALARP between.
 
 **Frequency-dependent soil** (CIGRE TB 781, Alipio–Visacro median parameters).
 `σ = σ0 + σ0·h(σ0)·(f/1 MHz)^0.54` with `h = 1.26·σ0^−0.73` (σ in mS/m) and
-`ε_r∞ = 12`. Module 7 evaluates it at `f = 1/(4T)`.
+`ε_r∞ = 12` (TB 781 Table 3.2; also the "relatively conservative" set 0.95/0.58/8 and the
+"conservative" set 0.70/0.62/4 via `level=`). In resistivity this is TB 781 Eq. 5.3–5.4,
+`ρ = ρ0/(1 + 4.7e-6·ρ0^0.73·f^0.54)`, `ε_r = 9.5e4·ρ0^−0.27·f^−0.46 + 12` (agreement < 0.5 %).
+Module 7 evaluates it at `f = 1/(4T)` and (since 1.3.3) reports the impulse-impedance factors of
+TB 781 Table 4.1 for electrodes shorter than L_eff (first 0.98…0.72, subsequent 0.91…0.50 for
+ρ0 = 100…4000 Ω·m, log-interpolated) and the relevance class of Table 5.1 (ignore < 300 Ω·m,
+recommended 300–700, mandatory > 700). The impulse impedance falls much less than ρ(1/4T), and
+TB 781 finds L_eff unchanged (subsequent) or longer (first stroke), so ρ(1/4T) is not substituted
+into any design formula. Also available: `tb781_counterpoise_zp1st` (Eq. 4.1–4.2) and
+`tb781_tower_ic1st` (Eq. 4.3–4.4).
 
 **EPR contour** (AS/NZS 3835.1, EREC S34, AS/NZS 4853). For a far-field hemisphere,
 `x = ρ·I_E/(2π·V_lim)`.
