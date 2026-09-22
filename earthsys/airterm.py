@@ -82,26 +82,37 @@ MESH_SIZE = {"I": 5.0, "II": 10.0, "III": 15.0, "IV": 20.0}
 #: Typical distance between down-conductors, IEC 62305-3 Table 4.
 DOWN_SPACING = {"I": 10.0, "II": 10.0, "III": 15.0, "IV": 20.0}
 
-# The protective angle of IEC 62305-3 Figure 1 is published as a graph, not as
-# a table of numbers, so the curves below are a digitisation of that figure.
-# They are held here as data, and deliberately kept separate from the rolling
-# sphere, which is derived exactly.  Verify these against your own copy of the
-# standard before using the protective angle method for a submitted design;
-# the rolling sphere result is the one this program treats as authoritative.
+# The protective angle of IEC 62305-3:2010 Figure 1.  The standard gives it as
+# a graph only.  The values below were read from the VECTOR drawing of the
+# figure (the curve paths themselves, calibrated against the axis grid), so
+# they are accurate to about 0.3 degrees.  Below h = 2 m the angle does not
+# change (Note 3 of the figure); the curves end at h = R, beyond which only
+# the rolling sphere and mesh methods apply (Note 1).
+#
+# Version 1.3.1 and earlier held a hand digitisation that was up to 16
+# degrees too generous (class I, 10 m: 61 instead of 45 degrees) and rose to
+# 80 degrees below 2 m; the protected radius was then overstated by up to 80 %.
 PROTECTIVE_ANGLE = {
-    "I":   [(0, 80), (2, 71), (5, 68), (10, 61), (15, 48), (20, 25)],
-    "II":  [(0, 80), (2, 74), (5, 72), (10, 65), (15, 58), (20, 50),
-            (25, 40), (30, 25)],
-    "III": [(0, 80), (2, 77), (5, 76), (10, 72), (15, 66), (20, 60),
-            (30, 48), (40, 34), (45, 25)],
-    "IV":  [(0, 80), (2, 79), (5, 78), (10, 74), (15, 70), (20, 66),
-            (30, 57), (40, 47), (50, 36), (60, 25)],
+    "I":   [(0, 70.0), (2, 70.0), (3, 67.1), (4, 63.0), (5, 59.3), (6, 56.4),
+            (8, 50.4), (10, 45.4), (12, 41.0), (15, 33.7), (17.5, 28.0),
+            (20, 22.5)],
+    "II":  [(0, 73.4), (2, 73.4), (3, 71.0), (4, 67.7), (5, 64.7), (6, 62.3),
+            (8, 57.7), (10, 53.8), (12, 50.8), (15, 45.4), (17.5, 41.5),
+            (20, 37.8), (25, 30.6), (30, 23.0)],
+    "III": [(0, 76.5), (2, 76.5), (3, 74.4), (4, 72.8), (5, 70.6), (6, 68.4),
+            (8, 64.2), (10, 61.1), (12, 58.5), (15, 54.2), (17.5, 51.4),
+            (20, 48.1), (25, 41.9), (30, 36.8), (35, 31.9), (40, 27.6),
+            (45, 23.5)],
+    "IV":  [(0, 79.0), (2, 79.0), (3, 77.1), (4, 75.5), (5, 73.0), (6, 71.0),
+            (8, 67.7), (10, 64.7), (12, 62.3), (15, 58.4), (17.5, 55.9),
+            (20, 53.6), (25, 49.1), (30, 44.8), (35, 41.1), (40, 37.7),
+            (45, 34.0), (50, 30.3), (55, 26.7), (60, 22.6)],
 }
 
 PROTECTIVE_ANGLE_SOURCE = (
-    "Digitised from IEC 62305-3:2010 Figure 1. The figure is published as a "
-    "graph; these are read-off values and should be confirmed against the "
-    "standard. The rolling sphere result is derived exactly and governs."
+    "IEC 62305-3:2010 Figure 1, read from the vector drawing of the figure "
+    "(about ±0.3°); constant below h = 2 m, not applicable above h = R. "
+    "The rolling sphere result is derived exactly and governs."
 )
 
 
