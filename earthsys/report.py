@@ -449,11 +449,11 @@ def _sec_fault(t, d):
         _row(t, "Split factor", "S_f", d.get("Sf"), "-",
              "IEEE Std 80-2013 Annex C"),
         _row(t, "Decrement factor", "D_f", d.get("Df"), "-",
-             "IEEE Std 80-2013 Eq. (79)"),
+             "IEEE Std 80-2013 Eq. (84)"),
         _row(t, "Future-growth factor", "C_p", d.get("Cp"), "-", ""),
         _row(t, "Symmetrical grid current", "I_g", d.get("Ig_kA"), "kA", ""),
         _row(t, "Maximum grid current", "I_G", d.get("IG_kA"), "kA",
-             "IEEE Std 80-2013 Eq. (78)"),
+             "IEEE Std 80-2013 Eq. (69)"),
         _row(t, "Fault duration (shock)", "t_s", d.get("ts"), "s", ""),
         _row(t, "Fault duration (thermal)", "t_c", d.get("tc"), "s", ""),
     ]
@@ -498,19 +498,19 @@ def _sec_grid(t, d):
         _row(t, "Grid resistance", "R_g", d.get("Rg"), "Ω",
              d.get("resistance", {}).get("chosen", "")),
         _row(t, "Ground potential rise", "GPR", d.get("GPR"), "V", "GPR = I_G · R_g"),
-        _row(t, "Geometric factor", "n", m.get("n"), "-", "Eq. (85)–(88)"),
-        _row(t, "Mesh factor", "K_m", m.get("Km"), "-", "Eq. (81)"),
-        _row(t, "Irregularity factor", "K_i", m.get("Ki"), "-", "Eq. (89)"),
-        _row(t, "Step factor", "K_s", m.get("Ks"), "-", "Eq. (94)"),
-        _row(t, "Effective mesh length", "L_M", m.get("LM"), "m", "Eq. (90)/(91)"),
-        _row(t, "Effective step length", "L_S", m.get("LS"), "m", "Eq. (93)"),
+        _row(t, "Geometric factor", "n", m.get("n"), "-", "Eq. (89)–(93)"),
+        _row(t, "Mesh factor", "K_m", m.get("Km"), "-", "Eq. (86)"),
+        _row(t, "Irregularity factor", "K_i", m.get("Ki"), "-", "Eq. (94)"),
+        _row(t, "Step factor", "K_s", m.get("Ks"), "-", "Eq. (99)"),
+        _row(t, "Effective mesh length", "L_M", m.get("LM"), "m", "Eq. (95)/(96)"),
+        _row(t, "Effective step length", "L_S", m.get("LS"), "m", "Eq. (98)"),
         _row(t, "Mesh (touch) voltage", "E_m", m.get("Em"), "V", "Eq. (85)"),
-        _row(t, "Step voltage", "E_s", m.get("Es"), "V", "Eq. (92)"),
+        _row(t, "Step voltage", "E_s", m.get("Es"), "V", "Eq. (97)"),
         _row(t, "Surface derating factor", "C_s", tol.get("Cs"), "-", "Eq. (27)"),
         _row(t, "Tolerable touch voltage", "E_touch", tol.get("E_touch"), "V",
-             f"{tol.get('body_weight', 70)} kg body, Eq. (31)/(33)"),
+             f"{tol.get('body_weight', 70)} kg body, Eq. (32)/(33)"),
         _row(t, "Tolerable step voltage", "E_step", tol.get("E_step"), "V",
-             "Eq. (30)/(32)"),
+             "Eq. (29)/(30)"),
     ]
     xc = d.get("en50522") or {}
     if xc:
@@ -601,6 +601,10 @@ def _sec_lightning(t, d):
     if sf:
         rows.append(_row(t, "Soil resistivity at 1/(4T)", "ρ(f)", sf.get("rho_f"), "Ω·m",
                          "CIGRE TB 781 (Alipio–Visacro), informational"))
+        if sf.get("Zp_factor_first") is not None:
+            rows.append(_row(t, "Impulse-impedance factor, first / subsequent stroke", "–",
+                             f"{sf['Zp_factor_first']:.2f} / {sf['Zp_factor_subsequent']:.2f}", "",
+                             "CIGRE TB 781 Table 4.1, informational"))
     out = (f"<h2>{t['lightning']}</h2>{_table(t, rows)}"
            f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
 
