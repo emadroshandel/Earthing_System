@@ -67,7 +67,8 @@ def min_electrode_length(lps_class: str, rho: float) -> dict:
                 l1 = ys[i] + f * (ys[i + 1] - ys[i])
                 break
     return dict(l1=l1, l1_vertical=l1 / 2.0, lps_class=cls, rho=rho,
-                reference="IEC 62305-3:2010 Figure 3")
+                reference="IEC 62305-3:2010 Figure 3 (read from the vector drawing)",
+                beyond_figure=rho > xs[-1])
 
 
 def type_a(lps_class: str, rho: float, n_down: int,
@@ -143,12 +144,15 @@ def separation_distance(lps_class: str, length_m: float, n_down: int,
     ki = cls["ki"]
     km = KM_MATERIAL.get(material, 1.0)
     if kc is None:
+        # IEC 62305-3:2010 Table 12 (simplified approach): 1 down-conductor
+        # (isolated LPS only) 1; two 0.66; three and more 0.44.  Valid for
+        # type B earthing, and for type A when the electrode resistances do
+        # not differ by more than a factor of 2 (otherwise kc = 1).  Version
+        # 1.3.1 and earlier interpolated 0.55 for three down-conductors.
         if n_down <= 1:
             kc = 1.0
         elif n_down == 2:
             kc = 0.66
-        elif n_down == 3:
-            kc = 0.55
         else:
             kc = 0.44
     s = ki * kc * length_m / km
@@ -415,18 +419,29 @@ def design(lps_class: str, rho: float, area: float, perimeter: float,
                            injection=injection,
                            I_kA=float(cls["I_max_kA"]))
 
-    # Frequency-dependent soil (CIGRE TB 781, new in 1.3.0). Informational:
-    # the design above uses the low-frequency rho, which is conservative.
+    # Frequency-dependent soil (CIGRE TB 781, new in 1.3.0; impulse factors
+    # 1.3.3). Informational: the design above uses the low-frequency rho,
+    # which is conservative for the earth potential rise.
     f_rep = 1.0 / (4.0 * float(front_time) * 1e-6)
     av = standards.alipio_visacro(rho, f_rep)
+    red1 = standards.tb781_impulse_reduction(rho, "first")
+    red2 = standards.tb781_impulse_reduction(rho, "subsequent")
     soil_freq = dict(f_rep=f_rep, rho_f=av["rho"], eps_r=av["eps_r"],
                      ratio=av["ratio"],
                      rho_1MHz=standards.alipio_visacro(rho, 1e6)["rho"],
-                     standard="CIGRE TB 781 (Alipio-Visacro)",
+                     Zp_factor_first=red1["factor"],
+                     Zp_factor_subsequent=red2["factor"],
+                     relevance=red1["relevance"],
+                     standard="CIGRE TB 781 (Alipio-Visacro; Table 4.1)",
                      note=(f"At the representative frequency 1/(4T) = "
-                           f"{f_rep / 1e3:.0f} kHz the soil behaves as "
-                           f"{av['rho']:.0f} Ω·m ({av['ratio'] * 100:.0f} % of ρ); "
-                           "using the low-frequency ρ is conservative."))
+                           f"{f_rep / 1e3:.0f} kHz the soil resistivity is "
+                           f"{av['rho']:.0f} Ω·m ({av['ratio'] * 100:.0f} % of ρ), "
+                           f"but the impulse impedance of an electrode shorter than "
+                           f"L_eff falls much less: × {red1['factor']:.2f} for first "
+                           f"strokes, × {red2['factor']:.2f} for subsequent strokes "
+                           f"(TB 781 Table 4.1). Frequency dependence is "
+                           f"{red1['relevance']}. Using the low-frequency ρ is "
+                           "conservative."))
 
     return dict(lps_class=lps_class.upper(), class_data=cls, rho=rho,
                 down_conductors=dc, earth=earth, separation=sep,
