@@ -308,8 +308,9 @@ function soilTableSync() {
         return isFinite(a) && d > 0.4 * a;
       }).length;
       if (tight) {
-        msg += ` ${tight} of them have MN larger than AB/5, which is outside the `
-          + 'assumption the Schlumberger formula is built on.';
+        msg += ` ${tight} of them have MN larger than AB/5. The fit models the actual MN `
+          + 'exactly (since 1.3.2), but a wide MN averages the ground under the whole '
+          + 'potential dipole; keep MN ≤ AB/5 where you can.';
         warn = true;
       }
     }
@@ -418,6 +419,12 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     ['Upper-layer thickness', 'h', d.h, 'm', ''],
     ['Reflection factor', 'K', d.K, '–', 'K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁)'],
     ['RMS fit error', 'ε', d.rms_pct, '%', ''],
+    ...(d.uncertainty ? [
+      ['ρ₁, one-standard-deviation range', 'ρ₁', fmt(d.uncertainty.rho1.low_68) + ' – ' + fmt(d.uncertainty.rho1.high_68), 'Ω·m', 'Linearised covariance s²(JᵀJ)⁻¹, ' + d.uncertainty.dof + ' degrees of freedom'],
+      ['ρ₂, one-standard-deviation range', 'ρ₂', fmt(d.uncertainty.rho2.low_68) + ' – ' + fmt(d.uncertainty.rho2.high_68), 'Ω·m', ''],
+      ['h, one-standard-deviation range', 'h', fmt(d.uncertainty.h.low_68) + ' – ' + fmt(d.uncertainty.h.high_68), 'm', ''],
+      ['Correlation of ρ₁ with h', 'r', d.uncertainty.corr_rho1_h, '–', 'Near −1: ρ₁ and h are traded against each other (equivalence)']
+    ] : []),
     ['Arithmetic average of ρₐ', 'ρ̄', d.uniform_average, 'Ω·m', 'For comparison only'],
     ['Electrode penetration', '—', d.equivalent.penetration, 'm', ''],
     ['Equivalent uniform resistivity', 'ρ', d.equivalent.rho_equivalent, 'Ω·m', d.equivalent.note]
@@ -569,6 +576,7 @@ function gridPayload() {
 }
 function renderGrid(d) {
   S.grid = d; markNav('grid', d.passed);
+  if ($('#fC1Rg') && isFinite(d.Rg)) set('fC1Rg', (+d.Rg).toFixed(3));
   const t = d.tolerable, m = d.mesh;
   kpis('gKpis', [
     { value: fmt(d.Rg) + ' <small>Ω</small>', label: 'Grid resistance R_g' },
@@ -596,15 +604,15 @@ function renderGrid(d) {
     ['Resistance used', '—', r.chosen, '', ''],
     ['Ground potential rise', 'GPR', d.GPR, 'V', 'GPR = I_G · R_g'],
     ['Geometric factor', 'n', m.n, '–', `n_a=${fmt(m.n_a, 3)}, n_b=${fmt(m.n_b, 3)}, n_c=${fmt(m.n_c, 3)}, n_d=${fmt(m.n_d, 3)}`],
-    ['Mesh factor', 'K_m', m.Km, '–', 'Eq. (81)'],
-    ['Correction factor', 'K_ii', m.Kii, '–', m.has_perimeter_rods ? 'rods on the perimeter → K_ii = 1' : 'Eq. (82)'],
-    ['Depth factor', 'K_h', m.Kh, '–', 'Eq. (83)'],
-    ['Irregularity factor', 'K_i', m.Ki, '–', 'Eq. (89)'],
-    ['Step factor', 'K_s', m.Ks, '–', 'Eq. (94)'],
+    ['Mesh factor', 'K_m', m.Km, '–', 'Eq. (86)'],
+    ['Correction factor', 'K_ii', m.Kii, '–', m.has_perimeter_rods ? 'rods on the perimeter → K_ii = 1' : 'Eq. (87)'],
+    ['Depth factor', 'K_h', m.Kh, '–', 'Eq. (88)'],
+    ['Irregularity factor', 'K_i', m.Ki, '–', 'Eq. (94)'],
+    ['Step factor', 'K_s', m.Ks, '–', 'Eq. (99)'],
     ['Effective mesh length', 'L_M', m.LM, 'm', m.note],
     ['Effective step length', 'L_S', m.LS, 'm', 'L_S = 0.75·L_C + 0.85·L_R'],
     ['Mesh (touch) voltage', 'E_m', m.Em, 'V', 'Eq. (85)'],
-    ['Step voltage', 'E_s', m.Es, 'V', 'Eq. (92)'],
+    ['Step voltage', 'E_s', m.Es, 'V', 'Eq. (97)'],
     ['Surface derating factor', 'C_s', t.Cs, '–', 'Eq. (27)'],
     ['Tolerable body current', 'I_B', t.Ib, 'A', `${t.body_weight} kg criterion`],
     ['Tolerable touch voltage', 'E_touch', t.E_touch, 'V', ''],
@@ -1469,6 +1477,17 @@ async function init() {
     $$('#sfChips .chip').forEach(x => x.classList.remove('on'));
     c.classList.add('on');
   });
+  $('#fC1Go').onclick = () => {
+    const L = +V('fC1L'), Nn = +V('fC1N'), hi = V('fC1R') === '1';
+    const Rg = N('fC1Rg', S.grid ? S.grid.Rg : 1);
+    const row = (S.meta.split_factor_table_c1 || []).find(r => r.lines === L && r.neutrals === Nn);
+    if (!row) { $('#fC1Out').textContent = `Table C.1 has no row for ${L} lines and ${Nn} neutrals.`; return; }
+    const [zr, zx] = hi ? row.z100 : row.z15;
+    const Sf = Math.hypot(zr, zx) / Math.hypot(zr + Rg, zx);
+    set('fSf', Sf.toFixed(3));
+    $$('#sfChips .chip').forEach(x => x.classList.remove('on'));
+    $('#fC1Out').textContent = `Z_eq = ${zr} + j${zx} Ω → S_f = ${Sf.toFixed(3)} (applied)`;
+  };
   $('.navitem[data-page="about"]').addEventListener('click', loadTheory);
   $('#soilDemo').click();
   BEM_ITEMS = [JSON.parse(JSON.stringify(BEM_DEF.grid))];
