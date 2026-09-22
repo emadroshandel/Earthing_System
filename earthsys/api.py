@@ -32,7 +32,7 @@ import os
 from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
                ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.3"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -137,6 +137,7 @@ def api_meta(_):
         k_in_cable={f"{a}|{b}": v for (a, b), v in materials.K_FACTORS_IN_CABLE.items()},
         k_buried={f"{a}|{b}": v for (a, b), v in materials.K_FACTORS_BURIED.items()},
         split_factor_guide=faultcurrent.SPLIT_FACTOR_GUIDE,
+        split_factor_table_c1=[dict(lines=k[0], neutrals=k[1], z15=[v[0].real, v[0].imag], z100=[v[1].real, v[1].imag]) for k, v in faultcurrent.SPLIT_FACTOR_TABLE_C1.items()],
         c_factors=faultcurrent.C_FACTORS,
         system_types=iec60364.SYSTEM_TYPES,
         disconnection_times=iec60364.DISCONNECTION_TIMES,
@@ -167,14 +168,19 @@ def api_soil_invert(p):
 
     rows = p.get("rows")
     array = p.get("array", "wenner")
+    mn = None
     if rows:
         red = soil.reduce_survey(rows, array)
         sp = [r["spacing"] for r in red]
         rh = [r["rho"] for r in red]
+        if array == "schlumberger":
+            mn = [r.get("d") for r in red]
     else:
         sp = p["spacings"]
         rh = p["rho"]
-    res = soil.invert_two_layer(sp, rh, array)
+        if array == "schlumberger" and p.get("mn"):
+            mn = p["mn"]
+    res = soil.invert_two_layer(sp, rh, array, mn)
     res["uniform_average"] = sum(rh) / len(rh)
     area = p.get("grid_area")
     area = float(area) if area not in (None, "", 0, "0") else None
@@ -577,7 +583,13 @@ def api_standards(p):
             risk = pc * float(p["P_fib"])
             out["eg0"].update(risk=risk, band=standards.eg0_risk_band(risk))
     if p.get("rho") not in (None, "") and p.get("f") not in (None, ""):
-        out["soil_frequency"] = standards.alipio_visacro(float(p["rho"]), float(p["f"]))
+        lvl = p.get("level") or "mean"
+        if lvl not in standards.ALIPIO_VISACRO_LEVELS:
+            raise ValueError(f"level must be one of {sorted(standards.ALIPIO_VISACRO_LEVELS)}")
+        out["soil_frequency"] = standards.alipio_visacro(float(p["rho"]), float(p["f"]), level=lvl)
+        out["soil_frequency"]["impulse_factor"] = dict(
+            first=standards.tb781_impulse_reduction(float(p["rho"]), "first")["factor"],
+            subsequent=standards.tb781_impulse_reduction(float(p["rho"]), "subsequent")["factor"])
     if all(p.get(k) not in (None, "") for k in ("rho", "I_E", "V_lim")):
         out["epr_contour"] = standards.epr_contour_distance(
             float(p["rho"]), float(p["I_E"]), float(p["V_lim"]))
