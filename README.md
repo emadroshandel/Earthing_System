@@ -345,6 +345,59 @@ verdicts remain those of IEEE 80, IEC 60364, IEC 62305 and IEEE 142.
 5. **API** gains `/api/standards`; `/api/meta` returns the registry.
 6. Tests: `tests/test_v13_standards.py` (18 tests).
 
+### Changes in 1.3.2
+
+- **Schwarz coefficient k₂.** Curve A of IEEE 80 Figure 25 (grid at the surface) is
+  k₂ = +0.15x + 5.50; earlier versions had −0.15x. For the Annex B grid with twenty rods the
+  Schwarz resistance moves from 2.867 Ω to 2.844 Ω (R₁ from 2.908 to 2.884 Ω). The automatic
+  formula (Sverak × Schwarz rod factor) changes by less than 0.1 %.
+- **Finite MN in the Schlumberger inversion.** The forward model now uses the exact
+  expression for the potential electrodes actually used, instead of the ideal gradient
+  array. The ideal form is wrong by up to 3 % for MN = AB/10 and 11 % for MN = AB/5.
+- **IEC k factors for buried conductors.** The initial and final temperatures shown beside
+  the "buried" k factors (20 → 500 °C) did not belong to the values (they are the "normal
+  conditions" 30 → 200 °C values of Table A.54.5); the k values, and so every area, are unchanged.
+  Steel with PVC covering is now 52 (was 51), as tabulated.
+
+Four corrections based on **IEC 62305-3:2010**
+(Edition 2.0):
+
+- **l₁ (Figure 3), class II**: the line is l₁ = max(5, 0.02ρ − 11) m — 49 m at 3000 Ω·m, not 45 m.
+  Class I (max(5, 0.03ρ − 10)) was already right. Both are now taken from the vector drawing.
+- **Protective angle (Figure 1)**: the hand-digitised angles were up to 16° too generous (class I at
+  10 m: 61° instead of 45°) and rose to 80° below 2 m. They are now read from the vector drawing
+  (±0.3°) and held constant below 2 m. The rolling sphere, which governs, is unchanged.
+- **k_c (Table 12)**: 0.44 for three or more down-conductors (was 0.55 for three).
+- **Earth-electrode minimum dimensions (Table 7)**: updated to the 2010 edition.
+
+One addition: module 1 now reports the **uncertainty of the fitted soil model** — one-standard-
+deviation ranges of ρ₁, ρ₂ and h and the correlation of ρ₁ with h, from the linearised covariance
+s²(JᵀJ)⁻¹ of the least-squares fit (tutorial §2.6). The help text for the external loop
+impedance Z_e now says what to enter for a TT supply.
+
+### Changes in 1.3.3
+
+- **IEEE 80 material constants (Table 1)** were the 2000-edition values. Now the 2013 table:
+  copper TCAP 3.4 (was 3.42; areas +0.3 %), and in particular **1020 steel** α_r 0.00377,
+  K₀ 245, TCAP 3.8 — the old constants gave a steel conductor **13 % too small** at its fusing temperature
+  (2 % at a 250 °C joint).
+  Stainless-clad, zinc-coated and 304 stainless steel are updated the same way; the 17 %
+  copper-clad rod is added; the aluminium grades (not in the 2013 table) are labelled as such.
+- **Surface materials (Table 7)** rebuilt from the 2013 table, with its dry/wet values.
+- **Split factor.** New `faultcurrent.split_factor_table_c1` — S_f from IEEE 80 Table C.1
+  (reproduces the Annex C examples: 0.349, 0.247, 182 A) with a calculator in module 2.
+  The quick-pick chips are now labelled as indicative values; they are not from IEEE 80.
+- **BS 7430 group factor λ.** Rods in a line now use the formula of 9.5.4,
+  λ = 2(1/2 + … + 1/n) (e.g. 2.167 for four rods, not 2.15); hollow square from Table 2,
+  corrected (12 rods 5.46, 16 rods 6.14) and extended to 76 rods.
+
+- **CIGRE TB 781 (frequency-dependent soil).** The Alipio–Visacro model was confirmed against the
+  brochure (Eq. 3.10–3.11, 5.3–5.4). Added its conservative parameter sets, the impulse-impedance
+  reduction of Table 4.1 and the relevance classes of Table 5.1 (module 7 now reports them), and
+  the tower-footing expressions Eq. 4.1–4.4 (`earthsys.standards`). The note in module 7 no longer
+  implies that the resistivity at 1/(4T) can stand in for ρ: at 1000 Ω·m it is 63 % of ρ, while the
+  first-stroke impulse impedance falls only to 89 %.
+
 ## 13. Limitations
 
 - The closed-form IEEE 80 equations assume uniform soil, a rectangular grid and uniform
