@@ -19,7 +19,7 @@ Material, soil and standard-size reference data for Earthing System.
 Sources
 -------
 * IEEE Std 80-2013, Table 1  -- conductor material constants
-* IEEE Std 80-2013, Table 7  -- typical soil resistivities
+* IEEE Std 80-2013, Tables 7 and 8 -- surface-layer and soil resistivities
 * IEC 60364-5-54:2011, Tables A.54.1 .. A.54.6 -- k factors (adiabatic)
 * IEC 60364-5-54:2011, Table 54.1 -- minimum earthing-conductor sizes
 * IEC 62305-3:2010, Table 7 / Figure 3 -- lightning earth-termination data
@@ -38,66 +38,75 @@ from __future__ import annotations
 #       TCAP J/(cm^3 . degC))
 
 IEEE80_MATERIALS = {
+    # IEEE Std 80-2013 (incl. Cor 1-2015) Table 1.  Version 1.3.1 held the
+    # IEEE 80-2000 table: TCAP 3.42/3.85/3.28 instead of 3.4/3.8/3.8, and for
+    # steel 1020 and stainless-clad rod alpha_r = 0.00160, K0 = 605 instead of
+    # 0.00377 and 245.  The 2013 values reproduce the K_f of Table 2 (18.39 for
+    # steel 1020); the old ones gave 15.95, i.e. a steel area 13 % too small.
     "cu_annealed": dict(
         name="Copper, annealed soft-drawn",
         conductivity=100.0, alpha_r=0.00393, K0=234.0, Tm=1083.0,
-        rho_r=1.72, TCAP=3.42),
+        rho_r=1.72, TCAP=3.4),
     "cu_hard": dict(
         name="Copper, commercial hard-drawn",
         conductivity=97.0, alpha_r=0.00381, K0=242.0, Tm=1084.0,
-        rho_r=1.78, TCAP=3.42),
+        rho_r=1.78, TCAP=3.4),
     "cu_hard_brazed": dict(
         name="Copper, commercial hard-drawn (brazed joints)",
         conductivity=97.0, alpha_r=0.00381, K0=242.0, Tm=450.0,
-        rho_r=1.78, TCAP=3.42),
+        rho_r=1.78, TCAP=3.4),
     "cu_hard_bolted": dict(
         name="Copper, commercial hard-drawn (bolted / pressure joints)",
         conductivity=97.0, alpha_r=0.00381, K0=242.0, Tm=250.0,
-        rho_r=1.78, TCAP=3.42),
+        rho_r=1.78, TCAP=3.4),
     "ccs_40": dict(
         name="Copper-clad steel wire (40 %)",
         conductivity=40.0, alpha_r=0.00378, K0=245.0, Tm=1084.0,
-        rho_r=4.40, TCAP=3.85),
+        rho_r=4.40, TCAP=3.8),
     "ccs_30": dict(
         name="Copper-clad steel wire (30 %)",
         conductivity=30.0, alpha_r=0.00378, K0=245.0, Tm=1084.0,
-        rho_r=5.86, TCAP=3.85),
+        rho_r=5.86, TCAP=3.8),
+    "ccs_rod_17": dict(
+        name="Copper-clad steel rod (17 %)",
+        conductivity=17.0, alpha_r=0.00378, K0=245.0, Tm=1084.0,
+        rho_r=10.1, TCAP=3.8),
     "ccs_rod_20": dict(
-        name="Copper-clad steel rod (20 %)",
+        name="Copper-clad steel rod (20 %, IEEE 80-2000 value)",
         conductivity=20.0, alpha_r=0.00378, K0=245.0, Tm=1084.0,
-        rho_r=8.62, TCAP=3.85),
+        rho_r=8.62, TCAP=3.8),
     "al_ec": dict(
-        name="Aluminium, EC grade",
+        name="Aluminium, EC grade (IEEE 80-2000; not in the 2013 table)",
         conductivity=61.0, alpha_r=0.00403, K0=228.0, Tm=657.0,
         rho_r=2.86, TCAP=2.56),
     "al_5005": dict(
-        name="Aluminium, 5005 alloy",
+        name="Aluminium, 5005 alloy (IEEE 80-2000; not in the 2013 table)",
         conductivity=53.5, alpha_r=0.00353, K0=263.0, Tm=652.0,
         rho_r=3.22, TCAP=2.60),
     "al_6201": dict(
-        name="Aluminium, 6201 alloy",
+        name="Aluminium, 6201 alloy (IEEE 80-2000; not in the 2013 table)",
         conductivity=52.5, alpha_r=0.00347, K0=268.0, Tm=654.0,
         rho_r=3.28, TCAP=2.60),
     "acs_wire": dict(
         name="Aluminium-clad steel wire",
         conductivity=20.3, alpha_r=0.00360, K0=258.0, Tm=657.0,
-        rho_r=8.48, TCAP=3.58),
+        rho_r=8.48, TCAP=3.561),
     "steel_1020": dict(
         name="Steel, 1020",
-        conductivity=10.8, alpha_r=0.00160, K0=605.0, Tm=1510.0,
-        rho_r=15.90, TCAP=3.28),
+        conductivity=10.8, alpha_r=0.00377, K0=245.0, Tm=1510.0,
+        rho_r=15.90, TCAP=3.8),
     "ss_clad_rod": dict(
         name="Stainless-clad steel rod",
-        conductivity=9.8, alpha_r=0.00160, K0=605.0, Tm=1400.0,
-        rho_r=17.50, TCAP=4.44),
+        conductivity=9.8, alpha_r=0.00377, K0=245.0, Tm=1400.0,
+        rho_r=17.50, TCAP=4.4),
     "zn_steel_rod": dict(
         name="Zinc-coated steel rod",
         conductivity=8.6, alpha_r=0.00320, K0=293.0, Tm=419.0,
-        rho_r=20.10, TCAP=3.93),
+        rho_r=20.10, TCAP=3.9),
     "ss_304": dict(
         name="Stainless steel 304",
         conductivity=2.4, alpha_r=0.00130, K0=749.0, Tm=1400.0,
-        rho_r=72.00, TCAP=4.03),
+        rho_r=72.00, TCAP=4.0),
 }
 
 # Recommended maximum temperature when joints limit the design
@@ -108,26 +117,29 @@ JOINT_TM_LIMITS = {
 }
 
 # ---------------------------------------------------------------------------
-# IEEE Std 80-2013 Table 7 -- typical soil resistivity ranges (ohm.m)
-# ---------------------------------------------------------------------------
+# Typical soil resistivity ranges (ohm.m).  The first four rows are IEEE Std
+# 80-2013 Table 8 (average values 10, 100, 1000, 10 000); the others are
+# common handbook ranges (see IEEE 142 Table 4-2) given for orientation only.
 SOIL_TYPES = [
-    dict(key="wet_organic", name="Wet organic soil", low=10.0, high=100.0, typical=10.0),
-    dict(key="moist", name="Moist soil", low=100.0, high=1000.0, typical=100.0),
-    dict(key="dry", name="Dry soil", low=1000.0, high=10000.0, typical=1000.0),
-    dict(key="bedrock", name="Bedrock", low=10000.0, high=1e6, typical=10000.0),
+    dict(key="wet_organic", name="Wet organic soil (IEEE 80 Table 8)", low=10.0, high=100.0, typical=10.0),
+    dict(key="moist", name="Moist soil (IEEE 80 Table 8)", low=100.0, high=1000.0, typical=100.0),
+    dict(key="dry", name="Dry soil (IEEE 80 Table 8)", low=1000.0, high=10000.0, typical=1000.0),
+    dict(key="bedrock", name="Bedrock (IEEE 80 Table 8)", low=10000.0, high=1e6, typical=10000.0),
     dict(key="clay", name="Clay / loam", low=5.0, high=200.0, typical=40.0),
     dict(key="sand_gravel", name="Sand and gravel", low=50.0, high=1000.0, typical=500.0),
     dict(key="limestone", name="Limestone", low=100.0, high=10000.0, typical=2000.0),
     dict(key="granite", name="Granite", low=1000.0, high=50000.0, typical=25000.0),
 ]
 
-# Surface (finishing) layer materials -- IEEE Std 80-2013 Table 7
+# Surface (finishing) layer materials -- IEEE Std 80-2013 Table 7 (samples;
+# the wet value is the one to design with).
 SURFACE_MATERIALS = [
-    dict(key="crushed_rock_dry", name="Crushed rock, 19 mm (dry)", rho_dry=2.0e6, rho_wet=10000.0),
-    dict(key="crushed_rock_wash", name="Washed granite, 19 mm", rho_dry=4.0e6, rho_wet=1300.0),
-    dict(key="limestone_gravel", name="Limestone gravel, 25 mm", rho_dry=7.0e6, rho_wet=2000.0),
+    dict(key="crushed_rock_dry", name="Crusher-run granite with fines (NC)", rho_dry=140.0e6, rho_wet=1300.0),
+    dict(key="crushed_rock_wash", name="No. 4 washed granite, 25–50 mm (GA)", rho_dry=1.5e6, rho_wet=5000.0),
+    dict(key="washed_granite_57", name="No. 57 washed granite, 20 mm (NC)", rho_dry=190.0e6, rho_wet=8000.0),
+    dict(key="limestone_gravel", name="Washed limestone (MI)", rho_dry=7.0e6, rho_wet=2000.0),
     dict(key="asphalt", name="Asphalt", rho_dry=2.0e6, rho_wet=10000.0),
-    dict(key="concrete", name="Concrete", rho_dry=1.0e6, rho_wet=100.0),
+    dict(key="concrete", name="Concrete (air-cured can be much lower)", rho_dry=1.0e6, rho_wet=21.0),
     dict(key="none", name="No surface layer (native soil)", rho_dry=0.0, rho_wet=0.0),
 ]
 
@@ -160,12 +172,17 @@ K_FACTORS_IN_CABLE = {  # PE as a core of a cable or bundled with cables
     ("aluminium", "xlpe"):  dict(k=94, Ti=90, Tf=250, label="Al core, XLPE / EPR"),
 }
 
-K_FACTORS_BURIED = {  # earthing conductor buried in soil, initial temp 20 degC
-    ("copper", "bare"):     dict(k=159, Ti=20, Tf=500, label="Cu, bare, buried"),
-    ("copper", "pvc"):      dict(k=143, Ti=20, Tf=160, label="Cu, PVC covered, buried"),
-    ("aluminium", "bare"):  dict(k=105, Ti=20, Tf=300, label="Al, bare, buried"),
-    ("steel", "bare"):      dict(k=58,  Ti=20, Tf=500, label="Galvanised steel, bare, buried"),
-    ("steel", "pvc"):       dict(k=51,  Ti=20, Tf=160, label="Steel, PVC covered, buried"),
+K_FACTORS_BURIED = {  # bare/covered earthing conductor in soil, "normal conditions"
+    # IEC 60364-5-54 Table A.54.5 (bare, 30 -> 200 degC) and A.54.2 (PVC,
+    # 30 -> 160 degC).  Version 1.3.1 labelled these k values with Ti = 20 degC
+    # and Tf = 500 degC, which belong to a much larger k (233 for copper); the
+    # k values themselves were the conservative "normal conditions" ones and
+    # are unchanged.
+    ("copper", "bare"):     dict(k=159, Ti=30, Tf=200, label="Cu, bare, buried (normal conditions)"),
+    ("copper", "pvc"):      dict(k=143, Ti=30, Tf=160, label="Cu, PVC covered, buried"),
+    ("aluminium", "bare"):  dict(k=105, Ti=30, Tf=200, label="Al, bare, buried (normal conditions)"),
+    ("steel", "bare"):      dict(k=58,  Ti=30, Tf=200, label="Galvanised steel, bare, buried (normal conditions)"),
+    ("steel", "pvc"):       dict(k=52,  Ti=30, Tf=160, label="Steel, PVC covered, buried"),
 }
 
 # IEC 60364-5-54 Table 54.1 -- minimum cross-section of buried earthing conductor
@@ -175,24 +192,39 @@ MIN_EARTHING_CONDUCTOR = {
     ("unprotected_corrosion", "any"): dict(copper=25.0, steel=50.0),
 }
 
-# IEC 62305-3 Table 7 -- minimum dimensions of earth electrodes
+# IEC 62305-3:2010 Table 7 -- minimum dimensions of earth electrodes
+# (Edition 2.0; the thickness figures of Edition 1 are no longer tabulated.)
 LPS_ELECTRODE_MIN = [
-    dict(material="Copper", form="Solid round rod", dim="15 mm diameter"),
-    dict(material="Copper", form="Stranded conductor", dim="50 mm²"),
-    dict(material="Copper", form="Solid tape", dim="50 mm², 2 mm thick"),
-    dict(material="Hot-dip galvanised steel", form="Solid round rod", dim="16 mm diameter"),
-    dict(material="Hot-dip galvanised steel", form="Solid tape", dim="90 mm², 3 mm thick"),
-    dict(material="Hot-dip galvanised steel", form="Pipe", dim="25 mm dia., 2 mm wall"),
+    dict(material="Copper, tin-plated copper", form="Solid round rod", dim="15 mm diameter"),
+    dict(material="Copper, tin-plated copper", form="Pipe (rod)", dim="20 mm diameter"),
+    dict(material="Copper, tin-plated copper", form="Stranded / solid round / solid tape conductor", dim="50 mm²"),
+    dict(material="Copper, tin-plated copper", form="Solid plate / lattice plate", dim="500 × 500 mm / 600 × 600 mm"),
+    dict(material="Hot-dip galvanised steel", form="Solid round rod", dim="14 mm diameter"),
+    dict(material="Hot-dip galvanised steel", form="Pipe (rod)", dim="25 mm diameter"),
+    dict(material="Hot-dip galvanised steel", form="Solid round conductor", dim="78 mm²"),
+    dict(material="Hot-dip galvanised steel", form="Solid tape", dim="90 mm²"),
+    dict(material="Hot-dip galvanised steel", form="Profile", dim="290 mm², 3 mm thick"),
+    dict(material="Bare steel (in concrete, ≥ 50 mm cover)", form="Stranded / solid round / tape", dim="70 / 78 / 75 mm²"),
+    dict(material="Copper-coated steel", form="Solid round rod", dim="14 mm diameter (12.7 mm in some countries)"),
+    dict(material="Copper-coated steel", form="Solid round / solid tape conductor", dim="50 / 90 mm²"),
     dict(material="Stainless steel", form="Solid round rod", dim="15 mm diameter"),
-    dict(material="Stainless steel", form="Solid tape", dim="100 mm², 2 mm thick"),
+    dict(material="Stainless steel", form="Solid round / solid tape conductor", dim="78 / 100 mm²"),
 ]
 
-# IEC 62305-3 Figure 3 -- minimum length l1 (m) of the earth electrode
-# rows = LPS class, columns = soil resistivity break-points (ohm.m)
-LPS_L1_RHO = [500.0, 1000.0, 2000.0, 3000.0]
+# IEC 62305-3:2010 Figure 3 -- minimum length l1 (m) of each earth electrode.
+# The figure is three straight lines; the break-points below were read from
+# the vector drawing of the standard (not from a raster image):
+#   class I   l1 = 5 m up to 500 ohm.m, then 0.03 rho - 10  (80 m at 3000)
+#   class II  l1 = 5 m up to 800 ohm.m, then 0.02 rho - 11  (49 m at 3000)
+#   class III and IV   l1 = 5 m, independent of rho
+# Linear interpolation between these points reproduces the lines exactly;
+# beyond 3000 ohm.m the last slope is kept (the standard recommends a type B
+# arrangement there).  Up to version 1.3.1 class II used 5/10/30/45 m at
+# 500/1000/2000/3000 ohm.m, 4 m short at 3000 ohm.m.
+LPS_L1_RHO = [0.0, 500.0, 800.0, 3000.0]
 LPS_L1 = {
-    "I":   [5.0, 20.0, 50.0, 80.0],
-    "II":  [5.0, 10.0, 30.0, 45.0],
+    "I":   [5.0, 5.0, 14.0, 80.0],
+    "II":  [5.0, 5.0, 5.0, 49.0],
     "III": [5.0, 5.0, 5.0, 5.0],
     "IV":  [5.0, 5.0, 5.0, 5.0],
 }
