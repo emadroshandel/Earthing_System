@@ -45,11 +45,15 @@ def rod(rho: float, L: float, d: float) -> dict:
                 formula="R = ρ/(2πL)·[ln(8L/d) − 1]")
 
 
-# BS 7430:2011 Table 5 (identical in ENA EREC S34).  Hollow square: rods
-# spaced s round the perimeter of a square, m per side, n = 4(m - 1).
-BS7430_LAMBDA_LINE = {1: 0.0, 2: 1.00, 3: 1.66, 4: 2.15, 5: 2.54, 6: 2.87,
-                      7: 3.15, 8: 3.39, 9: 3.61, 10: 3.81}
-BS7430_LAMBDA_HOLLOW = {4: 2.71, 8: 4.51, 12: 5.48, 16: 6.13, 20: 6.63}
+# BS 7430:2011+A1:2015.  Rods in a line, 9.5.4: lambda = 2(1/2 + ... + 1/n),
+# which is exactly the neighbour sum (1/n) sum_i sum_{j!=i} s/d_ij for equal
+# spacing.  (Versions up to 1.3.2 carried rounded values from an older edition,
+# e.g. 2.15 for four rods where the formula gives 2.167.)
+BS7430_LAMBDA_LINE = {n: 2.0 * sum(1.0 / k for k in range(2, n + 1)) for n in range(1, 41)}
+# Hollow square, Table 2: m rods per side, N = 4(m - 1) round the perimeter.
+BS7430_LAMBDA_HOLLOW = {4: 2.71, 8: 4.51, 12: 5.46, 16: 6.14, 20: 6.63, 24: 7.03,
+                        28: 7.30, 32: 7.65, 36: 7.90, 44: 8.22, 52: 8.67,
+                        60: 8.95, 68: 9.22, 76: 9.40}
 
 
 def rod_positions_unit(n: int, arrangement: str):
@@ -82,8 +86,9 @@ def rod_group_lambda(n: int, arrangement: str = "line"):
 
     By definition lambda = (1/n) sum_i sum_{j != i} s / d_ij — each rod's
     potential raised by its neighbours, in units of rho/(2 pi s), averaged
-    over the group (tutorial Eq. 9.7).  The published values of BS 7430
-    Table 5 are used where they exist; otherwise the sum is evaluated for
+    over the group (tutorial Eq. 9.9).  For rods in a line this is exactly
+    BS 7430 9.5.4; for a hollow square the published values of BS 7430
+    Table 2 are used where they exist; otherwise the sum is evaluated for
     the actual layout.  (Version 1.1 used line-like values for the hollow
     square — 3.45 instead of 4.51 for eight rods — and the line values for
     a filled square, both on the optimistic side.)
@@ -93,9 +98,9 @@ def rod_group_lambda(n: int, arrangement: str = "line"):
     if arrangement == "hollow_square" and n < 4:
         arrangement = "line"            # fewer than four rods cannot enclose
     if arrangement == "line" and n in BS7430_LAMBDA_LINE:
-        return BS7430_LAMBDA_LINE[n], "BS 7430 Table 5"
+        return BS7430_LAMBDA_LINE[n], "BS 7430 9.5.4"
     if arrangement == "hollow_square" and n in BS7430_LAMBDA_HOLLOW:
-        return BS7430_LAMBDA_HOLLOW[n], "BS 7430 Table 5"
+        return BS7430_LAMBDA_HOLLOW[n], "BS 7430 Table 2"
     pts = rod_positions_unit(n, arrangement)
     tot = 0.0
     for i, (xi, yi) in enumerate(pts):
@@ -111,7 +116,7 @@ def rods_parallel(rho: float, L: float, d: float, n: int, s: float,
 
     Uses the classical parallel-rod expression
         R_n = R_1/n * (1 + lambda * a),   a = rho/(2 pi R_1 s)
-    with lambda from BS 7430 Table 5 (rods in a line, hollow square) and,
+    with lambda from BS 7430 9.5.4 (rods in a line) and Table 2 (hollow square) and,
     for any other count or a filled square, from the geometry itself
     (rod_group_lambda).
     """
@@ -213,12 +218,12 @@ def foundation(rho: float, volume_m3: float) -> dict:
 
 
 def mesh(rho: float, area: float, total_length: float, h: float = 0.5) -> dict:
-    """Buried mesh / grid electrode -- Sverak (IEEE Std 80 Eq. 52)."""
+    """Buried mesh / grid electrode -- Sverak (IEEE Std 80-2013 Eq. 57)."""
     R = rho * (1.0 / total_length + 1.0 / math.sqrt(20.0 * area)
                * (1.0 + 1.0 / (1.0 + h * math.sqrt(20.0 / area))))
     return dict(R=R, type="Mesh / grid electrode", area=area,
                 total_length=total_length, h=h, rho=rho,
-                formula="IEEE Std 80-2013 Eq. (52)")
+                formula="IEEE Std 80-2013 Eq. (57)")
 
 
 ELECTRODE_FUNCS = {
