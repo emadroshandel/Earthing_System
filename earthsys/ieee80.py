@@ -403,9 +403,45 @@ def design(rho: float, g: GridGeometry, IG_kA: float,
 
     # Informational cross-check against BS EN 50522 / IEC 60479-1 (new in 1.3.0);
     # it never changes the verdict, which remains the IEEE 80 one.
-    xc = standards.touch_cross_check(ts, tol["E_touch"], ms["Em"], body_weight)
+    rho_feet = rho_s if (rho_s and rho_s > 0 and hs and hs > 0) else rho
+    xc = standards.touch_cross_check(ts, tol["E_touch"], ms["Em"], body_weight,
+                                     rho_s=rho_feet)
+
+    # Range of validity of the closed-form K_s (Eq. (99)), IEEE Std 80-2013
+    # 16.5.2: 0.25 m < h < 2.5 m.  A warning, never a failure.
+    warnings = []
+    if not (0.25 <= g.h <= 2.5):
+        warnings.append(
+            f"Burial depth h = {g.h:g} m is outside 0.25–2.5 m, the range for "
+            f"which IEEE Std 80-2013 gives the step factor K_s (Eq. (99)) and "
+            f"the mesh-voltage equations; E_m and E_s are extrapolated. Check "
+            f"the design with the numerical solver.")
+    # Range over which IEEE Std 80-2013 16.7 validated the E_m / E_s equations
+    # against computer results (new in 1.3.5).  Warnings, never failures.
+    meshes = max(g.Nx, g.Ny) - 1
+    if not (6.25 <= g.A <= 10000.0):
+        warnings.append(
+            f"Grid area {g.A:g} m² is outside 6.25–10 000 m², the range over "
+            f"which IEEE Std 80-2013 §16.7 validated the mesh and step "
+            f"equations; confirm E_m and E_s with the numerical solver.")
+    if not (2.5 <= g.D <= 22.5):
+        warnings.append(
+            f"Conductor spacing D = {g.D:g} m is outside 2.5–22.5 m, the mesh "
+            f"sizes validated in IEEE Std 80-2013 §16.7; confirm E_m and E_s "
+            f"with the numerical solver.")
+    if meshes > 40:
+        warnings.append(
+            f"{meshes} meshes along a side exceeds the 40 validated in IEEE Std "
+            f"80-2013 §16.7; confirm E_m and E_s with the numerical solver.")
+    if str(getattr(g, "shape", "rectangular")).lower() == "irregular":
+        warnings.append(
+            "IEEE Std 80-2013 §16.7 validated the equations for square, "
+            "rectangular, triangular, T- and L-shaped grids with uniform "
+            "spacing only; for an irregular outline treat E_m and E_s as a "
+            "screening estimate and use the numerical solver.")
 
     return dict(
+        warnings=warnings,
         geometry=g.to_dict(), tolerable=tol, resistance=res, Rg=Rg,
         GPR=GPR, IG_kA=IG_kA, mesh=ms, checks=checks, passed=passed,
         en50522=xc, cross_check=xc["note"],
