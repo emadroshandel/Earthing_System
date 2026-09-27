@@ -58,7 +58,7 @@
   <section class="page active" id="page-soil">
     <div class="pagehead"><h2>Soil investigation and model</h2>
       <p>Reduce four-pin field measurements to apparent resistivity, fit a two-layer earth model
-         (IEEE Std 81-2012 §8), and derive the equivalent uniform resistivity used by the
+         (IEEE Std 81-2025 §7.3, §7.6), and derive the equivalent uniform resistivity used by the
          closed-form IEEE 80 equations.</p></div>
     <div class="cols c2">
       <div>
@@ -443,7 +443,7 @@
           <div class="field"><label>Ring conductor diameter<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lD" type="number" value="0.01" step="0.001"><span class="u">m</span><div class="fh">Diameter of the ring conductor, in metres — 0.01 m is a 10 mm round conductor.</div></div>
           <div class="field"><label>Burial depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lH" type="number" value="0.5" step="0.1"><span class="u">m</span><div class="fh">Depth of cover over the ring electrode, typically 0.5 m and at least 0.5 m clear of the foundation.</div></div>
           <div class="field"><label>Rod diameter (Type A)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lRodD" type="number" value="0.016" step="0.001"><span class="u">m</span><div class="fh">Diameter of each vertical electrode in a Type A arrangement, in metres — 0.016 m is a standard 16 mm rod.</div></div>
-          <div class="field"><label>Foundation earth volume <span class="muted">(optional)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lVol" type="number" placeholder="—"><span class="u">m³</span><div class="fh">Volume of concrete in contact with the earth, if you are using the reinforcement as the electrode. Leave blank to size a ring instead.</div></div>
+          <div class="field"><label>Foundation earth volume <span class="muted">(optional)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lVol" type="number" placeholder="—"><span class="u">m³</span><div class="fh">Volume bounded by the outer faces of the foundation in contact with the soil (plan area × depth below ground for a basement), if you are using the bonded, continuous reinforcement as the electrode. Leave blank to size a ring instead.</div></div>
           <fieldset><legend>Separation distance</legend>
             <div class="field"><label>Length along the down-conductor l<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="lLen" type="number" value="10" step="0.5"><span class="u">m</span><div class="fh">Distance measured along the down-conductor from the equipotential bonding point up to the level where you are checking the separation — usually up to the nearest metallic service or item of equipment.</div></div>
             <div class="field wide"><label>Insulating material k<sub>m</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
