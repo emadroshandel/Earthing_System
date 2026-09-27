@@ -245,7 +245,7 @@ window.SEC = (function () {
       xmin: 0, xmax: Wm, ymin: -Zb, ymax: top
     }, s => {
       const p = s.p;
-      s.title('Soil model — section', twoLayer ? 'two-layer earth (IEEE Std 81 §8)' : 'uniform earth');
+      s.title('Soil model — section', twoLayer ? 'two-layer earth (IEEE Std 81 §7.6)' : 'uniform earth');
       s.bandPx(top, 0, { fill: p.sky });
 
       if (twoLayer) {
