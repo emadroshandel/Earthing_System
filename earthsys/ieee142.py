@@ -105,8 +105,17 @@ def hrg_resistor(V_ll_kV: float, three_IC0: float,
     I_R = max(three_IC0 * margin, three_IC0)
     R = V_ln / I_R if I_R else float("inf")
     P_cont = V_ln ** 2 / R if R else 0.0
+    I_total = math.hypot(I_R, three_IC0)
+    # IEEE 142 1.4.3.1: HRG should be avoided where the earth-fault current
+    # exceeds about 10 A (arcing damage in a confined space).
+    warnings = ([f"Total earth-fault current {I_total:.2f} A exceeds the 10 A "
+                 "above which IEEE Std 142 §1.4.3.1 advises against "
+                 "high-resistance grounding; reduce the connected charging "
+                 "current or use low-resistance grounding, or justify the "
+                 "exceedance."] if I_total > 10.0 else [])
     return dict(V_ln=V_ln, I_R=I_R, R_ohm=R, three_IC0=three_IC0,
-                total_fault_current=math.hypot(I_R, three_IC0),
+                total_fault_current=I_total, warnings=warnings,
+                within_10A=I_total <= 10.0,
                 continuous_power_W=P_cont,
                 rating_note="Rate the resistor for continuous duty when the "
                             "system is designed to run with a standing earth "
@@ -162,20 +171,32 @@ def effectively_grounded(X0: float, X1: float, R0: float = 0.0) -> dict:
 
 def recommend(V_ll_kV: float, continuity_critical: bool,
               ln_loads: bool, three_IC0: float,
-              arc_flash_concern: bool = True) -> dict:
+              arc_flash_concern: bool = True, margin: float = 1.0) -> dict:
     """Suggest a grounding method for the given system requirements."""
     reasons = []
     if ln_loads and V_ll_kV <= 1.0:
         choice = "solid"
         reasons.append("Line-to-neutral loads are supplied, so the neutral "
                        "must be solidly earthed.")
-    elif continuity_critical and three_IC0 <= 10.0:
+    elif continuity_critical and math.hypot(max(margin, 1.0) * three_IC0,
+                                            three_IC0) <= 10.0:
+        # IEEE 142 1.4.3.1 limits the total earth-fault current, not 3*I_C0:
+        # with I_R = 3*I_C0 the total is sqrt(2)*3*I_C0, so HRG suits
+        # 3*I_C0 up to about 7 A.  Up to 1.3.3 the test was 3*I_C0 <= 10 A.
         choice = "high_resistance"
-        reasons.append("Continuity of service is critical and the system "
-                       f"charging current (3·I_C0 = {three_IC0:.1f} A) is low "
-                       "enough for high-resistance grounding.")
+        tot = math.hypot(max(margin, 1.0) * three_IC0, three_IC0)
+        reasons.append("Continuity of service is critical and the total "
+                       f"earth-fault current with I_R = 3·I_C0 ({tot:.1f} A, "
+                       f"3·I_C0 = {three_IC0:.1f} A) is within the 10 A of "
+                       "IEEE Std 142 §1.4.3.1, so high-resistance grounding "
+                       "is suitable.")
     elif V_ll_kV > 1.0:
         choice = "low_resistance"
+        if continuity_critical:
+            reasons.append("Continuity of service is critical, but with "
+                           f"3·I_C0 = {three_IC0:.1f} A the total earth-fault "
+                           "current of high-resistance grounding would exceed "
+                           "the 10 A of IEEE Std 142 §1.4.3.1.")
         reasons.append("Medium-voltage system without line-to-neutral loads: "
                        "low-resistance grounding limits damage while keeping "
                        "selective earth-fault relaying practical.")
