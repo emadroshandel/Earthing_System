@@ -433,7 +433,7 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     `</tbody></table>` + (d.fit_warning ? `<div class="note warn"><b>Fit quality.</b> ${esc(d.fit_warning)}</div>` : '') +
     (d.fit_note ? `<div class="note info"><b>Fit quality.</b> ${esc(d.fit_note)}</div>` : '') +
     `<div class="note info">The two-layer model is fitted by minimising the relative
-     error over all spacings (IEEE Std 81-2012 §8.5). Use the equivalent uniform resistivity for the
+     error over all spacings (IEEE Std 81-2025 §7.6). Use the equivalent uniform resistivity for the
      closed-form IEEE 80 equations, and the layered model itself for the numerical solver.</div>`;
   toast(d.fit_warning ? 'Soil model fitted — but read the fit-quality warning before using it.' : 'Soil model fitted.', d.fit_warning ? 'err' : 'ok');
 });
@@ -587,6 +587,7 @@ function renderGrid(d) {
     { value: fmt(t.E_step) + ' <small>V</small>', label: 'Tolerable step' }
   ]);
   $('#gChecks').innerHTML = checksHtml(d.checks, d.narrative) +
+    (d.warnings || []).map(w => `<div class="note"><b>Applicability.</b> ${esc(w)}</div>`).join('') +
     (d.en50522 ? `<div class="note info"><b>Cross-check, BS EN 50522:2022.</b> ${esc(d.en50522.note)}</div>` : '');
   const g = d.geometry, r = d.resistance;
   $('#gOut').innerHTML = rows([
@@ -618,7 +619,8 @@ function renderGrid(d) {
     ['Tolerable touch voltage', 'E_touch', t.E_touch, 'V', ''],
     ['Tolerable step voltage', 'E_step', t.E_step, 'V', ''],
     d.en50522 && ['Permissible touch voltage (EN 50522)', 'U_Tp', d.en50522.U_Tp, 'V', 'BS EN 50522 Table B.3 · informational'],
-    d.en50522 && ['IEEE 80 touch limit, no surface layer', 'E_touch,0', d.en50522.E_bare_ieee80, 'V', '1000·k/√t_s']
+    d.en50522 && ['IEEE 80 touch limit, body resistance only', 'E_touch,0', d.en50522.E_bare_ieee80, 'V', '1000·k/√t_s'],
+    d.en50522 && d.en50522.U_vTp != null && ['Permissible prospective touch voltage (EN 50522)', 'U_vTp', d.en50522.U_vTp, 'V', 'Annex B, 1000 Ω footwear · compare with E_m']
   ].filter(Boolean));
   // layout
   const tr = [];
@@ -690,7 +692,9 @@ $('#gOpt').onclick = e => run(e.target, async () => {
   }
   if (d.found) {
     set('gD', d.best.D);
-    if (d.best.n_rods) { set('gNr', d.best.n_rods); if (N('gLr') <= 0) set('gLr', 3); }
+    /* the optimiser places added rods on the perimeter; tick the box so that
+       re-evaluating the form reproduces the compliant result */
+    if (d.best.n_rods) { set('gNr', d.best.n_rods); if (N('gLr') <= 0) set('gLr', 3); set('gPerim', true); }
     renderGrid(d.best.result);
     toast(`Compliant design found: ${d.best.strategy} (D = ${d.best.D} m${d.best.n_rods ? ', ' + d.best.n_rods + ' rods' : ''}).`, 'ok');
   } else {
@@ -740,7 +744,7 @@ const PARAM_META = {
     h: ['Burial depth', 'm', 'Depth from ground level to the top of the plate']
   },
   foundation: {
-    volume_m3: ['Concrete volume', 'm³', 'Volume of foundation concrete in contact with the earth, with its reinforcement bonded and electrically continuous']
+    volume_m3: ['Foundation volume', 'm³', 'Volume bounded by the outer faces of the foundation in contact with the soil: the concrete volume of a solid pad, or plan area × depth below ground for a basement. The reinforcement must be bonded and electrically continuous. The formula suits compact foundations; enter a thin raft as a plate and strip footings as a ring.']
   },
   mesh: {
     area: ['Mesh area', 'm²', 'Plan area covered by the mesh'],
@@ -817,7 +821,15 @@ $$('#page-numerical [data-add]').forEach(b => b.onclick = () => {
 $('#nFromGrid').onclick = () => {
   const g = gridPayload();
   BEM_ITEMS = [{ kind: 'grid', Lx: g.Lx, Ly: g.Ly, D: g.D, depth: g.h, radius: g.d / 2, x0: 0, y0: 0 }];
-  if (g.n_rods > 0 && g.Lr > 0) {
+  if (g.n_rods > 0 && g.Lr > 0 && !g.rods_on_perimeter) {
+    /* rods spread over the area — the same layout as ieee80.GridGeometry.rod_positions */
+    const k = Math.max(1, Math.ceil(Math.sqrt(g.n_rods)));
+    let placed = 0;
+    for (let i = 0; i < k && placed < g.n_rods; i++)
+      for (let j = 0; j < k && placed < g.n_rods; j++, placed++)
+        BEM_ITEMS.push({ kind: 'rod', x: +(g.Lx * (i + 0.5) / k).toFixed(2), y: +(g.Ly * (j + 0.5) / k).toFixed(2),
+          top_depth: g.h, length: g.Lr, radius: g.d_rod / 2 });
+  } else if (g.n_rods > 0 && g.Lr > 0) {
     const per = 2 * (g.Lx + g.Ly);
     for (let i = 0; i < g.n_rods; i++) {
       const s = per * i / g.n_rods;
@@ -983,7 +995,7 @@ $('#bRun').onclick = e => run(e.target, async () => {
     { value: fmt(d.RA) + ' <small>Ω</small>', label: 'Electrode resistance R_A' },
     { value: fmt(d.Zs) + ' <small>Ω</small>', label: 'Earth-fault loop Z_s' },
     { value: fmt(d.device.Ia) + ' <small>A</small>', label: 'Operating current I_a' },
-    { value: fmt(d.disconnection.t) + ' <small>s</small>', label: 'Max disconnection time' },
+    { value: d.disconnection.required === false ? 'not required' : fmt(d.disconnection.t) + ' <small>s</small>', label: 'Max disconnection time' },
     { value: fmt(d.touch_voltage.Ut) + ' <small>V</small>', label: 'Prospective touch voltage', state: d.touch_voltage.Ut <= N('bUL', 50) ? 'ok' : 'bad' },
     { value: (d.rcd?.selected_mA ? fmt(d.rcd.selected_mA) + ' <small>mA</small>' : '—'), label: 'Largest permissible RCD' }
   ]);
@@ -998,10 +1010,10 @@ $('#bRun').onclick = e => run(e.target, async () => {
       d.combination.mutual && ['Ideal parallel value (no mutual resistance)', '—', d.combination.ideal, 'Ω', 'for comparison only'],
       ['Earth-fault loop impedance', 'Z_s', d.Zs, 'Ω', ''],
       ['Operating current', 'I_a', d.device.Ia, 'A', d.device.basis],
-      ['Maximum disconnection time', 't', d.disconnection.t, 's', d.disconnection.rule],
+      ['Maximum disconnection time', 't', d.disconnection.required === false ? 'not required (U₀ ≤ 50 V)' : d.disconnection.t, d.disconnection.required === false ? '' : 's', d.disconnection.rule],
       ['Prospective touch voltage', 'U_t', d.touch_voltage.Ut, 'V', d.touch_voltage.formula],
       d.rcd && ['Maximum permissible IΔn', 'IΔn', d.rcd.max_IdN * 1000, 'mA', 'R_A · IΔn ≤ ' + fmt(N('bUL', 50)) + ' V'],
-      d.rcd && ['30 mA additional protection acceptable', '—', d.rcd.additional_protection_30mA, '', 'IEC 60364-4-41 §415.1']
+      d.rcd && ['30 mA RCD satisfies R_A·IΔn ≤ 50 V', '—', d.rcd.additional_protection_30mA, '', 'IEC 60364-4-41 §411.5.3; additional protection §415.1']
     ]) + `<table class="data"><thead><tr><th>Electrode</th><th style="text-align:right">R (Ω)</th><th>Formula</th></tr></thead><tbody>` +
     d.electrodes.map(el => `<tr><td>${esc(el.type)}</td><td class="n">${fmt(el.R)}</td><td class="src">${esc(el.formula || el.error || '')}</td></tr>`).join('') + '</tbody></table>';
   // sensitivity: R vs rho
@@ -1200,6 +1212,7 @@ $('#sRun').onclick = e => run(e.target, async () => {
     { value: d.effective ? (d.effective.effectively_grounded ? 'Yes' : 'No') : '—', label: 'Effectively grounded', state: d.effective ? (d.effective.effectively_grounded ? 'ok' : 'bad') : '' }
   ]);
   $('#sOut').innerHTML = (d.recommendation ? `<div class="note info"><b>Recommended: ${esc(m.name)}</b><ul style="margin:6px 0 0;padding-inline-start:18px">${d.recommendation.reasons.map(r => '<li>' + esc(r) + '</li>').join('')}</ul></div>` : '') +
+    (d.warnings || []).map(w => `<div class="note warn"><b>Caution.</b> ${esc(w)}</div>`).join('') +
     rows([
       ['System voltage', 'U', N('sV'), 'kV', ''],
       ['Cable charging component', '—', d.charging.cable_component, 'A', ''],
@@ -1272,7 +1285,9 @@ function reportData(figs) {
   };
   if (S.soil) d.soil = { ...S.soil, rho_equivalent: S.soil.equivalent.rho_equivalent };
   if (S.fault) d.fault = { Un_kV: S.fault.Un_kV, three_I0_kA: S.fault.three_I0_kA, Sf: S.fault.Sf, Df: S.fault.Df, Cp: S.fault.Cp, Ig_kA: S.fault.Ig_kA, IG_kA: S.fault.IG_kA, ts: S.fault.ts, tc: S.fault.tc };
-  if (S.conductor) d.conductor = S.conductor.ieee80;
+  /* the report prints the size the page selected, not the IEEE 80 area alone */
+  if (S.conductor) d.conductor = { ...S.conductor.ieee80, selected_mm2: S.conductor.selected_mm2,
+    off_scale: S.conductor.off_scale, required_mm2: S.conductor.required_mm2 };
   if (S.grid) d.grid = S.grid;
   if (S.bem) d.bem = S.bem;
   if (S.building) d.building = S.building;
