@@ -80,11 +80,13 @@ MEANING = {
         "are furthest away and the soil potential sags lowest."),
     "step": (
         "Step voltage is the potential difference between a person's two feet, "
-        "one metre apart, standing on the soil. The body path foot-to-foot has "
-        "roughly four times the resistance of the hand-to-feet path, which is "
-        "why the tolerable step voltage is about four times the tolerable "
-        "touch voltage — and why step voltage is almost never the binding "
-        "criterion in a well-built grid."),
+        "one metre apart, standing on the soil. IEEE Std 80 takes the same "
+        "1000 Ω body resistance for both paths; what differs is the ground "
+        "resistance of the feet — in series for a step (2R_f = 6C_sρ_s), in "
+        "parallel for a touch (R_f/2 = 1.5C_sρ_s). With a resistive surface "
+        "layer the foot term dominates, so the tolerable step voltage is up "
+        "to four times the tolerable touch voltage — which is why step "
+        "voltage is seldom the binding criterion in a well-built grid."),
     "zs": (
         "In a TN system the earth fault returns through metal, so the fault "
         "current is set by the loop impedance Z_s. Automatic disconnection "
@@ -99,6 +101,14 @@ MEANING = {
         "overcurrent device, so the criterion is on voltage instead: the "
         "exposed metal must not sit above 50 V a.c., i.e. R_A · I_a ≤ U_L. In "
         "practice this makes an RCD mandatory."),
+    "tt_ocpd": (
+        "In a TT system protected by an overcurrent device (MCB or fuse), IEC "
+        "60364-4-41 §411.5.4 requires Z_s · I_a ≤ U₀: the fault loop — source, "
+        "line conductor, the installation electrode R_A and the source "
+        "electrode, returning through the soil — must pass enough current to "
+        "operate the device within the Table 41.1 time. Because R_A is part "
+        "of the loop this is rarely achievable, which is why an RCD is the "
+        "normal fault protection in TT (§411.5.3, R_A · IΔn ≤ 50 V)."),
     "rcd": (
         "The residual-current device trips on the difference between line and "
         "neutral current, so it does not care how small the earth-fault "
@@ -183,7 +193,14 @@ MEANING = {
 # ---------------------------------------------------------------------------
 
 def _invert_hs(rho, rho_s, ts, k, target_E, hs_max=0.6):
-    """Surface-layer thickness that would raise E_touch to target_E."""
+    """Surface-layer thickness that would raise E_touch to target_E.
+
+    None when there is no surface layer to thicken (rho_s <= 0): C_s is then
+    undefined, and dividing by rho_s crashed every failing design entered
+    without a surface layer."""
+    if not rho_s or rho_s <= 0:
+        return None
+
     def E(hs):
         Cs = 1.0 - 0.09 * (1.0 - rho / rho_s) / (2.0 * hs + 0.09)
         return (1000.0 + 1.5 * Cs * rho_s) * k / math.sqrt(ts)
@@ -265,7 +282,15 @@ def explain_ieee80(result: dict) -> dict:
                     f"scales as 1/√t_s, so this alone closes the gap.")
                 # 2. surface layer
                 hs_need = _invert_hs(rho, rho_s, ts, k, Em)
-                if hs_need and hs_need > hs:
+                if not rho_s or rho_s <= 0:
+                    remedies.append(
+                        "No surface layer is specified. A high-resistivity "
+                        "surface layer (crushed rock, asphalt — IEEE Std 80 "
+                        "Table 7) multiplies the foot resistance by C_s·ρ_s "
+                        "and is usually the cheapest way to raise the "
+                        "tolerable touch voltage; enter its wet resistivity "
+                        "and thickness to size it.")
+                elif hs_need and hs_need > hs:
                     remedies.append(
                         f"Increase the surface-layer thickness from "
                         f"{_fmt(hs, 3)} m to about {_fmt(hs_need, 3)} m, which "
@@ -312,10 +337,11 @@ def explain_ieee80(result: dict) -> dict:
                 c["verdict"] = (
                     f"E_s = {_fmt(Es)} V is {_fmt(-_pct(Es, Estep))} % below "
                     f"the tolerable step voltage of {_fmt(Estep)} V. This is "
-                    f"the usual outcome: the foot-to-foot body path has about "
-                    f"four times the resistance of the hand-to-feet path, so "
-                    f"the step limit is roughly four times the touch limit "
-                    f"while the two computed voltages are of the same order.")
+                    f"the usual outcome: the feet are in series for a step "
+                    f"and in parallel for a touch, so the step limit is "
+                    f"{_fmt(Estep / Et if Et else 0, 2)} times the touch limit "
+                    f"here, while the two computed voltages are of the same "
+                    f"order.")
                 c["headroom"] = f"{_fmt(-_pct(Es, Estep))} % margin."
             else:
                 c["verdict"] = (
@@ -380,8 +406,9 @@ def explain_building(result: dict, rho: float | None = None) -> dict:
     for c in result.get("checks", []):
         name = c.get("name", "")
 
-        if name.startswith("Earth-fault loop"):
-            c["meaning"] = MEANING["zs"]
+        if name.startswith("Earth-fault loop") or name.startswith("TT loop"):
+            c["meaning"] = (MEANING["tt_ocpd"] if name.startswith("TT loop")
+                            else MEANING["zs"])
             Zs, Zmax = c.get("Zs"), c.get("Zs_max")
             If = c.get("If")
             c["driver"] = (
@@ -470,9 +497,10 @@ def explain_building(result: dict, rho: float | None = None) -> dict:
                 f"R_A · IΔn ≤ 50 V; the electrode must be improved first.")
             if det.get("additional_protection_30mA"):
                 c["headroom"] = (
-                    "A 30 mA RCD is also acceptable here, which is what "
-                    "IEC 60364-4-41 §415.1 requires for socket outlets and "
-                    "for additional protection against direct contact.")
+                    "A 30 mA RCD also satisfies R_A · IΔn ≤ 50 V here, so the "
+                    "same device can give the additional protection that "
+                    "IEC 60364-4-41 §415.1 (BS 7671 411.3.3) requires for "
+                    "socket-outlets.")
             continue
 
     result["narrative"] = _narrative_building(result)
@@ -481,6 +509,12 @@ def explain_building(result: dict, rho: float | None = None) -> dict:
 
 def _narrative_building(r: dict) -> str:
     sysname = r.get("system", "")
+    if r.get("passed") and not (r.get("disconnection") or {}).get("required", True):
+        return (
+            f"The {sysname} installation complies. U₀ = {_fmt(r.get('U0'))} V "
+            f"does not exceed 50 V, so IEC 60364-4-41 Table 41.1 imposes no "
+            f"disconnection time. The electrode resistance is "
+            f"{_fmt(r.get('RA'), 2)} Ω.")
     if r.get("passed"):
         return (
             f"The {sysname} installation complies. Every earth fault on the "
@@ -695,13 +729,19 @@ def _explain_impulse(result: dict) -> None:
 
 def _narrative_lightning(r: dict) -> str:
     if r.get("passed"):
+        adv = [c for c in r.get("checks", []) if c.get("advisory") and not c.get("passed", True)]
+        tail = (" The earthing resistance is above the 10 Ω that the standard "
+                "recommends; that is a recommendation, not a requirement, but "
+                "read the impulse table before relying on the electrode."
+                if adv else " The earthing resistance is also within the "
+                "recommended 10 Ω.")
         return (
             f"The earth termination satisfies IEC 62305-3 for class "
             f"{r.get('lps_class')}: the electrode geometry disperses the "
-            f"lightning current over enough soil, there are enough "
-            f"down-conductors to divide it, and the earthing resistance is "
-            f"within the recommended value.")
-    bad = [c.get("name") for c in r.get("checks", []) if not c.get("passed", True)]
+            f"lightning current over enough soil and there are enough "
+            f"down-conductors to divide it." + tail)
+    bad = [c.get("name") for c in r.get("checks", [])
+           if not c.get("passed", True) and not c.get("advisory")]
     return (
         f"The earth termination does not yet satisfy IEC 62305-3 class "
         f"{r.get('lps_class')}: {', '.join(bad)}. Note that the geometric "
