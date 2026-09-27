@@ -48,6 +48,10 @@ def grid_source_impedance(Un_kV: float, Sk_MVA: float, xr_ratio: float = 10.0,
     Z_Q = c * Un^2 / S_k"        (ohm, referenced to Un)
     """
     Z = c * (Un_kV * 1e3) ** 2 / (Sk_MVA * 1e6)
+    if xr_ratio is None or xr_ratio <= 0:
+        return complex(Z, 0.0)                  # purely resistive source
+    if math.isinf(xr_ratio):
+        return complex(0.0, Z)                  # purely reactive source
     X = Z * xr_ratio / math.sqrt(1.0 + xr_ratio ** 2)
     R = X / xr_ratio
     return complex(R, X)
@@ -88,7 +92,12 @@ def line_impedance(length_km: float, r1: float, x1: float,
 def three_phase_fault(Un_kV: float, Z1: complex, c: float = 1.1) -> dict:
     Ik = c * Un_kV * 1e3 / (SQRT3 * abs(Z1))
     xr = abs(Z1.imag / Z1.real) if Z1.real else float("inf")
-    kappa = 1.02 + 0.98 * math.exp(-3.0 / xr) if xr != float("inf") else 2.0
+    if xr == float("inf"):
+        kappa = 2.0
+    elif xr <= 0:
+        kappa = 1.02                     # purely resistive: exp(-3R/X) -> 0
+    else:
+        kappa = 1.02 + 0.98 * math.exp(-3.0 / xr)
     return dict(Ik_kA=Ik / 1000.0, ip_kA=kappa * math.sqrt(2.0) * Ik / 1000.0,
                 kappa=kappa, xr_ratio=xr, Z1=_c(Z1),
                 formula="IEC 60909-0 Eq. (29): Iₖ\" = c·Un/(√3·Z₁)")
@@ -153,7 +162,16 @@ def decrement_factor(tf: float, xr_ratio: float, f: float = 50.0) -> dict:
         D_f = sqrt( 1 + (T_a/t_f)(1 - e^(-2 t_f / T_a)) ),  T_a = X/(2*pi*f*R)
     """
     Ta = xr_ratio / (2.0 * math.pi * f)
-    Df = math.sqrt(1.0 + (Ta / tf) * (1.0 - math.exp(-2.0 * tf / Ta)))
+    # Limits of Eq. (84): a purely resistive loop (X/R = 0, T_a = 0) has no
+    # d.c. offset, D_f = 1; a purely reactive one (X/R = inf, the offset never
+    # decays) gives (T_a/t_f)(1 - e^(-2t_f/T_a)) -> 2, D_f = sqrt(3).  Both used
+    # to raise ZeroDivisionError / return NaN (e.g. Z1 = j2, Z0 = j6 ohm).
+    if Ta <= 0:
+        Df = 1.0
+    elif math.isinf(Ta):
+        Df = math.sqrt(3.0)
+    else:
+        Df = math.sqrt(1.0 + (Ta / tf) * (1.0 - math.exp(-2.0 * tf / Ta)))
     return dict(Df=Df, Ta=Ta, tf=tf, xr_ratio=xr_ratio, f=f,
                 formula="IEEE Std 80-2013 Eq. (84)")
 
@@ -175,6 +193,36 @@ def split_factor_simple(Rg: float, Z_return: complex | float) -> dict:
     return dict(Sf=Sf, Z_return=_c(Z), Rg=Rg,
                 formula="Current divider S_f = |Z_r| / |Z_r + R_g| "
                         "(IEEE Std 80-2013 Annex C)")
+
+
+def split_factor_cable_s34(l_km: float, z_c: complex, r_c: float,
+                           R_A: float, R_B: float,
+                           remote_source: bool = False) -> dict:
+    """Fraction of the earth-fault current that enters the soil at the faulted
+    substation B, fed by an unarmoured three-core cable earthed at both ends
+    (ENA EREC S34:2018 Appendix D.2):
+
+        local source at A (D.2.1):          S_f = |l·r_c|       / |l·z_c + R_A + R_B|
+        source beyond A, e.g. behind an
+        overhead line (D.2.3):               S_f = |l·r_c + R_A| / |l·z_c + R_A + R_B|
+
+    z_c is the sheath self impedance with earth return (Ω/km, complex), r_c
+    the sheath resistance (Ω/km), R_A and R_B the terminal earth
+    resistances (Ω).  For N identical cables use z_c/N and r_c/N.  As l grows
+    S_f tends to the reduction factor r_c/|z_c|.  Armoured and single-core
+    cables need S34 D.2 (armoured form), D.3 or D.4.
+    """
+    if l_km <= 0:
+        raise ValueError("cable length must be positive")
+    zc = complex(z_c)
+    num = l_km * r_c + (R_A if remote_source else 0.0)
+    den = abs(l_km * zc + R_A + R_B)
+    Sf = abs(num) / den
+    case = "D.2.3" if remote_source else "D.2.1"
+    return dict(Sf=Sf, reduction_factor=r_c / abs(zc), case=case,
+                formula=("S_f = |l·r_c%s| / |l·z_c + R_A + R_B|  "
+                         "(ENA EREC S34:2018 App. %s)")
+                        % (" + R_A" if remote_source else "", case))
 
 
 # Indicative values only.  They are NOT taken from IEEE Std 80 (which gives
@@ -250,10 +298,19 @@ def grid_current(three_I0_kA: float, Sf: float, Df: float,
 def thermal_equivalent(Ik_kA: float, tk: float, xr_ratio: float,
                        f: float = 50.0) -> dict:
     """Thermal equivalent short-circuit current, IEC 60909-0 clause 4.8."""
-    kappa = 1.02 + 0.98 * math.exp(-3.0 / xr_ratio)
+    if xr_ratio is None or xr_ratio <= 0:
+        kappa = 1.02                     # X/R -> 0 limit of the kappa formula
+    elif math.isinf(xr_ratio):
+        kappa = 2.0
+    else:
+        kappa = 1.02 + 0.98 * math.exp(-3.0 / xr_ratio)
     fk = f * tk
     if fk <= 0:
         m = 0.0
+    elif kappa >= 2.0 - 1e-12:
+        # ln(kappa - 1) -> 0: the limit of the factor m (IEC 60909-0 4.8) is 2
+        # (a d.c. component that never decays); the closed form divides by 0.
+        m = 2.0
     else:
         m = (math.exp(4.0 * fk * math.log(kappa - 1.0)) - 1.0) / (2.0 * fk * math.log(kappa - 1.0)) \
             if kappa > 1.0000001 else 0.0
