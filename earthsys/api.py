@@ -32,7 +32,7 @@ import os
 from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
                ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.4"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -244,7 +244,14 @@ def api_fault(p):
     tp = faultcurrent.three_phase_fault(Un, Z1, c)
 
     tf = float(p.get("tf", 0.5))
-    xr = float(p.get("xr_ratio") or lg["xr_ratio"] or 10.0)
+    # X/R of the earth-fault loop.  A computed 0 (purely resistive loop) is a
+    # real value, not a missing one, so it must not fall through to 10.
+    if p.get("xr_ratio") not in (None, "", 0, "0"):
+        xr = float(p["xr_ratio"])
+    elif lg.get("xr_ratio") is not None:
+        xr = float(lg["xr_ratio"])
+    else:
+        xr = 10.0
     f = float(p.get("frequency", 50.0))
     dfd = faultcurrent.decrement_factor(tf, xr, f)
 
@@ -276,7 +283,14 @@ def api_conductor(p):
     if p.get("standard", "ieee80") == "ieee80":
         Tm = p.get("Tm")
         if p.get("joint") and p["joint"] in materials.JOINT_TM_LIMITS:
-            Tm = materials.JOINT_TM_LIMITS[p["joint"]]
+            # A joint can only LOWER the permissible temperature: it can never
+            # let the conductor run hotter than its own fusing point.  Taking
+            # the joint limit as-is put Tm = 1083 degC on aluminium (657) and
+            # zinc-coated steel (419) with an exothermic weld, and 450 degC on
+            # zinc-coated steel with a brazed joint — areas up to 27 % too small.
+            mat_tm = materials.IEEE80_MATERIALS.get(
+                p.get("material", "cu_hard"), {}).get("Tm", float("inf"))
+            Tm = min(materials.JOINT_TM_LIMITS[p["joint"]], mat_tm)
         r = conductor.ieee80_conductor_area(
             float(p.get("I_kA", 10.0)) * float(p.get("Df", 1.0)),
             float(p.get("tc", 0.5)), p.get("material", "cu_hard"),
@@ -375,9 +389,15 @@ def api_ieee80_optimise(p):
         p.get("r_method", "auto"))
     if res.get("best"):
         best = res["best"]["result"]
+        # Draw the geometry the optimiser actually evaluated: when it added
+        # rods it put them on the perimeter (ieee80.optimise sets
+        # rods_on_perimeter = True), whatever the request said.
+        added = bool(res["best"].get("n_rods"))
         gg = _geometry({**p, "D": res["best"]["D"],
                         "n_rods": res["best"].get("n_rods", g.n_rods),
-                        "Lr": p.get("Lr", 3.0) if res["best"].get("n_rods") else p.get("Lr", 0)})
+                        "Lr": (best["geometry"]["Lr"] if added else p.get("Lr", 0)),
+                        "rods_on_perimeter": (True if added
+                                              else p.get("rods_on_perimeter", True))})
         best["layout"] = dict(conductors=gg.conductor_paths(),
                               rods=gg.rod_positions())
         reasoning.explain_ieee80(best)
@@ -386,7 +406,15 @@ def api_ieee80_optimise(p):
 
 def api_bem(p):
     _require_rows(p.get("items"), "electrode")
-    _require_positive(p, {"segment_length": "Segment length (m)"})
+    _require_positive(p, {"segment_length": "Segment length (m)",
+                          "rho1": "Upper-layer resistivity rho1 (ohm.m)"})
+    # A second layer is used only when both rho2 and its depth are given
+    # (bem.SoilModel treats a blank or zero as uniform soil), so validate
+    # them together: a zero or negative value must not silently fall back to
+    # a uniform model, nor give negative resistances.
+    if p.get("rho2") not in (None, "") or p.get("h_layer") not in (None, ""):
+        _require_positive(p, {"rho2": "Lower-layer resistivity rho2 (ohm.m)",
+                              "h_layer": "Upper-layer thickness (m)"})
 
     if not bem.HAVE_NUMPY:
         raise RuntimeError("The numerical solver needs numpy. "
@@ -455,10 +483,54 @@ def api_bem(p):
     return reasoning.explain_bem(out)
 
 
+# Geometric inputs each electrode formula divides by or takes the logarithm
+# of.  The Dwight strip and ring formulas contain ln(4l/s) and ln(4D/s) with
+# s = 2h, so they have no finite surface limit (h = 0): a conductor laid ON the
+# surface needs its own formula, and a zero depth used to surface as a raw
+# "float division by zero".  The plate (ENA shallow form) and the mesh
+# (Sverak) are valid at h = 0, so only h < 0 is rejected there.
+_ELECTRODE_POSITIVE = {
+    "rod": ("L", "d"), "rods_parallel": ("L", "d", "n", "s"),
+    "strip": ("L", "w", "h"), "round": ("L", "d", "h"),
+    "ring": ("radius", "d", "h"), "plate": ("area",),
+    "foundation": ("volume_m3",), "mesh": ("area", "total_length"),
+}
+_ELECTRODE_NAMES = {"L": "length L (m)", "d": "diameter d (m)", "n": "number of rods",
+                    "s": "spacing s (m)", "w": "width w (m)", "h": "burial depth h (m)",
+                    "radius": "radius (m)", "area": "area (m²)",
+                    "volume_m3": "volume (m³)", "total_length": "total length (m)"}
+
+
+def _require_electrodes(items):
+    for i, e in enumerate(items or [], 1):
+        kind = e.get("type", "rod")
+        for key in _ELECTRODE_POSITIVE.get(kind, ()):
+            if key not in e:
+                continue            # the formula's own default applies
+            label = f"Electrode {i} ({kind}): {_ELECTRODE_NAMES.get(key, key)}"
+            if key == "h":
+                try:
+                    hv = float(e["h"])
+                except (TypeError, ValueError):
+                    hv = None
+                if hv is not None and math.isfinite(hv) and hv <= 0:
+                    raise ValueError(
+                        f"{label} must be greater than zero: the buried-"
+                        f"conductor formula (Dwight, IEEE Std 142) contains a "
+                        f"term ln(·/2h) and has no limit at the surface. Enter the "
+                        f"actual depth of cover (typically 0.5–0.8 m).")
+            _require_positive(e, {key: label})
+        if kind in ("plate", "mesh") and e.get("h") not in (None, ""):
+            if float(e["h"]) < 0:
+                raise ValueError(f"Electrode {i} ({kind}): burial depth h (m) "
+                                 f"cannot be negative.")
+
+
 def api_building(p):
     _require_positive(p, {"rho": "Soil resistivity (ohm.m)",
                           "U0": "Voltage to earth U0 (V)"})
     _require_rows(p.get("electrodes"), "electrode")
+    _require_electrodes(p.get("electrodes"))
 
     return reasoning.explain_building(iec60364.assess(
         p.get("system", "TT"), float(p.get("U0", 230.0)),
@@ -477,6 +549,7 @@ def api_electrode(p):
     fn = iec60364.ELECTRODE_FUNCS.get(kind)
     if not fn:
         raise ValueError(f"Unknown electrode type '{kind}'.")
+    _require_electrodes([p])
     params = {k: v for k, v in p.items() if k not in ("type",)}
     return fn(**params)
 
@@ -543,7 +616,8 @@ def api_sysgnd(p):
         rec = ieee142.recommend(float(p.get("V_ll_kV", 6.6)),
                                 bool(p.get("continuity_critical", False)),
                                 bool(p.get("ln_loads", False)),
-                                cc["three_IC0"])
+                                cc["three_IC0"],
+                                margin=float(p.get("margin", 1.0)))
         method = rec["method"]
         out["recommendation"] = rec
     out["method"] = method
