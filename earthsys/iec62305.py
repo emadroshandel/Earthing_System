@@ -398,9 +398,17 @@ def design(lps_class: str, rho: float, area: float, perimeter: float,
              passed=earth.get("length_ok", earth.get("radius_ok", True)),
              note=("Electrode length ≥ l1" if arrangement.upper() == "A"
                    else "Ring mean radius r_e ≥ l1")),
+        # Recommended, not mandatory (IEC 62305-3 5.4.1): reported, but it does
+        # not decide the verdict.  Up to 1.3.3 it did, so a design with the
+        # required geometry and R > 10 ohm was reported as non-compliant.
         dict(name="Earthing resistance ≤ 10 Ω (recommended)",
-             passed=earth["R_total"] <= 10.0,
-             value=earth["R_total"], limit=10.0, unit="Ω"),
+             passed=earth["R_total"] <= 10.0, advisory=True,
+             value=earth["R_total"], limit=10.0, unit="Ω",
+             note=("Recommended only (IEC 62305-3 5.4.1, measured at low "
+                   "frequency). For Type A, 5.4.2.1 allows l1 to be "
+                   "disregarded if a resistance below 10 Ω is achieved, "
+                   "measured at a frequency other than the power frequency; "
+                   "this program keeps the geometry as its binding check.")),
         dict(name="Number of down-conductors",
              passed=dc["n_down"] >= 2, value=dc["n_down"], limit=2, unit="-"),
     ]
@@ -447,7 +455,7 @@ def design(lps_class: str, rho: float, area: float, perimeter: float,
                 down_conductors=dc, earth=earth, separation=sep,
                 impulse=imp, soil_frequency=soil_freq,
                 electrode_min_sizes=LPS_ELECTRODE_MIN, checks=checks,
-                passed=all(c["passed"] for c in checks),
+                passed=all(c["passed"] for c in checks if not c.get("advisory")),
                 bonding_note="Bond all incoming metallic services and, where "
                              "direct bonding is not possible, use SPDs at the "
                              "LPZ 0/1 boundary (IEC 62305-3 §6.2, 62305-4).")
