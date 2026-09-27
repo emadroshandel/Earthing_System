@@ -82,18 +82,18 @@ REGISTRY = [
          title="Power installations exceeding 1 kV AC and 1.5 kV DC — Part 1: AC",
          note="Same U_Tp curve as EN 50522."),
     # Testing ----------------------------------------------------------------
-    dict(id="IEEE Std 81-2012", area="testing", role="implemented",
+    dict(id="IEEE Std 81-2025", area="testing", role="implemented",
          title="IEEE Guide for Measuring Earth Resistivity, Ground Impedance, "
                "and Earth Surface Potentials of a Grounding System",
-         note="Module 1. Superseded by IEEE Std 81-2025."),
+         note="Module 1. Revision of IEEE Std 81-2012; formulas unchanged."),
     dict(id="ENA TS 41-24:2018", area="testing", role="reference",
          title="Guidelines for the design, installation, testing and maintenance "
                "of main earthing systems in substations",
          note="Energy Networks Association (UK), Issue 2."),
     # Touch and step ---------------------------------------------------------
-    dict(id="IEC 60479-1:2018", area="touch-step", role="cross-check",
+    dict(id="IEC TS 60479-1:2005+AMD1:2016", area="touch-step", role="cross-check",
          title="Effects of current on human beings and livestock — Part 1: General aspects",
-         note="Replaces IEC TS 60479-1:2005+A1:2016. Basis of U_Tp and of EG-0 fibrillation probability."),
+         note="Body impedance (Table 1) and curves c1-c3. Basis of U_Tp, U_vTp and of EG-0 fibrillation probability."),
     dict(id="IEC 60479-2:2019", area="touch-step", role="reference",
          title="Effects of current on human beings and livestock — Part 2: Special aspects",
          note=""),
@@ -236,7 +236,8 @@ def en50522_touch_limit(t_F: float) -> float:
     """Permissible touch voltage U_Tp (V) for fault duration t_F (s).
 
     Log-log interpolation of the tabulated points; clamped at the ends of the
-    table (716 V below 0.05 s, 85 V above 10 s)."""
+    table (716 V below 0.05 s, 85 V above 10 s; Table B.3 Note 2 allows 80 V
+    for durations much longer than 10 s)."""
     if t_F <= 0:
         raise ValueError("fault duration must be positive")
     pts = EN50522_UTP
@@ -251,32 +252,99 @@ def en50522_touch_limit(t_F: float) -> float:
     raise AssertionError("unreachable")
 
 
+# BS EN 50522 Table B.2 = IEC TS 60479-1:2005+AMD1:2016 Table 1, 50 % column:
+# total body impedance Z_T (Ω), hand to hand, large dry contact areas, against
+# touch voltage U_T (V).  Values correspond to about 0.1 s of current flow.
+EN50522_ZT = [
+    (25.0, 3250.0), (50.0, 2500.0), (75.0, 2000.0), (100.0, 1725.0),
+    (125.0, 1550.0), (150.0, 1400.0), (175.0, 1325.0), (200.0, 1275.0),
+    (225.0, 1225.0), (400.0, 950.0), (500.0, 850.0), (700.0, 775.0),
+    (1000.0, 775.0),
+]
+
+
+def en50522_body_impedance(U_T: float) -> float:
+    """Total body impedance Z_T(U_T) of BS EN 50522 Table B.2 (IEC 60479-1
+    Table 1, 50 % of the population, hand to hand), interpolated linearly and
+    clamped at 3250 Ω below 25 V and 775 Ω above 700 V."""
+    if U_T <= 0:
+        raise ValueError("touch voltage must be positive")
+    pts = EN50522_ZT
+    if U_T <= pts[0][0]:
+        return pts[0][1]
+    if U_T >= pts[-1][0]:
+        return pts[-1][1]
+    for (u0, z0), (u1, z1) in zip(pts, pts[1:]):
+        if u0 <= U_T <= u1:
+            return z0 + (z1 - z0) * (U_T - u0) / (u1 - u0)
+    raise AssertionError("unreachable")
+
+
+def en50522_prospective_touch_limit(t_F: float, rho_s: float,
+                                    R_F1: float = 1000.0,
+                                    Cs: float = 1.0) -> dict:
+    """Permissible prospective touch voltage U_vTp of BS EN 50522 Annex B:
+
+        U_vTp = U_Tp · (1 + R_F / Z_T(U_Tp)),   R_F = R_F1 + R_F2,  R_F2 = 1.5·C_s·ρ_s
+
+    R_F1 is the footwear resistance (1000 Ω in Annex B), R_F2 the resistance
+    to earth of the standing point.  Annex B writes R_F2 = 1.5·ρ_s (C_s = 1,
+    an infinitely thick layer); pass the IEEE 80 C_s for a thin layer.  U_vTp
+    is compared with a prospective (open-circuit) touch voltage such as E_m."""
+    if rho_s < 0 or R_F1 < 0:
+        raise ValueError("rho_s and R_F1 must not be negative")
+    U = en50522_touch_limit(t_F)
+    Z = en50522_body_impedance(U)
+    RF = R_F1 + 1.5 * Cs * rho_s
+    return dict(U_Tp=U, Z_T=Z, I_B=U / Z, R_F=RF, U_vTp=U * (1.0 + RF / Z),
+                formula="U_vTp = U_Tp·(1 + (R_F1 + 1.5·ρ_s)/Z_T(U_Tp))  "
+                        "(BS EN 50522 Annex B)")
+
+
 def ieee80_bare_touch(t_s: float, body_weight: int = 70) -> float:
-    """IEEE 80 tolerable touch voltage with no surface layer and R_B = 1000 Ω
-    (the like-for-like comparison with U_Tp): E = 1000·k/√t_s."""
+    """IEEE 80 tolerable touch voltage across the body resistance alone,
+    R_B = 1000 Ω, with no foot, footwear or surface-layer resistance (the
+    like-for-like comparison with U_Tp): E = 1000·k/√t_s."""
     k = 0.157 if body_weight == 70 else 0.116
     return 1000.0 * k / math.sqrt(t_s)
 
 
 def touch_cross_check(t_s: float, E_touch: float, E_mesh: float,
-                      body_weight: int = 70) -> dict:
+                      body_weight: int = 70, rho_s: float | None = None,
+                      R_F1: float = 1000.0) -> dict:
     """Report the EN 50522 permissible touch voltage beside IEEE 80's.
 
-    U_Tp contains no surface layer or footwear, so the fair comparison is
-    with IEEE 80's bare-soil value; the ratio E_touch/E_bare shows how much of
-    the IEEE 80 allowance comes from the surface layer."""
+    U_Tp is the voltage across the body alone, with no foot, footwear or
+    surface-layer resistance, so the fair comparison is IEEE 80's R_B·I_B; the
+    ratio E_touch/E_body shows how much of the IEEE 80 allowance comes from the
+    resistance under the feet (native soil and surface layer).
+
+    With rho_s (the resistivity under the feet) it also gives the Annex B
+    prospective limit U_vTp, with footwear R_F1, which is the like-for-like
+    comparison for the prospective mesh voltage E_m.  (Up to 1.3.4 the result
+    carried E_m/U_Tp, which compares a prospective voltage with a body
+    voltage.)"""
     U = en50522_touch_limit(t_s)
     Eb = ieee80_bare_touch(t_s, body_weight)
-    return dict(
-        standard="BS EN 50522:2022", t_F=t_s, U_Tp=U, E_bare_ieee80=Eb,
-        surface_layer_gain=E_touch / Eb if Eb else None,
-        mesh_vs_UTp=E_mesh / U if U else None,
-        note=(f"EN 50522 permits U_Tp = {U:.0f} V at t_F = {t_s:g} s with no "
-              f"additional resistance; IEEE 80 ({body_weight} kg) permits "
-              f"{Eb:.0f} V bare, {E_touch:.0f} V with the surface layer. "
-              "Informational: EN 50522 credits footwear and surface layer "
-              "through its own Annex, not through C_s."),
-    )
+    out = dict(standard="BS EN 50522", t_F=t_s, U_Tp=U, E_bare_ieee80=Eb,
+               surface_layer_gain=E_touch / Eb if Eb else None)
+    tail = ""
+    if rho_s is not None and rho_s > 0:
+        pv = en50522_prospective_touch_limit(t_s, rho_s, R_F1)
+        out.update(U_vTp=pv["U_vTp"], Z_T=pv["Z_T"], R_F=pv["R_F"],
+                   rho_s=rho_s, R_F1=R_F1,
+                   mesh_vs_UvTp=E_mesh / pv["U_vTp"] if pv["U_vTp"] else None)
+        tail = (f" With {R_F1:.0f} Ω footwear and 1.5·ρ_s = {1.5 * rho_s:.0f} Ω "
+                f"under the feet, the Annex B prospective limit is U_vTp = "
+                f"{pv['U_vTp']:.0f} V, the value to compare with E_m = "
+                f"{E_mesh:.0f} V.")
+    out["note"] = (f"EN 50522 permits U_Tp = {U:.0f} V at t_F = {t_s:g} s across "
+                   f"the body; IEEE 80 ({body_weight} kg) permits {Eb:.0f} V "
+                   f"across the body alone (R_B = 1000 Ω, no foot resistance) "
+                   f"and {E_touch:.0f} V with the foot and surface-layer "
+                   f"resistance.{tail} Informational: the verdict remains the "
+                   "IEEE 80 one.")
+    return out
 
 
 # ENA EG-0 / AS 2067 probabilistic assessment ------------------------------
@@ -411,10 +479,24 @@ def far_field_potential(rho: float, I_E: float, x: float) -> float:
 
 def epr_contour_distance(rho: float, I_E: float, V_lim: float) -> float:
     """Distance at which the surface potential falls to V_lim (the edge of a
-    hazard / hot zone, e.g. for AS/NZS 3835.1 or EREC S34): x = ρI_E/(2πV_lim)."""
+    hazard / hot zone, e.g. the ITU 430 V / 650 V HOT-site limits of ENA TS
+    41-24 §4.3.7, or AS/NZS 3835.1), far-field hemisphere form:
+    x = ρI_E/(2πV_lim), measured from the electrode's centre.  Close to the
+    grid use epr_contour_distance_s34()."""
     if V_lim <= 0:
         raise ValueError("V_lim must be positive")
     return rho * I_E / (2 * math.pi * V_lim)
+
+
+def epr_contour_distance_s34(area: float, U_E: float, V_x: float) -> float:
+    """ENA EREC S34:2018 Formula P7 (B.3.8): distance (m) from the edge of a
+    compact electrode of plan area `area` (m²) and EPR U_E (V) to the contour
+    V_x (V):  x = √(A/π)·[1/sin(πV_x/(2U_E)) − 1].  Returns 0 if V_x >= U_E."""
+    if area <= 0 or U_E <= 0 or V_x <= 0:
+        raise ValueError("area, U_E and V_x must be positive")
+    if V_x >= U_E:
+        return 0.0
+    return math.sqrt(area / math.pi) * (1.0 / math.sin(math.pi * V_x / (2.0 * U_E)) - 1.0)
 
 
 def carson_depth(rho: float, f: float = 50.0) -> float:
@@ -472,9 +554,12 @@ def faraday_mass_loss(I: float, years: float, metal: str = "iron") -> float:
 # 6. Bonding networks for electronic equipment — IEEE 1100, BS EN 50310
 # ---------------------------------------------------------------------------
 
-def srg_max_aperture(f_max: float, fraction: float = 0.1) -> float:
+def srg_max_aperture(f_max: float, fraction: float = 0.05) -> float:
     """Largest mesh opening (m) of a signal reference grid that still behaves
-    as an equipotential plane up to f_max (Hz): λ/10 by default."""
+    as an equipotential plane up to f_max (Hz): λ/20 by default, the limit
+    IEEE Std 1100-2005 §4.6.4 adopts for digital equipment (λ/10 is only the
+    −3 dB point).  0.6 m gives about 25 MHz (IEEE 1100 §4.8.5.3.5).  Up to
+    1.3.4 the default was λ/10."""
     return fraction * 299_792_458.0 / f_max
 
 
