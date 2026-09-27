@@ -43,7 +43,8 @@ penetration when the electrodes cross the interface, otherwise ρ₁.
     Three-phase             Iₖ″   = c·Uₙ / (√3·Z₁)                    Eq. (29)
     Peak                    iₚ    = κ·√2·Iₖ″,  κ = 1.02 + 0.98·e^(−3R/X)
     Line-to-earth           Iₖ₁″  = √3·c·Uₙ / |Z₁ + Z₂ + Z₀ + 3Z_f|    Eq. (52)
-    Double line-to-earth    Iₖ₂E  = √3·c·Uₙ·|Z₂| / |Z₁Z₂ + Z₁Z₀ + Z₂Z₀|
+    Double line-to-earth    I″kE2E = √3·c·Uₙ·|Z₂| / |Z₁Z₂ + Z₁Z₀ + Z₂Z₀|   (earth current 3I₀, Eq. (47))
+                            I″k2E  = c·Uₙ·|Z₀ − aZ₂| / |Z₁Z₂ + Z₁Z₀ + Z₂Z₀|  (phase current, Eq. (46))
     Thermal equivalent      I_th  = Iₖ″·√(m + n)                       Eq. (66)
     Network impedance       Z_Q   = c·Uₙ² / Sₖ″
     Transformer             Z_T   = u_k·Uₙ² / (100·S_r)
@@ -51,6 +52,7 @@ penetration when the electrodes cross the interface, otherwise ρ₁.
 **IEEE Std 80-2013 clause 15**
 
     Decrement factor        D_f = √[ 1 + (T_a/t_f)(1 − e^(−2t_f/T_a)) ],  T_a = X/(2πfR)   Eq. (84)
+                            (limits: D_f = 1 for X/R = 0, √3 for X/R → ∞)
     Split factor            S_f = |Z_r| / |Z_r + R_g|                                      Annex C
     Grid current            I_g = S_f·C_p·3I₀ ;   I_G = D_f·I_g                            Eq. (78), (69)
 
@@ -63,7 +65,8 @@ penetration when the electrodes cross the interface, otherwise ρ₁.
     A[mm²] = I[kA] / √( (TCAP·10⁻⁴)/(t_c·α_r·ρ_r) · ln[(K₀ + T_m)/(K₀ + T_a)] )
 
 with the full Table 1 material set (15 materials). T_m is limited by the joint type when
-one is selected: exothermic weld 1083 °C, brazed 450 °C, bolted/pressure 250 °C.
+one is selected: exothermic weld 1083 °C, brazed 450 °C, bolted/pressure 250 °C — but never
+above the material's own T_m (T_m = min(joint, material), 1.3.4).
 
 **IEC 60364-5-54 clause 543.1.2**
 
@@ -144,7 +147,9 @@ Curves B and C are drawn only up to x = 4.
     E_s  = ρ·K_s·K_i·I_G / L_S                                   Eq. (97)
 
 **Acceptance** — the design passes if GPR ≤ E_touch (no further analysis needed, §16.4),
-or if both E_m ≤ E_touch and E_s ≤ E_step. Auto-refine first reduces D in 0.5 m steps down
+or if both E_m ≤ E_touch and E_s ≤ E_step. A warning (not a failure) is given when the burial
+depth is outside 0.25 m ≤ h ≤ 2.5 m, the range of Eq. (99) (1.3.4). The report prints the
+resistance formula actually used (Sverak, Schwarz, or Sverak × Schwarz rod factor). Auto-refine first reduces D in 0.5 m steps down
 to 1.5 m, then adds perimeter rods in groups of four.
 
 ---
@@ -168,7 +173,10 @@ P_ij is the average potential on segment i per ampere leaked from segment j:
     two-layer   G = ρ₁/(4π) Σ_{n=−N}^{N} K^{|n|}
                     [ 1/√(r_h² + (z − z′ − 2nh)²) + 1/√(r_h² + (z + z′ − 2nh)²) ]
 
-    N is truncated where |K|^N < 10⁻⁶.
+    Images are summed explicitly up to n = 60; the deeper ones, up to |K|ⁿ < 10⁻⁶ (and the
+    remainder in closed form), are added as a tabulated function of r_h alone, their depth
+    (≥ 2·61·h) being large against z and z′ (1.3.4; before, the series simply stopped at 60,
+    −15 % on R_g for ρ₂/ρ₁ = 200).
 
 **Self term** (exact average potential on a thin cylinder of length L, radius a)
 
@@ -183,6 +191,10 @@ under-estimates the average potential of a close source and biases R_g low by 5�
 R = ρ/(2πL)[ln(4L/a) − 1] analytically, because
 
     direct + image = ρ/(2πL)[ln(2L/a) − 1] + ρ·ln2/(2πL) = ρ/(2πL)[ln(4L/a) − 1]
+
+Input validation: ρ₁ > 0, and ρ₂ > 0 with a layer thickness > 0 whenever a second layer is
+given. "Build from the IEEE 80 grid" places the rods as the grid page does — on the perimeter,
+or spread over the area (1.3.4).
 
 **Post-processing.** Surface potential on a rectangular grid; touch voltage = GPR − V,
 reported only inside the electrode footprint plus 1 m of arm reach; step voltage from the
@@ -218,8 +230,10 @@ For a flat tape the equivalent radius is a = w/4.
 **Automatic disconnection** (IEC 60364-4-41)
 
     TN            Z_s · I_a ≤ C_min · U₀                       §411.4.4
-    TT            R_A · I_a ≤ U_L (50 V a.c.)                  §411.5.3
-    RCD           R_A · IΔn ≤ U_L
+    TT, RCD       R_A · IΔn ≤ U_L (50 V a.c.)                  §411.5.3
+    TT, MCB/fuse  Z_s · I_a ≤ C_min · U₀,  Z_s = Z_e + Z_line + R_A   §411.5.4
+                  (Z_e includes the source electrode R_B; before 1.3.4 the RCD rule
+                  R_A · I_a ≤ 50 V was applied to overcurrent devices too)
     Touch voltage U_t = U₀·Z_PE/Z_s
 
 Maximum disconnection times, Table 41.1 (final circuits ≤ 63 A):
@@ -231,7 +245,11 @@ Maximum disconnection times, Table 41.1 (final circuits ≤ 63 A):
 | 230 < U₀ ≤ 400 | 0.2 s | 0.07 s |
 | > 400 | 0.1 s | 0.04 s |
 
-Distribution circuits: 5 s (TN), 1 s (TT).
+Distribution circuits: 5 s (TN), 1 s (TT). For U₀ ≤ 50 V Table 41.1 imposes no
+disconnection time (it starts at 50 V < U₀); the assessment reports "not required" (1.3.4).
+
+Electrode inputs are validated: the strip and ring formulas contain ln(·/2h) and are
+rejected at h = 0; the plate (shallow ENA form) and the mesh accept h = 0.
 
 I_a comes from the tripping multiplier of the device: type B 5·I_n, type C 10·I_n,
 type D 20·I_n, or the tabulated gG fuse currents for 0.4 s and 5 s.
