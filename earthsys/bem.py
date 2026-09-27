@@ -82,20 +82,73 @@ class SoilModel:
             abs(self.rho2 - self.rho1) < 1e-9
         self.K = 0.0 if self.uniform else \
             (self.rho2 - self.rho1) / (self.rho2 + self.rho1)
+        self.N_tail = 0
+        self._tail = None
         if self.uniform:
             self.N = 0
         else:
-            n = 1
-            while abs(self.K) ** n > tol and n < max_images:
-                n += 1
-            self.N = n
+            # Images are summed explicitly up to max_images; beyond that the
+            # remaining images (up to |K|^n < tol) are all deep, at about 2nh,
+            # and are added as a tabulated function of the horizontal
+            # distance only (tail(), below).  Version 1.3.3 and earlier simply
+            # stopped at 60 images, which for K > 0.8 dropped a real part of
+            # the series: -0.8 % on R_g for rho2/rho1 = 40 and -15 % for
+            # rho2/rho1 = 200 (thin soil over rock) — on the unsafe side.
+            aK = abs(self.K)
+            n_tol = int(math.ceil(math.log(tol) / math.log(aK))) if aK > 0 else 1
+            self.N = max(1, min(n_tol, max_images))
+            self.N_tail = max(self.N, min(n_tol, 20000))
+
+    def tail(self, rh):
+        """Sum_{n = N+1}^{N_tail} K^n / sqrt(rh^2 + (2nh)^2), plus the
+        remainder beyond N_tail in closed form, for an array of horizontal
+        distances rh (m).  Zero when the explicit series is already complete.
+
+        The depth of source and field point is neglected against 2nh (the
+        first omitted image is at least 2(N+1)h deep); the function of rh is
+        tabulated once and interpolated."""
+        rh = np.asarray(rh, float)
+        if self.N_tail <= self.N:
+            return np.zeros_like(rh)
+        need = float(rh.max()) if rh.size else 0.0
+        if self._tail is None or self._tail[0][-1] < need:
+            h, K = self.h, self.K
+            step = 2.0 * (self.N + 1) * h / 50.0
+            top = max(need * 1.5, 50.0 * step)
+            grid = np.linspace(0.0, top, int(math.ceil(top / step)) + 2)
+            n = np.arange(self.N + 1, self.N_tail + 1, dtype=float)
+            Kn = np.sign(K) ** n * np.exp(n * math.log(abs(K)))
+            vals = np.zeros_like(grid)
+            for a in range(0, len(n), 512):
+                nn, kk = n[a:a + 512], Kn[a:a + 512]
+                vals += (kk[None, :] / np.sqrt(grid[:, None] ** 2
+                                               + (2.0 * nn[None, :] * h) ** 2)).sum(axis=1)
+            # remainder beyond N_tail: sum K^n/(2nh) = (-ln(1-K) - partial)/(2h)
+            m = np.arange(1, self.N_tail + 1, dtype=float)
+            partial = float((np.sign(K) ** m * np.exp(m * math.log(abs(K))) / m).sum())
+            vals += (-math.log(1.0 - K) - partial) / (2.0 * h)
+            self._tail = (grid, vals)
+        grid, vals = self._tail
+        return np.interp(rh, grid, vals)
+
+    def tail_amplitude(self, src_layer: int, fld_layer: int) -> float:
+        """Coefficient multiplying K^n per image order n in image_terms."""
+        if self.uniform:
+            return 0.0
+        if src_layer == 1 and fld_layer == 1:
+            return 4.0 * self.rho1 / (4.0 * math.pi)
+        if src_layer != fld_layer:
+            return 2.0 * self.rho1 * (1.0 + self.K) / (4.0 * math.pi)
+        return self.rho2 * (1.0 - self.K ** 2) / (4.0 * math.pi)
 
     def describe(self):
         if self.uniform:
             return f"Uniform soil, ρ = {self.rho1:g} Ω·m"
+        extra = (f" (+ {self.N_tail - self.N} deep images tabulated)"
+                 if self.N_tail > self.N else "")
         return (f"Two-layer soil: ρ₁ = {self.rho1:g} Ω·m, "
                 f"ρ₂ = {self.rho2:g} Ω·m, h = {self.h:g} m, K = {self.K:+.3f}, "
-                f"{self.N} image terms")
+                f"{self.N} image terms{extra}")
 
 
 class Segment:
@@ -268,6 +321,8 @@ class Network:
                     continue
                 zi = sgn * zs + shift
                 acc += coef / np.sqrt(np.maximum(r2 + (zfm - zi) ** 2, 1e-24))
+            if s.N_tail > s.N:
+                acc += s.tail_amplitude(src_layer, fl) * s.tail(np.sqrt(r2))
             out[m] = acc
         return out
 
