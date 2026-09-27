@@ -166,8 +166,10 @@ def plate(rho: float, area: float, h: float, both_faces: bool = True) -> dict:
 
     Dwight (IEEE Std 142 Table 4.2), buried round plate of radius a at depth
     s/2:   R = rho/(8a) + rho/(4 pi s) [ 1 - 7a²/(12s²) + 33a⁴/(40s⁴) ]
-    The ENA EREC S34 closed form is used when the plate is shallower than its
-    own radius, where the series above is no longer valid.
+    ENA EREC S34:2018 Formula R2, R = rho/(8r)·[1 + r/(2.5h + r)], is valid at
+    any depth; it is used here when the plate is shallower than its own
+    radius, where the series above is no longer valid (the two agree within
+    0.2 % at the switch-over).
     """
     r = math.sqrt(area / math.pi)
     s = 2.0 * h
@@ -180,7 +182,7 @@ def plate(rho: float, area: float, h: float, both_faces: bool = True) -> dict:
         f = "R = ρ/(8a) + ρ/(4πs)·[1 − 7a²/12s² + 33a⁴/40s⁴]  (Dwight, s = 2h)"
     else:
         R = rho / (8.0 * r) * (1.0 + r / (2.5 * h + r))
-        f = "R = ρ/(8r)·[1 + r/(2.5h + r)]  (ENA EREC S34, shallow plate)"
+        f = "R = ρ/(8r)·[1 + r/(2.5h + r)]  (ENA EREC S34 Formula R2)"
     return dict(R=R, type="Plate electrode", area=area, h=h, radius=r,
                 rho=rho, formula=f)
 
@@ -208,13 +210,21 @@ def ring(rho: float, radius: float, d: float, h: float) -> dict:
 
 
 def foundation(rho: float, volume_m3: float) -> dict:
-    """Foundation (concrete-encased / Ufer) electrode.
+    """Foundation (concrete-encased / Ufer) electrode, as the hemisphere of
+    equal volume:
 
-        R ~= 0.2 * rho / V^(1/3)     (V = enclosed earth volume, m³)
+        V = (2/3)·pi·r³,  D = 2r = 1.56·V^(1/3),  R = rho/(pi·D) ~= 0.2·rho/V^(1/3)
+
+    V (m³) is the volume bounded by the outer faces of the foundation in
+    contact with the soil: the concrete volume of a solid pad, or plan area x
+    depth below ground for a basement.  Valid for compact foundations only;
+    model a thin raft as a plate and perimeter strip footings as a ring.
+    (Up to 1.3.4 the docstring called V the "enclosed earth volume" and the
+    input help text the "concrete volume"; the formula is unchanged.)
     """
     R = 0.2 * rho / (volume_m3 ** (1.0 / 3.0))
     return dict(R=R, type="Foundation earth electrode", volume=volume_m3,
-                rho=rho, formula="R ≈ 0.2·ρ/∛V  (DIN 18014 practice)")
+                rho=rho, formula="R = ρ/(πD), D = 1.56·∛V ≈ 0.2·ρ/∛V  (equal-volume hemisphere)")
 
 
 def mesh(rho: float, area: float, total_length: float, h: float = 0.5) -> dict:
@@ -386,6 +396,14 @@ def max_disconnection_time(system: str, U0: float,
     """Maximum disconnection time for a final circuit <= 63 A, or a
     distribution circuit (IEC 60364-4-41 clauses 411.3.2.2 / 411.3.2.3)."""
     fam = "TT" if system.upper().startswith("TT") else "TN"
+    if U0 <= 50.0:
+        # Table 41.1 starts at 50 V < U0: at or below U_L the touch voltage can
+        # never exceed the conventional limit, so no disconnection time is
+        # imposed.  Up to 1.3.3 this fell through to the "> 400 V" row and
+        # demanded 0.1 s (TN) / 0.04 s (TT) of a 24 V or 48 V installation.
+        return dict(t=None, required=False, family=fam, circuit=circuit, U0=U0,
+                    rule=("IEC 60364-4-41 Table 41.1 applies only for U₀ > 50 V "
+                          "— no disconnection time is required"))
     if circuit != "final":
         t = DISTRIBUTION_TIME[fam]
         return dict(t=t, family=fam, circuit=circuit,
@@ -404,13 +422,26 @@ def max_disconnection_time(system: str, U0: float,
 
 MCB_MULTIPLIERS = {"B": 5.0, "C": 10.0, "D": 20.0}
 
-# Indicative gG fuse currents (A) for 0.4 s and 5 s -- IEC 60269 / BS 88-3.
-FUSE_GG = {
-    6: (28, 17), 10: (55, 32), 16: (90, 55), 20: (120, 75), 25: (155, 95),
-    32: (210, 125), 40: (270, 165), 50: (350, 210), 63: (450, 270),
-    80: (610, 380), 100: (800, 500), 125: (1050, 640), 160: (1300, 820),
-    200: (1800, 1100),
-}
+# gG fuse currents I_a (A) that operate the fuse in 0.4 s and in 5 s.
+# gG / gM fuses to BS 88-2: maximum earth-fault loop impedance at U0 = 230 V,
+# C_min = 0.95, from BS 7671:2018+A2:2022 Table 41.2(a) (0.4 s, 2-63 A) and
+# Table 41.4(a) (5 s, 2-200 A).  I_a = 0.95 x 230 / Z_s,max reproduces the
+# tables exactly.  (Up to 1.3.4 the values were taken from the IET On-Site
+# Guide 2018 Table B3 x 1.25, which differs from A2:2022 by up to 3 %, and the
+# 40-63 A values at 0.4 s were indicative and up to 12 % too low, i.e. unsafe.)
+BS7671_GG_ZS_04 = {2: 33.1, 4: 15.6, 6: 7.80, 10: 4.65, 16: 2.43, 20: 1.68,
+                   25: 1.29, 32: 0.99, 40: 0.75, 50: 0.57, 63: 0.44}
+BS7671_GG_ZS_5 = {2: 44.0, 4: 21.0, 6: 12.0, 10: 6.8, 16: 4.0, 20: 2.8,
+                  25: 2.2, 32: 1.7, 40: 1.3, 50: 0.99, 63: 0.78, 80: 0.55,
+                  100: 0.42, 125: 0.32, 160: 0.27, 200: 0.18}
+_UC = 0.95 * 230.0
+# Indicative 0.4 s currents above 63 A (not tabulated in BS 7671)
+_GG_04_INDICATIVE = {80: 610.0, 100: 800.0, 125: 1050.0, 160: 1300.0, 200: 1800.0}
+FUSE_GG = {r: ((_UC / BS7671_GG_ZS_04[r]) if r in BS7671_GG_ZS_04 else _GG_04_INDICATIVE.get(r),
+               _UC / BS7671_GG_ZS_5[r])
+           for r in BS7671_GG_ZS_5}
+# Ratings/times whose I_a comes from BS 7671:2018+A2:2022
+FUSE_GG_BS7671 = {0.4: set(BS7671_GG_ZS_04), 5.0: set(BS7671_GG_ZS_5)}
 
 
 def device_Ia(kind: str, rating_A: float, t_required: float = 0.4,
@@ -425,9 +456,25 @@ def device_Ia(kind: str, rating_A: float, t_required: float = 0.4,
     if kind in ("fuse", "gg", "fuse_gg"):
         if rating_A in FUSE_GG:
             i04, i5 = FUSE_GG[rating_A]
-            Ia = i04 if t_required <= 1.0 else i5
-            return dict(Ia=float(Ia), basis=f"gG fuse {rating_A:g} A, "
-                        f"{'0.4 s' if t_required <= 1.0 else '5 s'} value")
+            t_key = 0.4 if t_required <= 1.0 else 5.0
+            Ia = i04 if t_key == 0.4 else i5
+            if Ia is not None:
+                src = ("BS 7671:2018+A2:2022 Table 41.2/41.4"
+                       if rating_A in FUSE_GG_BS7671[t_key]
+                       else "indicative")
+                if t_key == 0.4 and t_required < 0.4:
+                    # Shorter times (e.g. TT final circuits, 0.2 s): no table.
+                    # For short times a fuse's operating I^2 t is roughly
+                    # constant, so I_a(t) ~ I_a(0.4 s) * sqrt(0.4 / t).  Up to
+                    # 1.3.3 the 0.4 s current was used unchanged, which is
+                    # non-conservative for t < 0.4 s.
+                    f = math.sqrt(0.4 / t_required)
+                    return dict(Ia=float(Ia) * f, basis=(
+                        f"gG fuse {rating_A:g} A, {t_required:g} s: estimated "
+                        f"from the 0.4 s value ({src}) × √(0.4/{t_required:g}) "
+                        "(constant I²t); check the fuse's time–current curve"))
+                return dict(Ia=float(Ia), basis=f"gG fuse {rating_A:g} A, "
+                            f"{'0.4 s' if t_key == 0.4 else '5 s'} value, {src}")
         return dict(Ia=rating_A * (7.0 if t_required <= 1.0 else 4.5),
                     basis="gG fuse, indicative multiplier (rating not tabulated)")
     if kind in ("rcd", "rcbo"):
@@ -513,22 +560,55 @@ def assess(system: str, U0: float, rho: float, electrodes: list,
     RA = comb["R"]
 
     t_max = max_disconnection_time(sysu, U0, circuit)
-    dev = device_Ia(device.get("kind", "mcb"), device.get("rating_A", 32),
-                    t_max["t"], device.get("curve", "B"))
+    kind = str(device.get("kind", "mcb")).lower()
+    dev = device_Ia(kind, device.get("rating_A", 32),
+                    t_max["t"] if t_max["t"] is not None else 5.0,
+                    device.get("curve", "B"))
 
     checks = []
     if sysu.startswith("TT"):
-        c = tt_electrode_check(RA, dev["Ia"], UL)
-        checks.append(dict(name="TT electrode: R_A × I_a ≤ 50 V", **c))
-        rcd = rcd_selection(RA, UL)
-        checks.append(dict(name="RCD selection", passed=rcd["selected_IdN"] is not None,
-                           detail=rcd))
         Zs = Z_source + Z_line + RA
+        rcd = rcd_selection(RA, UL)
+        required = t_max.get("required", True)
+        if required and kind in ("rcd", "rcbo"):
+            # IEC 60364-4-41:2005 411.5.3: R_A x I_dn <= 50 V
+            c = tt_electrode_check(RA, dev["Ia"], UL)
+            checks.append(dict(name="TT electrode: R_A × I_a ≤ 50 V", **c))
+            checks.append(dict(name="RCD selection",
+                               passed=rcd["selected_IdN"] is not None, detail=rcd))
+        elif required:
+            # 411.5.4: an overcurrent device in TT needs Z_s x I_a <= U0, with
+            # Z_s = Z_e (source side incl. the source electrode R_B) + line
+            # + R_A.  Up to 1.3.3 the RCD rule R_A x I_a <= 50 V was applied
+            # to MCBs and fuses as well.  C_min as for TN.
+            c = loop_impedance_check(U0, Zs, dev["Ia"])
+            c["formula"] = "Z_s · I_a ≤ C_min · U₀  (IEC 60364-4-41 §411.5.4, TT)"
+            checks.append(dict(name="TT loop impedance: Z_s × I_a ≤ U₀", **c))
+            checks.append(dict(name="RCD selection",
+                               passed=rcd["selected_IdN"] is not None, detail=rcd))
     else:
         Zs = Z_source + Z_line + Z_pe
         rcd = rcd_selection(RA, UL) if RA and math.isfinite(RA) else None
-        c = loop_impedance_check(U0, Zs, dev["Ia"])
-        checks.append(dict(name="Earth-fault loop impedance Z_s", **c))
+        if t_max.get("required", True):
+            c = loop_impedance_check(U0, Zs, dev["Ia"])
+            checks.append(dict(name="Earth-fault loop impedance Z_s", **c))
+    if sysu.startswith("TT") and math.isfinite(RA) and RA > 200.0:
+        # Advisory (never fails the design): BS 7671:2018+A2:2022 Table 41.5
+        # Note 2 -- an electrode resistance above 200 ohm may not be stable
+        # (drying out in summer, freezing in winter).
+        checks.append(dict(
+            name="TT electrode stability (advisory)", passed=True,
+            advisory=True, value=RA, limit=200.0, unit="Ω",
+            note=("R_A exceeds 200 Ω. BS 7671 Table 41.5, Note 2, warns "
+                  "that such a value may not be stable through dry summers "
+                  "and frozen winters; lower it.")))
+    if not t_max.get("required", True):
+        checks.append(dict(
+            name="Automatic disconnection (U₀ ≤ 50 V)", passed=True,
+            value=U0, limit=50.0, unit="V",
+            note=("U₀ does not exceed 50 V, so the touch voltage cannot exceed "
+                  "U_L; IEC 60364-4-41 Table 41.1 imposes no disconnection "
+                  "time.")))
 
     tv = prospective_touch_voltage(U0, Z_source + Z_line, Z_pe) \
         if not sysu.startswith("TT") else \
