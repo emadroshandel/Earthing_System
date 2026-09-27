@@ -27,7 +27,9 @@ Implements
 * Equivalent uniform resistivity for use with the IEEE 80 closed-form
   equations (IEEE Std 80-2013, 13.4.2)
 
-References: IEEE Std 81-2012 clause 8; IEEE Std 80-2013 clause 13;
+References: IEEE Std 81-2025 7.3.2 (Wenner, Eq. 1-2), 7.3.3 (Schlumberger,
+Eq. 3), 7.3.5 (driven rod, Eq. 4), 7.6 and Annex A (two-layer interpretation,
+Eq. A.2); IEEE Std 80-2013 clause 13;
 Sunde, "Earth Conduction Effects in Transmission Systems", 1949.
 """
 
