@@ -205,7 +205,8 @@ LABELS_FA = {
     "Test array": "آرایش اندازه‌گیری",
     "Tolerable step voltage": "ولتاژ گام مجاز",
     "Permissible touch voltage (cross-check)": "ولتاژ تماس مجاز (صحت‌سنجی EN 50522)",
-    "IEEE 80 touch limit, no surface layer": "حد ولتاژ تماس IEEE 80 بدون لایه سطحی",
+    "Permissible prospective touch voltage (cross-check)": "ولتاژ تماس پیش‌بینی‌شده مجاز (صحت‌سنجی EN 50522)",
+    "IEEE 80 touch limit, body resistance only": "حد ولتاژ تماس IEEE 80 بدون لایه سطحی",
     "Soil resistivity at 1/(4T)": "مقاومت ویژه خاک در فرکانس 1/(4T)",
     "Tolerable touch voltage": "ولتاژ تماس مجاز",
     "Total buried length": "طول کل هادی دفن‌شده",
@@ -220,6 +221,8 @@ LABELS_FA = {
     "Maximum step voltage": "حداکثر ولتاژ گام",
     "Earth-fault loop impedance Z_s": "امپدانس حلقه خطا Z_s",
     "TT electrode: R_A × I_a \u2264 50 V": "الکترود TT: R_A × I_a ≤ 50 V",
+    "TT loop impedance: Z_s × I_a \u2264 U₀": "امپدانس حلقه TT: Z_s × I_a ≤ U₀",
+    "Automatic disconnection (U₀ \u2264 50 V)": "قطع خودکار (U₀ ≤ ۵۰ ولت)",
     "RCD selection": "انتخاب کلید جریان باقیمانده",
     "Earth-termination geometry": "هندسه سیستم زمین صاعقه",
     "Number of down-conductors": "تعداد هادی‌های نزولی",
@@ -337,7 +340,7 @@ def _table(t, rows):
 def _checks_table(t, checks, narrative="", cross_check=""):
     out = []
     if narrative:
-        ok = all(c.get("passed", True) for c in (checks or []))
+        ok = all(c.get("passed", True) for c in (checks or []) if not c.get("advisory"))
         out.append(
             f"<div class='verdict {'vok' if ok else 'vbad'}'>"
             f"<b>{t['complies'] if ok else t['notcomplies']}</b>"
@@ -425,7 +428,7 @@ def _sec_soil(t, d):
                          "Ω·m", "IEEE Std 80-2013 §13.4"))
     if d.get("array"):
         rows.append(_row(t, "Test array", "-", d["array"].title(), "",
-                         "IEEE Std 81-2012 §8"))
+                         "IEEE Std 81-2025 §7.3"))
     body = _table(t, rows)
     if d.get("measured"):
         mrows = ["<tr><th>a (m)</th><th>ρₐ measured (Ω·m)</th>"
@@ -472,7 +475,17 @@ def _sec_conductor(t, d):
         _row(t, "Maximum temperature", "T_m", d.get("Tm"), "°C", ""),
         _row(t, "Minimum cross-section", "A", d.get("area_mm2"), "mm²",
              "IEEE Std 80-2013 Eq. (37)"),
-        _row(t, "Selected standard size", "A_std", d.get("standard_mm2"), "mm²", ""),
+        # The size the conductor page selects is the largest of the IEEE 80
+        # area, the IEC adiabatic area and the Table 54.1 minimum
+        # (api.api_conductor -> selected_mm2).  The report used to print the
+        # IEEE 80 figure alone, e.g. 6 mm² where the page selected 25 mm².
+        (_row(t, "Selected standard size", "A_std", None, "mm²",
+              f"no single conductor covers the duty ({_fmt(d.get('required_mm2'))} mm² required)")
+         if d.get("off_scale") else
+         _row(t, "Selected standard size", "A_std",
+              d.get("selected_mm2", d.get("standard_mm2")), "mm²",
+              "largest of IEEE 80, IEC 60364-5-54 adiabatic and Table 54.1 minimum"
+              if d.get("selected_mm2") is not None else "")),
         _row(t, "Equivalent diameter", "d", d.get("diameter_mm"), "mm", ""),
     ]
     f = ("<div class='formula'>A = I / √( (TCAP·10⁻⁴)/(t_c·α_r·ρ_r) · "
@@ -516,13 +529,31 @@ def _sec_grid(t, d):
     if xc:
         rows += [
             _row(t, "Permissible touch voltage (cross-check)", "U_Tp", xc.get("U_Tp"), "V",
-                 "BS EN 50522:2022 Table B.3 / IEC 60479-1"),
-            _row(t, "IEEE 80 touch limit, no surface layer", "E_touch,0",
+                 "BS EN 50522 Table B.3 / IEC 60479-1"),
+            _row(t, "IEEE 80 touch limit, body resistance only", "E_touch,0",
                  xc.get("E_bare_ieee80"), "V", "1000·k/√t_s"),
         ]
-    f = ("<div class='formula'>R_g = ρ [ 1/L_T + 1/√(20A) ( 1 + 1/(1 + h√(20/A)) ) ]"
+        if xc.get("U_vTp") is not None:
+            rows.append(_row(t, "Permissible prospective touch voltage (cross-check)",
+                             "U_vTp", xc.get("U_vTp"), "V",
+                             "BS EN 50522 Annex B, 1000 Ω footwear"))
+    # Print the resistance formula that produced R_g (1.3.3 always printed
+    # Sverak, even when Schwarz or the automatic combination was used).
+    sverak = "R_g = ρ [ 1/L_T + 1/√(20A) ( 1 + 1/(1 + h√(20/A)) ) ]  — Eq. (57)"
+    schwarz = ("R_g = (R₁R₂ − R_m²)/(R₁ + R₂ − 2R_m)  — Schwarz, Eq. (58)–(61)")
+    chosen = str((d.get("resistance") or {}).get("chosen", "Sverak"))
+    if chosen.startswith("Sverak ×"):
+        rf = (f"{sverak} (grid conductors only)<br>R_g = R_g,Sverak × R_g,Schwarz/R₁"
+              f" — automatic: Sverak × Schwarz rod factor")
+    elif chosen.startswith("Schwarz"):
+        rf = schwarz
+    else:
+        rf = sverak
+    f = (f"<div class='formula'>{rf}"
          "<br>E_m = ρ·K_m·K_i·I_G / L_M &nbsp;&nbsp; E_s = ρ·K_s·K_i·I_G / L_S</div>")
-    return (f"<h2>{t['grid']}</h2>{_table(t, rows)}{f}"
+    warn = "".join(f"<div class='note'><bdi>{html.escape(str(w))}</bdi></div>"
+                   for w in (d.get("warnings") or []))
+    return (f"<h2>{t['grid']}</h2>{_table(t, rows)}{f}{warn}"
             f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}")
 
 
@@ -556,8 +587,11 @@ def _sec_building(t, d):
         _row(t, "Soil resistivity", "ρ", d.get("rho"), "Ω·m", ""),
         _row(t, "Electrode resistance", "R_A", d.get("RA"), "Ω", ""),
         _row(t, "Earth-fault loop impedance", "Z_s", d.get("Zs"), "Ω", ""),
-        _row(t, "Maximum disconnection time", "t", (d.get("disconnection") or {}).get("t"),
-             "s", "IEC 60364-4-41 Table 41.1"),
+        _row(t, "Maximum disconnection time", "t",
+             ((d.get("disconnection") or {}).get("t")
+              if (d.get("disconnection") or {}).get("required", True)
+              else ("not required" if t["lang"] == "en" else "الزامی نیست")),
+             "s", (d.get("disconnection") or {}).get("rule", "IEC 60364-4-41 Table 41.1")),
         _row(t, "Operating current of the device", "I_a",
              (d.get("device") or {}).get("Ia"), "A",
              (d.get("device") or {}).get("basis", "")),
@@ -703,17 +737,31 @@ def _sec_airterm(t, d):
 def _sec_sysgnd(t, d):
     if not d:
         return ""
+    # api_sysgnd returns the method key ("high_resistance") and, in automatic
+    # mode, the recommendation under d["recommendation"]; there is no
+    # top-level "data", so the report used to print the raw key.
+    from .ieee142 import GROUNDING_METHODS
+    meth = d.get("method")
+    name = ((d.get("data") or {}).get("name")
+            or ((d.get("recommendation") or {}).get("data") or {}).get("name")
+            or (GROUNDING_METHODS.get(meth) or {}).get("name") or meth)
     rows = [
-        _row(t, "Recommended method", "-",
-             (d.get("data") or {}).get("name", d.get("method")), "",
-             "IEEE Std 142"),
+        _row(t, "Recommended method" if d.get("recommendation") else "Method",
+             "-", name, "", "IEEE Std 142"),
         _row(t, "System charging current", "3I_C0", d.get("three_IC0"), "A", ""),
         _row(t, "Neutral resistor", "R_N", d.get("R_ohm"), "Ω", ""),
-        _row(t, "Earth-fault current", "I_f", d.get("I_R", d.get("I_target")), "A", ""),
-        _row(t, "Continuous / short-time rating", "P", d.get("continuous_power_W",
-             d.get("power_W")), "W", "IEEE Std 32"),
+        _row(t, "Resistor current" if d.get("I_R") else "Earth-fault current",
+             "I_R" if d.get("I_R") else "I_f", d.get("I_R", d.get("I_target")), "A", ""),
     ]
-    return f"<h2>{t['sysgnd']}</h2>{_table(t, rows)}"
+    if d.get("total_fault_current"):
+        # 1.3.3 printed the resistor current as the earth-fault current
+        rows.append(_row(t, "Total earth-fault current", "I_f",
+                         d.get("total_fault_current"), "A", "√(I_R² + (3I_C0)²)"))
+    rows.append(_row(t, "Continuous / short-time rating", "P", d.get("continuous_power_W",
+                     d.get("power_W")), "W", "IEEE Std 32"))
+    warn = "".join(f"<div class='note'>{html.escape(w)}</div>"
+                   for w in (d.get("warnings") or []))
+    return f"<h2>{t['sysgnd']}</h2>{_table(t, rows)}{warn}"
 
 
 # ---------------------------------------------------------------------------
