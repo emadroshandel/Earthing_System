@@ -173,8 +173,8 @@ K_FACTORS_IN_CABLE = {  # PE as a core of a cable or bundled with cables
 }
 
 K_FACTORS_BURIED = {  # bare/covered earthing conductor in soil, "normal conditions"
-    # IEC 60364-5-54 Table A.54.5 (bare, 30 -> 200 degC) and A.54.2 (PVC,
-    # 30 -> 160 degC).  Version 1.3.1 labelled these k values with Ti = 20 degC
+    # IEC 60364-5-54:2011+A1:2021 Table A.54.6 (bare, "normal conditions",
+    # 30 -> 200 degC) and Table A.54.2 (PVC, 30 -> 160 degC).  Version 1.3.1 labelled these k values with Ti = 20 degC
     # and Tf = 500 degC, which belong to a much larger k (233 for copper); the
     # k values themselves were the conservative "normal conditions" ones and
     # are unchanged.
@@ -185,12 +185,27 @@ K_FACTORS_BURIED = {  # bare/covered earthing conductor in soil, "normal conditi
     ("steel", "pvc"):       dict(k=52,  Ti=30, Tf=160, label="Steel, PVC covered, buried"),
 }
 
-# IEC 60364-5-54 Table 54.1 -- minimum cross-section of buried earthing conductor
+# BS 7671:2018+A2:2022 Table 54.1 -- minimum cross-sectional area of a buried
+# earthing conductor (the form of IEC 60364-5-54:2002).  Up to 1.3.4 this was
+# attributed to IEC 60364-5-54 Table 54.1, which in the 2011 edition is the
+# table of minimum earth-electrode sizes (see MIN_BARE_BURIED_IEC2011).
 MIN_EARTHING_CONDUCTOR = {
     ("protected_corrosion", "protected_mech"): dict(copper=2.5, steel=10.0),
     ("protected_corrosion", "unprotected_mech"): dict(copper=16.0, steel=16.0),
     ("unprotected_corrosion", "any"): dict(copper=25.0, steel=50.0),
 }
+
+# IEC 60364-5-54:2011+A1:2021, 542.3.1 and Table 54.1: every earthing
+# conductor at least 6 mm2 Cu / 50 mm2 steel; a BARE conductor buried in soil
+# must also meet the electrode sizes of Table 54.1.  Copper wire or strand:
+# 25 mm2 for protection against electric shock only, 50 mm2 where a lightning
+# protection system is connected (16 mm2 allowed where experience shows the
+# risk of corrosion and mechanical damage is extremely low, note d).
+# Hot-dip galvanized steel: round wire 10 mm (78.5 mm2) or strip 90 mm2 x 3 mm.
+MIN_BARE_BURIED_IEC2011 = dict(
+    copper=25.0, copper_lps=50.0, steel=78.5, steel_note="hot-dip galvanized "
+    "round wire 10 mm (78.5 mm²) or strip 90 mm² × 3 mm",
+    general_copper=6.0, general_steel=50.0)
 
 # IEC 62305-3:2010 Table 7 -- minimum dimensions of earth electrodes
 # (Edition 2.0; the thickness figures of Edition 1 are no longer tabulated.)
