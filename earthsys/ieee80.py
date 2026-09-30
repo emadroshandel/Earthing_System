@@ -101,15 +101,20 @@ class GridGeometry:
     rods_on_perimeter: bool = True
     shape: str = "rectangular"  # rectangular | L | T | irregular
     Dm: float = 0.0             # max distance between any two grid points (m)
+    # True values for a non-rectangular grid (IEEE Std 80-2013 Eq. (91)-(93)
+    # and Example B.4).  0 = take them from the bounding rectangle Lx x Ly.
+    A_m2: float = 0.0           # enclosed grid area (m²)
+    Lp_m: float = 0.0           # peripheral length (m)
+    Lc_m: float = 0.0           # total length of horizontal conductor (m)
 
     # ---- derived ---------------------------------------------------------
     @property
     def A(self) -> float:
-        return self.Lx * self.Ly
+        return self.A_m2 if self.A_m2 > 0 else self.Lx * self.Ly
 
     @property
     def Lp(self) -> float:
-        return 2.0 * (self.Lx + self.Ly)
+        return self.Lp_m if self.Lp_m > 0 else 2.0 * (self.Lx + self.Ly)
 
     @property
     def Nx(self) -> int:
@@ -123,6 +128,8 @@ class GridGeometry:
     @property
     def Lc(self) -> float:
         """Total length of buried horizontal conductor (m)."""
+        if self.Lc_m > 0:
+            return self.Lc_m
         return self.Nx * self.Lx + self.Ny * self.Ly
 
     @property
@@ -170,18 +177,31 @@ class GridGeometry:
                         pts.append((self.Lx * (i + 0.5) / k,
                                     self.Ly * (j + 0.5) / k))
             return pts
-        per = self.Lp
-        pts = []
-        for i in range(n):
-            s = per * i / n
-            if s < self.Lx:
-                pts.append((s, 0.0))
-            elif s < self.Lx + self.Ly:
-                pts.append((self.Lx, s - self.Lx))
-            elif s < 2 * self.Lx + self.Ly:
-                pts.append((2 * self.Lx + self.Ly - s, self.Ly))
-            else:
-                pts.append((0.0, per - s))
+        # Corners first (IEEE 80 Eq. (96) and K_ii = 1 assume corner rods),
+        # then the rest shared among the four sides in proportion to their
+        # length and spaced evenly along each.  Up to 1.3.4 the rods were
+        # spaced by arc length from (0, 0), which could leave every corner
+        # bare (e.g. 38 rods on a 63 x 84 m grid).
+        Lx, Ly = self.Lx, self.Ly
+        corners = [(0.0, 0.0), (Lx, Ly), (Lx, 0.0), (0.0, Ly)]
+        if n <= 4:
+            return corners[:n]
+        m = n - 4
+        sides = [Lx, Ly, Lx, Ly]
+        tot = sum(sides)
+        raw = [m * L / tot for L in sides]
+        k = [int(math.floor(r)) for r in raw]
+        for i in sorted(range(4), key=lambda i: raw[i] - k[i], reverse=True)[:m - sum(k)]:
+            k[i] += 1
+        pts = list(corners)
+        for j in range(1, k[0] + 1):
+            pts.append((Lx * j / (k[0] + 1), 0.0))
+        for j in range(1, k[1] + 1):
+            pts.append((Lx, Ly * j / (k[1] + 1)))
+        for j in range(1, k[2] + 1):
+            pts.append((Lx - Lx * j / (k[2] + 1), Ly))
+        for j in range(1, k[3] + 1):
+            pts.append((0.0, Ly - Ly * j / (k[3] + 1)))
         return pts
 
 
@@ -389,6 +409,10 @@ def design(rho: float, g: GridGeometry, IG_kA: float,
     checks = [
         dict(name="GPR vs tolerable touch voltage",
              value=GPR, limit=tol["E_touch"], unit="V", passed=gpr_ok,
+             # A screening step, not a criterion: GPR above E_touch only means
+             # that E_m and E_s decide (IEEE 80 16.4).  Marked advisory so it
+             # cannot turn the verdict banner red for a compliant grid (1.3.4).
+             advisory=True,
              note=("GPR is below the tolerable touch voltage — no further "
                    "analysis is required (IEEE 80 §16.4)." if gpr_ok else
                    "GPR exceeds the tolerable touch voltage — mesh and step "
@@ -404,8 +428,10 @@ def design(rho: float, g: GridGeometry, IG_kA: float,
     # Informational cross-check against BS EN 50522 / IEC 60479-1 (new in 1.3.0);
     # it never changes the verdict, which remains the IEEE 80 one.
     rho_feet = rho_s if (rho_s and rho_s > 0 and hs and hs > 0) else rho
+    has_layer = bool(rho_s and rho_s > 0 and hs and hs > 0)
     xc = standards.touch_cross_check(ts, tol["E_touch"], ms["Em"], body_weight,
-                                     rho_s=rho_feet)
+                                     rho_s=rho_feet,
+                                     Cs=(tol.get("Cs") if has_layer else None))
 
     # Range of validity of the closed-form K_s (Eq. (99)), IEEE Std 80-2013
     # 16.5.2: 0.25 m < h < 2.5 m.  A warning, never a failure.
@@ -417,7 +443,7 @@ def design(rho: float, g: GridGeometry, IG_kA: float,
             f"the mesh-voltage equations; E_m and E_s are extrapolated. Check "
             f"the design with the numerical solver.")
     # Range over which IEEE Std 80-2013 16.7 validated the E_m / E_s equations
-    # against computer results (new in 1.3.5).  Warnings, never failures.
+    # against computer results (added in 1.3.4, third-edition checks).  Warnings, never failures.
     meshes = max(g.Nx, g.Ny) - 1
     if not (6.25 <= g.A <= 10000.0):
         warnings.append(
@@ -466,6 +492,8 @@ def optimise(rho: float, g: GridGeometry, IG_kA: float,
     best = None
     trial = deepcopy(g)
     D = trial.D
+    if D_step <= 0 or D_min <= 0:
+        raise ValueError("D_step and D_min must be greater than zero.")
     while D >= D_min - 1e-9:
         trial.D = D
         r = design(rho, trial, IG_kA, rho_s, hs, ts, body_weight, r_method)
