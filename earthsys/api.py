@@ -32,7 +32,7 @@ import os
 from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
                ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.3.5"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -157,14 +157,29 @@ def api_meta(_):
 def api_soil_reduce(p):
     _require_rows(p.get("rows"), "survey")
     _require_spacings(p.get("rows"))
+    _require_readings(p.get("rows"))
 
     rows = soil.reduce_survey(p.get("rows", []), p.get("array", "wenner"))
     return dict(rows=rows)
 
 
+def _require_readings(rows):
+    for i, r in enumerate(rows or [], 1):
+        for k in ("rho", "R", "value"):
+            if r.get(k) not in (None, ""):
+                try:
+                    v = float(r[k])
+                except (TypeError, ValueError):
+                    raise ValueError(f"Reading {i}: '{r[k]}' is not a number.")
+                if not math.isfinite(v) or v <= 0:
+                    raise ValueError(f"Reading {i}: the measured value must be "
+                                     f"greater than zero.")
+
+
 def api_soil_invert(p):
     _require_rows(p.get("rows"), "survey")
     _require_spacings(p.get("rows"))
+    _require_readings(p.get("rows"))
 
     rows = p.get("rows")
     array = p.get("array", "wenner")
@@ -182,12 +197,27 @@ def api_soil_invert(p):
             mn = p["mn"]
     res = soil.invert_two_layer(sp, rh, array, mn)
     res["uniform_average"] = sum(rh) / len(rh)
+    if array == "wenner" and min(sp) < 1.0:
+        # The forward model treats the pins as points on the surface.  At short
+        # spacings a driven pin reads high: 43 % at a = 0.3 m for 0.15 m pins
+        # (IEEE Std 80-2013 Annex H, Table H.1 data).
+        res["pin_depth_note"] = (
+            "Spacings below about 1 m are sensitive to how deep the pins were "
+            "driven, which the two-layer model ignores (it treats them as points "
+            "on the surface). If the pins were driven more than a few "
+            "centimetres, check the residuals at those spacings and consider "
+            "refitting without them.")
     area = p.get("grid_area")
     area = float(area) if area not in (None, "", 0, "0") else None
     res["equivalent"] = soil.equivalent_uniform(
         res["rho1"], res["rho2"], res["h"],
         float(p.get("grid_depth", 0.5)), float(p.get("rod_length", 0.0)),
         p.get("equivalent_method", "auto"), area)
+    if area:
+        res["equivalent"]["note"] = (str(res["equivalent"].get("note") or "") +
+            " Preliminary: computed from the grid area alone. The grid page's "
+            "Pull inputs recomputes it with the actual grid, including its "
+            "buried conductor length, and that value is the one to design with.").strip()
     return res
 
 
@@ -198,9 +228,9 @@ def api_soil_equivalent(p):
     collapsed with the grid it will actually be used for (area and total
     buried length), not with a depth that ignores the grid's size.
     """
-    for k in ("rho1", "rho2", "h"):
-        if p.get(k) in (None, ""):
-            raise ValueError(f"Missing soil parameter {k}.")
+    _require_positive(p, {"rho1": "Upper-layer resistivity rho1 (ohm.m)",
+                          "rho2": "Lower-layer resistivity rho2 (ohm.m)",
+                          "h": "Upper-layer thickness h (m)"})
     g = ieee80.GridGeometry(
         Lx=float(p.get("Lx", 70)), Ly=float(p.get("Ly", 70)),
         D=float(p.get("D", 7)), h=float(p.get("h_grid", 0.5)),
@@ -221,7 +251,34 @@ def api_fault(p):
 
     Un = float(p.get("Un_kV", 20.0))
     c = float(p.get("c", 1.1))
-    mode = p.get("mode", "impedance")
+    mode = _require_choice(p.get("mode", "impedance"),
+                           {"impedance", "source", "direct"}, "Fault input mode")
+    _require_positive(p, {k: v for k, v in (("Sf", "Split factor S_f"),
+                                            ("Cp", "Growth factor C_p"))
+                          if p.get(k) not in (None, "")})
+    if p.get("Sf") not in (None, "") and float(p["Sf"]) > 1.0:
+        raise ValueError("Split factor S_f cannot exceed 1.")
+    if mode == "source":
+        _require_positive(p, {"Sk_MVA": "Source short-circuit power S_k (MVA)"})
+    if mode == "direct":
+        # 3I0 entered directly: no sequence impedances are used or shown
+        # (up to 1.3.4 the hidden Z fields were still evaluated).
+        _require_positive(p, {"three_I0_kA": "Earth-fault current 3I0 (kA)"})
+        three_I0 = float(p["three_I0_kA"])
+        tf = float(p.get("tf", 0.5))
+        f = float(p.get("frequency", 50.0))
+        xr = float(p.get("xr_ratio") or 10.0)
+        dfd = faultcurrent.decrement_factor(tf, xr, f)
+        Sf = float(p.get("Sf", 1.0))
+        sfd = dict(Sf=Sf, note="User-specified split factor.")
+        gc = faultcurrent.grid_current(three_I0, Sf, dfd["Df"], float(p.get("Cp", 1.0)))
+        th = faultcurrent.thermal_equivalent(three_I0, tf, xr, f)
+        return dict(Un_kV=Un, line_to_earth=None, three_phase=None,
+                    decrement=dfd, split=sfd, grid=gc, thermal=th,
+                    ts=float(p.get("ts", tf)), tc=float(p.get("tc", tf)), tf=tf,
+                    three_I0_kA=three_I0, Sf=Sf, Df=dfd["Df"],
+                    Cp=float(p.get("Cp", 1.0)), mode="direct",
+                    Ig_kA=gc["Ig_kA"], IG_kA=gc["IG_kA"])
 
     if mode == "source":
         Z1 = faultcurrent.grid_source_impedance(
@@ -301,9 +358,37 @@ def api_conductor(p):
         float(p.get("I_kA", 10.0)) * 1000.0, float(p.get("tc", 0.5)),
         p.get("iec_material", "copper"), p.get("insulation", "bare"),
         p.get("installation", "buried" if p.get("buried", True) else "separate"))
+    # IEC 60364-5-54 / BS 7671 Table 54.1: "protected against corrosion"
+    # means a sheath.  A bare conductor buried in soil is NOT protected, so
+    # its floor is 25 mm2 copper / 50 mm2 steel.  Up to 1.3.4 the default was
+    # "corrosion protected" (16 mm2) even for the default bare buried
+    # conductor, which contradicted the table and the book (Sec. 5.5).
+    bare_buried = (p.get("insulation", "bare") == "bare" and
+                   p.get("installation", "buried" if p.get("buried", True)
+                         else "separate") == "buried")
+    corr = p.get("corrosion_protected")
+    corr = (not bare_buried) if corr is None else bool(corr)
     out["min_buried"] = conductor.min_buried_earthing_conductor(
-        bool(p.get("corrosion_protected", True)),
-        bool(p.get("mechanically_protected", False)))
+        corr, bool(p.get("mechanically_protected", False)),
+        bool(p.get("lps_connected", False)))
+    if corr and bare_buried:
+        out.setdefault("warnings", []).append(
+            "A bare conductor buried in soil is not protected against "
+            "corrosion (BS 7671 Table 54.1 means protection by a sheath): its "
+            "minimum is 25 mm² copper (50 mm² with a lightning protection "
+            "system connected, IEC 60364-5-54:2011 Table 54.1) or 50 mm² steel "
+            "(78.5 mm² hot-dip galvanized round wire to IEC 60364-5-54:2011), "
+            "not 16 mm². Select 'Not protected against corrosion' unless the "
+            "conductor is sheathed.")
+    # Design basis (book Sec. 5.3).  'both' (default) selects the larger of
+    # the IEEE 80 and IEC areas; 'ieee80' sizes an HV grid to IEEE 80 alone,
+    # where the joint temperature T_m is what the design relies on; 'iec'
+    # sizes an LV protective/earthing conductor to IEC 60364-5-54 alone.
+    basis = str(p.get("basis", "both")).lower()
+    _require_choice(basis, {"both", "ieee80", "iec"}, "Design basis")
+    if basis == "ieee80" and "ieee80" not in out:
+        basis = "both"
+    out["basis"] = basis
     if p.get("S_line_mm2"):
         out["pe"] = conductor.pe_from_line_conductor(float(p["S_line_mm2"]))
         out["bonding"] = conductor.bonding_conductors(out["pe"]["area_mm2"])
@@ -313,12 +398,14 @@ def api_conductor(p):
     # 16 mm2 minimum for a duty needing over 1000 mm2 — a wrong answer that
     # looks like a right one.  Carry the requirement through instead and say
     # plainly that no single conductor covers it.
-    required = max(chosen.get("area_mm2") or 0.0,
-                   out["iec"].get("area_mm2") or 0.0)
+    # The thermal areas that enter the selection, according to the basis.
+    therm = ([chosen] if basis == "ieee80" else
+             [out["iec"]] if basis == "iec" else [chosen, out["iec"]])
+    required = max((x.get("area_mm2") or 0.0) for x in therm)
     floor = (out["min_buried"]["copper_mm2"]
              if p.get("iec_material", "copper") == "copper"
              else out["min_buried"]["steel_mm2"])
-    std = max(chosen.get("standard_mm2") or 0, out["iec"].get("standard_mm2") or 0)
+    std = max((x.get("standard_mm2") or 0) for x in therm)
     if std <= 0 and required > 0:
         out["selected_mm2"] = None
         out["required_mm2"] = required
@@ -331,9 +418,37 @@ def api_conductor(p):
         out["diameter_m"] = materials.diameter_from_area(required) / 1000.0
         return out
     out["selected_mm2"] = max(std, floor)
+    out["governs"] = ("Table 54.1 minimum" if floor >= std else
+                      "IEEE 80" if basis == "ieee80" else
+                      "IEC adiabatic" if basis == "iec" else
+                      ("IEEE 80" if (chosen.get("standard_mm2") or 0) >=
+                       (out["iec"].get("standard_mm2") or 0) else "IEC adiabatic"))
     out["off_scale"] = False
     out["diameter_m"] = materials.diameter_from_area(out["selected_mm2"]) / 1000.0
     return out
+
+
+def _require_nonneg(p, spec):
+    """spec: {key: label} — optional values that, if given, must be >= 0."""
+    for key, label in spec.items():
+        raw = p.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"{label} must be a number.")
+        if not math.isfinite(v) or v < 0:
+            raise ValueError(f"{label} cannot be negative.")
+
+
+def _require_choice(value, allowed, label):
+    """Unknown choices used to be replaced silently by a default (1.3.4)."""
+    v = str(value)
+    if v not in allowed and v.upper() not in allowed:
+        raise ValueError(f"{label} must be one of {', '.join(sorted(allowed))} "
+                         f"(got '{value}').")
+    return v
 
 
 def _require_grid(p):
@@ -351,6 +466,24 @@ def _require_grid(p):
     if float(p.get("D", 7)) > max(float(p.get("Lx", 70)), float(p.get("Ly", 70))):
         raise ValueError("Conductor spacing D (m) cannot be larger than the "
                          "grid itself.")
+    _require_positive(p, {"IG_kA": "Maximum grid current I_G (kA)"})
+    _require_nonneg(p, {"rho_s": "Surface-layer resistivity (ohm.m)",
+                        "hs": "Surface-layer thickness (m)"})
+    if p.get("body_weight") not in (None, ""):
+        _require_choice(int(float(p["body_weight"])), {"50", "70"}, "Body weight (kg)")
+    shape = str(p.get("shape", "rectangular") or "rectangular").lower()
+    _require_choice(shape, {"rectangular", "square", "l", "t", "irregular"}, "Grid shape")
+    if shape not in ("rectangular", "square"):
+        # IEEE Std 80-2013 Eq. (91)-(93) and Example B.4 need the true area,
+        # perimeter and conductor length.  Up to 1.3.4 an L or T grid was
+        # computed as its bounding rectangle, which understated E_m by about
+        # 24 % for Example B.4 (unsafe).
+        _require_positive(p, {"A_m2": "Enclosed grid area A (m²) of the non-rectangular grid",
+                              "Lp_m": "Peripheral length L_p (m) of the non-rectangular grid",
+                              "Lc_m": "Total horizontal conductor length L_C (m) of the non-rectangular grid"})
+        if float(p["A_m2"]) > float(p.get("Lx", 70)) * float(p.get("Ly", 70)) * (1 + 1e-9):
+            raise ValueError("The enclosed area A cannot exceed Lx × Ly, the "
+                             "maximum dimensions of the grid.")
 
 
 def _geometry(p) -> ieee80.GridGeometry:
@@ -360,7 +493,9 @@ def _geometry(p) -> ieee80.GridGeometry:
         d=float(p.get("d", 0.01)), n_rods=int(p.get("n_rods", 0)),
         Lr=float(p.get("Lr", 0.0)), d_rod=float(p.get("d_rod", 0.016)),
         rods_on_perimeter=bool(p.get("rods_on_perimeter", True)),
-        shape=p.get("shape", "rectangular"), Dm=float(p.get("Dm", 0.0)))
+        shape=p.get("shape", "rectangular"), Dm=float(p.get("Dm", 0.0) or 0.0),
+        A_m2=float(p.get("A_m2", 0.0) or 0.0), Lp_m=float(p.get("Lp_m", 0.0) or 0.0),
+        Lc_m=float(p.get("Lc_m", 0.0) or 0.0))
 
 
 def api_ieee80(p):
@@ -378,6 +513,12 @@ def api_ieee80(p):
 
 def api_ieee80_optimise(p):
     _require_grid(p)
+    q = {"D_min": p.get("D_min", 1.5), "D_step": p.get("D_step", 0.5)}
+    _require_positive(q, {"D_min": "Smallest spacing to try D_min (m)",
+                          "D_step": "Spacing step (m)"})
+    if (float(p.get("D", 7)) - float(q["D_min"])) / float(q["D_step"]) > 2000:
+        raise ValueError("Spacing step too small: more than 2000 designs "
+                         "would be evaluated.")
 
     g = _geometry(p)
     res = ieee80.optimise(
@@ -504,6 +645,10 @@ _ELECTRODE_NAMES = {"L": "length L (m)", "d": "diameter d (m)", "n": "number of 
 def _require_electrodes(items):
     for i, e in enumerate(items or [], 1):
         kind = e.get("type", "rod")
+        if kind not in iec60364.ELECTRODE_FUNCS:
+            raise ValueError(f"Electrode {i}: unknown type '{kind}'.")
+        if e.get("rho") not in (None, ""):
+            _require_positive(e, {"rho": f"Electrode {i} ({kind}): soil resistivity (ohm.m)"})
         for key in _ELECTRODE_POSITIVE.get(kind, ()):
             if key not in e:
                 continue            # the formula's own default applies
@@ -531,6 +676,19 @@ def api_building(p):
                           "U0": "Voltage to earth U0 (V)"})
     _require_rows(p.get("electrodes"), "electrode")
     _require_electrodes(p.get("electrodes"))
+    sysname = str(p.get("system", "TT")).upper()
+    if not (sysname.startswith("TT") or sysname.startswith("TN") or sysname.startswith("IT")):
+        raise ValueError(f"System must be TT, TN (TN-S, TN-C-S) or IT (got '{p.get('system')}').")
+    dev = p.get("device") or {}
+    if dev:
+        _require_choice(str(dev.get("kind", "mcb")).lower(),
+                        {"mcb", "breaker", "mccb", "fuse", "gg", "fuse_gg", "rcd", "rcbo"},
+                        "Protective device")
+        _require_positive(dev, {"rating_A": "Device rating (A, or A for IΔn)"})
+    _require_nonneg(p, {"Z_line": "Line impedance (ohm)", "Z_pe": "PE impedance (ohm)",
+                        "Z_source": "Source impedance (ohm)"})
+    if p.get("separation") not in (None, "", 0, "0"):
+        _require_positive(p, {"separation": "Electrode separation D (m)"})
 
     return reasoning.explain_building(iec60364.assess(
         p.get("system", "TT"), float(p.get("U0", 230.0)),
@@ -567,6 +725,13 @@ def api_rods_required(p):
 
 def api_lightning(p):
     _require_positive(p, {"rho": "Soil resistivity (ohm.m)"})
+    _require_positive(p, {k: v for k, v in (
+        ("area", "Area enclosed by the earth electrode (m²)"), ("perimeter", "Perimeter (m)"),
+        ("h", "Burial depth (m)"), ("d", "Conductor diameter (m)")) if k in p})
+    _require_choice(str(p.get("lps_class", "III")).upper(), {"I", "II", "III", "IV"}, "LPS class")
+    _require_choice(str(p.get("arrangement", "B")).upper(), {"A", "B"}, "Earth-termination arrangement")
+    if p.get("foundation_volume") not in (None, "", 0, "0"):
+        _require_positive(p, {"foundation_volume": "Foundation volume (m³)"})
     if p.get("front_time") not in (None, ""):
         _require_positive(p, {"front_time": "Impulse front time (us)"})
 
@@ -590,6 +755,7 @@ def api_lightning(p):
 
 
 def api_airterm(p):
+    _require_choice(str(p.get("lps_class", "III")).upper(), {"I", "II", "III", "IV"}, "LPS class")
     return reasoning.explain_airterm(airterm.design(
         p.get("lps_class", "III"),
         p.get("structure") or {},
@@ -604,6 +770,15 @@ def api_airterm(p):
 def api_sysgnd(p):
     _require_positive(p, {"V_ll_kV": "Line voltage (kV)",
                           "frequency": "Frequency (Hz)"})
+    _require_nonneg(p, {"cable_km": "Cable length (km)", "overhead_km": "Overhead line length (km)",
+                        "motors_kVA": "Connected motors (kVA)",
+                        "transformers_kVA": "Connected transformers (kVA)",
+                        "C0_uF_per_km": "Cable capacitance (µF/km)"})
+    _require_choice(p.get("method", "auto"),
+                    {"auto", "solid", "low_resistance", "high_resistance", "reactance", "ungrounded"},
+                    "Grounding method")
+    if p.get("method") in ("low_resistance", "reactance"):
+        _require_positive(p, {"I_target_A": "Target earth-fault current (A)"})
 
     cc = ieee142.charging_current(
         float(p.get("V_ll_kV", 6.6)), float(p.get("cable_km", 0.0)),
@@ -621,6 +796,7 @@ def api_sysgnd(p):
         method = rec["method"]
         out["recommendation"] = rec
     out["method"] = method
+    out["V_ln"] = float(p.get("V_ll_kV", 6.6)) * 1000.0 / math.sqrt(3.0)
     if method == "high_resistance":
         out.update(ieee142.hrg_resistor(float(p.get("V_ll_kV", 6.6)),
                                         cc["three_IC0"],
@@ -633,6 +809,11 @@ def api_sysgnd(p):
         out.update(ieee142.reactor_grounding(float(p.get("V_ll_kV", 6.6)),
                                              float(p.get("I_target_A", 400.0)),
                                              p.get("X1")))
+    if method == "high_resistance" and cc["three_IC0"] <= 0:
+        out["warnings"] = list(out.get("warnings") or []) + [
+            "The charging current is zero, so the neutral resistor cannot be "
+            "sized: enter the cable length, overhead line, motors or "
+            "transformers connected to the system."]
     if p.get("X0") and p.get("X1"):
         out["effective"] = ieee142.effectively_grounded(
             float(p["X0"]), float(p["X1"]), float(p.get("R0", 0.0)))
@@ -671,7 +852,7 @@ def api_standards(p):
 
 
 def api_report(p):
-    lang = p.get("lang", "en")
+    lang = _require_choice(p.get("lang", "en"), {"en", "fa"}, "Report language")
     html_doc = report.build(p.get("data", {}), lang)
     name = p.get("filename") or f"earthing_report_{lang}.html"
     name = os.path.basename(name)
