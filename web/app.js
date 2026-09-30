@@ -24,8 +24,15 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const V = id => { const e = $('#' + id); return e ? e.value : ''; };
 const N = (id, d = 0) => { const v = parseFloat(V(id)); return isFinite(v) ? v : d; };
+/* Required number: an empty or invalid field is an error, not a silent default
+   (up to 1.3.4 a blank spacing quietly became 7 m, a blank I_G 1 kA). */
+const NR = (id, label) => { const v = parseFloat(V(id)); if (!isFinite(v)) throw new Error(label + ' is empty or not a number.'); return v; };
 const NB = (id) => { const v = parseFloat(V(id)); return isFinite(v) ? v : null; };
 const C = id => { const e = $('#' + id); return e ? e.checked : false; };
+/* Plain machine-readable number for writing into <input type=number>: fmt()
+   uses toLocaleString (thousands separators, Persian digits, decimal commas),
+   which a number input rejects and silently empties (fixed in 1.3.4). */
+const num = (v, d) => (typeof v === 'number' && isFinite(v)) ? String(+v.toFixed(d === undefined ? 6 : d)) : '';
 const set = (id, v) => { const e = $('#' + id); if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v; } };
 
 function fmt(v, d) {
@@ -92,7 +99,9 @@ function rows(list) {
 function checksHtml(list, narrative, crossCheck) {
   let head = '';
   if (narrative) {
-    const ok = !list || list.every(c => c.passed !== false);
+    /* Advisory rows (screening steps, recommendations) never decide the
+       verdict; up to 1.3.4 they could turn the banner red (1.3.4). */
+    const ok = !list || list.every(c => c.advisory || c.passed !== false);
     head = `<div class="verdictbox ${ok ? 'ok' : 'bad'}">
       <div class="vhead"><span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'COMPLIES' : 'DOES NOT COMPLY'}</span></div>
       <p>${esc(narrative)}</p></div>`;
@@ -101,9 +110,14 @@ function checksHtml(list, narrative, crossCheck) {
   const rows = list.map((c, i) => {
     const ok = c.passed !== false;
     let m = '—';
-    if (typeof c.value === 'number' && typeof c.limit === 'number' && c.limit)
-      m = fmt((c.limit - c.value) / c.limit * 100, 1) + ' %';
-    else if (typeof c.margin_pct === 'number') m = fmt(c.margin_pct, 1) + ' %';
+    if (typeof c.margin_pct === 'number') m = fmt(c.margin_pct, 1) + ' %';
+    else if (typeof c.value === 'number' && typeof c.limit === 'number' && c.limit) {
+      /* "at most" criteria pass with value <= limit, "at least" criteria
+         (coverage, number of down-conductors) with value >= limit; the sign
+         of the margin follows the kind, positive when the criterion is met. */
+      const atLeast = (ok && c.value > c.limit) || (!ok && c.value < c.limit);
+      m = fmt((atLeast ? (c.value - c.limit) : (c.limit - c.value)) / Math.abs(c.limit) * 100, 1) + ' %';
+    }
     const hasWhy = c.meaning || c.verdict || c.driver || (c.remedy && c.remedy.length) || c.headroom;
     const why = !hasWhy ? '' : `
       <tr class="whyrow" id="why-${i}-${Math.random().toString(36).slice(2, 7)}" hidden>
@@ -119,7 +133,7 @@ function checksHtml(list, narrative, crossCheck) {
         <td class="n">${typeof c.value === 'number' ? fmt(c.value) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${typeof c.limit === 'number' ? fmt(c.limit) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${m}</td>
-        <td><span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'PASS' : 'FAIL'}</span></td>
+        <td><span class="badge ${ok ? 'ok' : (c.advisory ? 'warn' : 'bad')}">${ok ? 'PASS' : (c.advisory ? 'CHECK' : 'FAIL')}</span></td>
         <td class="muted small">${hasWhy ? 'why ▾' : ''}</td>
       </tr>${why}`;
   }).join('');
@@ -204,7 +218,7 @@ function restore(p) {
    shows the wrong boxes for the data it is now holding. */
 function refreshDependentUI() {
   try { soilHeadings(); } catch (e) { console.error(e); }
-  ['bDev', 'fMode'].forEach(id => {
+  ['bDev', 'fMode', 'gShape'].forEach(id => {
     const el = $('#' + id);
     if (el && typeof el.onchange === 'function') { try { el.onchange(); } catch (e) { } }
   });
@@ -327,6 +341,10 @@ function soilRows() {
 $('#soilAdd').onclick = () => soilAdd();
 $('#soilClear').onclick = () => { $('#soilTable tbody').innerHTML = ''; soilTableSync(); };
 $('#soilDemo').onclick = () => {
+  /* The example is a Wenner traverse of apparent resistivities: reset the
+     array and input type so it is not read as Schlumberger resistances. */
+  set('soilArray', 'wenner'); set('soilInput', 'rho');
+  if (typeof soilHeadings === 'function') soilHeadings();
   $('#soilTable tbody').innerHTML = '';
   /* A genuine two-layer site (about 300 Ω·m over 110 Ω·m, h ≈ 2.5 m) with
      ±2.5 % reading scatter.  Version 1.1 shipped an H-type three-layer
@@ -432,6 +450,7 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     d.spacings.map((a, i) => `<tr><td class="n">${fmt(a)}</td><td class="n">${fmt(d.measured[i])}</td><td class="n">${fmt(d.fitted[i])}</td><td class="n">${fmt(d.residual_pct[i], 2)}</td></tr>`).join('') +
     `</tbody></table>` + (d.fit_warning ? `<div class="note warn"><b>Fit quality.</b> ${esc(d.fit_warning)}</div>` : '') +
     (d.fit_note ? `<div class="note info"><b>Fit quality.</b> ${esc(d.fit_note)}</div>` : '') +
+    (d.pin_depth_note ? `<div class="note info"><b>Short spacings.</b> ${esc(d.pin_depth_note)}</div>` : '') +
     `<div class="note info">The two-layer model is fitted by minimising the relative
      error over all spacings (IEEE Std 81-2025 §7.6). Use the equivalent uniform resistivity for the
      closed-form IEEE 80 equations, and the layered model itself for the numerical solver.</div>`;
@@ -443,11 +462,13 @@ $('#fMode').onchange = () => {
   const m = V('fMode');
   $('#fSourceBox').style.display = m === 'source' ? '' : 'none';
   $('#fImpBox').style.display = m === 'impedance' ? '' : 'none';
+  $('#fDirectBox').style.display = m === 'direct' ? '' : 'none';
+  $('#f3I0').placeholder = m === 'direct' ? 'required' : 'auto';
 };
 $('#fRun').onclick = e => run(e.target, async () => {
   const mode = V('fMode');
   const p = {
-    Un_kV: N('fUn', 20), c: N('fC', 1.1), mode: mode === 'direct' ? 'impedance' : mode,
+    Un_kV: N('fUn', 20), c: N('fC', 1.1), mode,
     tf: N('fTf', .5), ts: N('fTs', .5), tc: N('fTf', .5), frequency: N('fFreq', 50),
     Sf: N('fSf', 1), Cp: N('fCp', 1)
   };
@@ -455,16 +476,19 @@ $('#fRun').onclick = e => run(e.target, async () => {
     p.Sk_MVA = N('fSk', 500); p.xr_source = N('fXR', 10);
     p.X0_factor = N('fX0', 3); p.R0_factor = N('fR0', 1);
     if (N('fTS', 0) > 0) p.transformer = { Sr_MVA: N('fTS'), ukr_pct: N('fTZ', 10) };
-  } else {
+  } else if (mode === 'impedance') {
     p.Z1 = { r: N('fZ1r'), x: N('fZ1x') };
     p.Z0 = { r: N('fZ0r'), x: N('fZ0x') };
+  } else {
+    p.xr_ratio = N('fXRd', 10);
   }
   if (NB('f3I0') !== null) p.three_I0_kA = NB('f3I0');
   const d = await api('/api/fault', p);
   S.fault = d; markNav('fault', true);
+  const lg = d.line_to_earth || {}, tp = d.three_phase || {};   /* null in direct mode */
   kpis('fKpis', [
-    { value: fmt(d.line_to_earth.Ik1_kA) + ' <small>kA</small>', label: 'Line-to-earth fault Iₖ₁″' },
-    { value: fmt(d.three_phase.Ik_kA) + ' <small>kA</small>', label: 'Three-phase fault Iₖ″' },
+    { value: fmt(lg.Ik1_kA) + ' <small>kA</small>', label: 'Line-to-earth fault Iₖ₁″' },
+    { value: fmt(tp.Ik_kA) + ' <small>kA</small>', label: 'Three-phase fault Iₖ″' },
     { value: fmt(d.Df, 4), label: 'Decrement factor D_f' },
     { value: fmt(d.Ig_kA) + ' <small>kA</small>', label: 'Symmetrical grid current I_g' },
     { value: fmt(d.IG_kA) + ' <small>kA</small>', label: 'Maximum grid current I_G' },
@@ -472,11 +496,11 @@ $('#fRun').onclick = e => run(e.target, async () => {
   ]);
   $('#fOut').innerHTML = rows([
     ['Nominal voltage', 'Uₙ', d.Un_kV, 'kV', ''],
-    ['Line-to-earth fault current', 'Iₖ₁″', d.line_to_earth.Ik1_kA, 'kA', d.line_to_earth.formula],
+    ['Line-to-earth fault current', 'Iₖ₁″', lg.Ik1_kA, 'kA', d.mode === 'direct' ? '3I₀ entered directly' : lg.formula],
     ['Zero-sequence current', '3I₀', d.three_I0_kA, 'kA', ''],
-    ['Three-phase fault current', 'Iₖ″', d.three_phase.Ik_kA, 'kA', d.three_phase.formula],
-    ['Peak short-circuit current', 'i_p', d.three_phase.ip_kA, 'kA', 'κ = ' + fmt(d.three_phase.kappa, 3)],
-    ['X/R at the fault', 'X/R', d.line_to_earth.xr_ratio, '–', ''],
+    ['Three-phase fault current', 'Iₖ″', tp.Ik_kA, 'kA', tp.formula || ''],
+    ['Peak short-circuit current', 'i_p', tp.ip_kA, 'kA', tp.kappa != null ? 'κ = ' + fmt(tp.kappa, 3) : ''],
+    ['X/R at the fault', 'X/R', d.decrement.xr_ratio, '–', ''],
     ['DC time constant', 'T_a', d.decrement.Ta, 's', 'T_a = X/(2πfR)'],
     ['Decrement factor', 'D_f', d.Df, '–', d.decrement.formula],
     ['Split factor', 'S_f', d.Sf, '–', d.split.note || d.split.formula],
@@ -510,7 +534,8 @@ $('#cRun').onclick = e => run(e.target, async () => {
     I_kA: N('cI', 1), tc: N('cT', .5), Df: N('cDf', 1), Ta: N('cTa', 40),
     material: V('cMat'), joint: V('cJoint') || null,
     iec_material: V('cIecMat'), insulation: ins, installation: inst,
-    corrosion_protected: corr === '1', mechanically_protected: mech === '1'
+    corrosion_protected: corr === '1', mechanically_protected: mech === '1',
+    basis: V('cBasis') || 'both', lps_connected: C('cLps')
   };
   if (N('cSline', 0) > 0) p.S_line_mm2 = N('cSline');
   const d = await api('/api/conductor', p);
@@ -534,15 +559,18 @@ $('#cRun').onclick = e => run(e.target, async () => {
     ['IEEE 80 minimum area', 'A', ie.area_mm2, 'mm²', ie.formula],
     ['IEC adiabatic area', 'S', d.iec.area_mm2, 'mm²', d.iec.formula],
     ['IEC k factor', 'k', d.iec.k, '–', d.iec.k_label],
-    ['Minimum buried size (copper)', '—', d.min_buried.copper_mm2, 'mm²', d.min_buried.formula],
+    ['Minimum buried size (copper)', '—', d.min_buried.copper_mm2, 'mm²', (d.min_buried.condition.startsWith('unprotected') ? 'larger of BS 7671 and IEC 60364-5-54:2011 Table 54.1, bare' + (C('cLps') ? ', LPS connected' : '') : 'BS 7671 Table 54.1, sheathed')],
     ['Minimum buried size (steel)', '—', d.min_buried.steel_mm2, 'mm²', ''],
     d.pe && ['Protective conductor', 'S_PE', d.pe.area_mm2, 'mm²', d.pe.rule],
     d.bonding && ['Main protective bonding', '—', d.bonding.main_bonding_mm2, 'mm²', d.bonding.formula],
     d.bonding && ['Supplementary bonding (exposed–extraneous)', '—', d.bonding.supplementary_exposed_extraneous_mm2, 'mm²', ''],
     ['Selected standard size', 'A_std', d.off_scale ? '— none large enough' : d.selected_mm2, 'mm²',
-      d.off_scale ? 'the duty exceeds the standard table' : 'largest of the criteria above'],
+      d.off_scale ? 'the duty exceeds the standard table'
+        : ({ both: 'larger of IEEE 80 and IEC, not below Table 54.1', ieee80: 'IEEE 80 basis, not below Table 54.1', iec: 'IEC basis, not below Table 54.1' }[d.basis || 'both'])
+          + (d.governs ? ' — governed by ' + d.governs : '')],
     ['Conductor diameter for the grid modules', 'd', d.diameter_m, 'm', '']
   ]) + (d.off_scale ? `<div class="note"><b>No single standard conductor covers this duty.</b> ${esc(d.note)}</div>` : '')
+    + (d.warnings || []).map(w => `<div class="note warn"><b>Minimum size.</b> ${esc(w)}</div>`).join('')
     + `<div class="formula">A = I / √( (TCAP·10⁻⁴)/(t_c·α_r·ρ_r) · ln[(K₀+T_m)/(K₀+T_a)] )</div>`;
   // area vs duration
   const ts = [], as1 = [], as2 = [];
@@ -567,11 +595,13 @@ $('#cRun').onclick = e => run(e.target, async () => {
 /* ============================================================= 4. GRID === */
 function gridPayload() {
   return {
-    rho: N('gRho', 100), rho_s: N('gRhoS', 0), hs: N('gHs', 0.1), ts: N('gTs', .5),
-    body_weight: parseInt(V('gBody')), IG_kA: N('gIG', 1),
-    Lx: N('gLx', 70), Ly: N('gLy', 70), D: N('gD', 7), h: N('gH', .5), d: N('gd', .01),
+    rho: NR('gRho', 'Soil resistivity ρ'), rho_s: N('gRhoS', 0), hs: N('gHs', 0.1), ts: NR('gTs', 'Shock duration t_s'),
+    body_weight: parseInt(V('gBody')), IG_kA: NR('gIG', 'Maximum grid current I_G'),
+    Lx: NR('gLx', 'Grid length Lx'), Ly: NR('gLy', 'Grid width Ly'), D: NR('gD', 'Conductor spacing D'),
+    h: NR('gH', 'Burial depth h'), d: NR('gd', 'Conductor diameter d'),
     n_rods: parseInt(V('gNr')) || 0, Lr: N('gLr', 0), d_rod: N('gDr', .016),
-    rods_on_perimeter: C('gPerim'), shape: V('gShape'), r_method: V('gRMeth')
+    rods_on_perimeter: C('gPerim'), shape: V('gShape'), r_method: V('gRMeth'),
+    A_m2: N('gA', 0), Lp_m: N('gLp', 0), Lc_m: N('gLc', 0), Dm: N('gDm', 0)
   };
 }
 function renderGrid(d) {
@@ -588,7 +618,7 @@ function renderGrid(d) {
   ]);
   $('#gChecks').innerHTML = checksHtml(d.checks, d.narrative) +
     (d.warnings || []).map(w => `<div class="note"><b>Applicability.</b> ${esc(w)}</div>`).join('') +
-    (d.en50522 ? `<div class="note info"><b>Cross-check, BS EN 50522:2022.</b> ${esc(d.en50522.note)}</div>` : '');
+    (d.en50522 ? `<div class="note info"><b>Cross-check, BS EN 50522.</b> ${esc(d.en50522.note)}</div>` : '');
   const g = d.geometry, r = d.resistance;
   $('#gOut').innerHTML = rows([
     ['Grid area', 'A', g.A, 'm²', ''],
@@ -618,9 +648,10 @@ function renderGrid(d) {
     ['Tolerable body current', 'I_B', t.Ib, 'A', `${t.body_weight} kg criterion`],
     ['Tolerable touch voltage', 'E_touch', t.E_touch, 'V', ''],
     ['Tolerable step voltage', 'E_step', t.E_step, 'V', ''],
-    d.en50522 && ['Permissible touch voltage (EN 50522)', 'U_Tp', d.en50522.U_Tp, 'V', 'BS EN 50522 Table B.3 · informational'],
+    d.en50522 && ['Permissible touch voltage (EN 50522)', 'U_Tp', d.en50522.U_Tp, 'V', 'BS EN 50522:2022 Table B.4 · informational'],
     d.en50522 && ['IEEE 80 touch limit, body resistance only', 'E_touch,0', d.en50522.E_bare_ieee80, 'V', '1000·k/√t_s'],
-    d.en50522 && d.en50522.U_vTp != null && ['Permissible prospective touch voltage (EN 50522)', 'U_vTp', d.en50522.U_vTp, 'V', 'Annex B, 1000 Ω footwear · compare with E_m']
+    d.en50522 && d.en50522.U_vTp != null && ['Permissible prospective touch voltage (EN 50522)', 'U_vTp', d.en50522.U_vTp, 'V', 'Formula (A.3), 1000 Ω footwear · compare with E_m'],
+    d.en50522 && d.en50522.U_vTp_thin != null && ['Prospective touch voltage, finite surface layer', 'U_vTp', d.en50522.U_vTp_thin, 'V', 'R_F2 = 1.5·C_s·ρ_s (C_s = ' + fmt(d.en50522.Cs, 3) + ') · conservative']
   ].filter(Boolean));
   // layout
   const tr = [];
@@ -640,6 +671,7 @@ function renderGrid(d) {
     title: { text: `${fmt(g.Lx)} × ${fmt(g.Ly)} m, D = ${fmt(g.D)} m, L_T = ${fmt(g.LT)} m`, font: { size: 12 } }
   });
 }
+$('#gShape').onchange = () => { $('#gShapeBox').style.display = V('gShape') === 'rectangular' ? 'none' : ''; };
 $('#gRun').onclick = e => run(e.target, async () => renderGrid(await api('/api/ieee80/design', gridPayload())));
 /* A poor two-layer fit must not flow silently into the grid design. */
 function confirmPoorFit() {
@@ -651,7 +683,7 @@ function confirmPoorFit() {
 }
 $('#gPull').onclick = e => run(e.target, async () => {
   if (S.conductor) set('gd', S.conductor.diameter_m.toFixed(4));
-  if (S.fault) { set('gIG', fmt(S.fault.IG_kA, 4)); set('gTs', S.fault.ts); }
+  if (S.fault) { set('gIG', num(S.fault.IG_kA, 4)); set('gTs', S.fault.ts); }
   let msg = 'Inputs pulled from the earlier modules.';
   if (S.soil && S.soil.fit_warning && !confirmPoorFit()) return;
   if (S.soil) {
@@ -663,10 +695,10 @@ $('#gPull').onclick = e => run(e.target, async () => {
         rho1: S.soil.rho1, rho2: S.soil.rho2, h: S.soil.h, equivalent_method: 'grid',
         Lx: g.Lx, Ly: g.Ly, D: g.D, h_grid: g.h, n_rods: g.n_rods, Lr: g.Lr });
       S.soil.equivalent = eq;
-      set('gRho', fmt(eq.rho_equivalent, 1));
+      set('gRho', num(eq.rho_equivalent, 1));
       msg = `Equivalent ρ = ${fmt(eq.rho_equivalent, 1)} Ω·m for this ${fmt(g.Lx)} × ${fmt(g.Ly)} m grid (grid-size rule, F = ${fmt(eq.F, 3)}). Pull again if you change the grid size.`;
     } else {
-      set('gRho', fmt(S.soil.equivalent.rho_equivalent, 1));
+      set('gRho', num(S.soil.equivalent.rho_equivalent, 1));
     }
   }
   toast(msg, 'ok');
@@ -1202,13 +1234,14 @@ $('#sRun').onclick = e => run(e.target, async () => {
   };
   if (NB('sX1') !== null) { p.X1 = NB('sX1'); p.X0 = NB('sX0'); p.R0 = NB('sR0') || 0; }
   const d = await api('/api/system-grounding', p);
-  S.sysgnd = d; markNav('sysgnd', true);
+  S.sysgnd = d; markNav('sysgnd', !(d.warnings && d.warnings.length));
   const m = d.methods[d.method] || {};
   kpis('sKpis', [
     { value: esc(m.name || d.method), label: 'Grounding method' },
     { value: fmt(d.three_IC0) + ' <small>A</small>', label: 'Charging current 3·I_C0' },
     { value: d.R_ohm ? fmt(d.R_ohm) + ' <small>Ω</small>' : (d.X_ohm ? fmt(d.X_ohm) + ' <small>Ω</small>' : '—'), label: 'Neutral impedance' },
-    { value: fmt(d.I_R || d.I_target || 0) + ' <small>A</small>', label: 'Earth-fault current' },
+    { value: (d.total_fault_current || d.I_target) ? fmt(d.total_fault_current || d.I_target) + ' <small>A</small>'
+        : (d.method === 'solid' ? 'up to 3-phase' : '—'), label: 'Earth-fault current', state: (d.warnings && d.warnings.length) ? 'bad' : '' },
     { value: d.effective ? (d.effective.effectively_grounded ? 'Yes' : 'No') : '—', label: 'Effectively grounded', state: d.effective ? (d.effective.effectively_grounded ? 'ok' : 'bad') : '' }
   ]);
   $('#sOut').innerHTML = (d.recommendation ? `<div class="note info"><b>Recommended: ${esc(m.name)}</b><ul style="margin:6px 0 0;padding-inline-start:18px">${d.recommendation.reasons.map(r => '<li>' + esc(r) + '</li>').join('')}</ul></div>` : '') +
@@ -1287,7 +1320,8 @@ function reportData(figs) {
   if (S.fault) d.fault = { Un_kV: S.fault.Un_kV, three_I0_kA: S.fault.three_I0_kA, Sf: S.fault.Sf, Df: S.fault.Df, Cp: S.fault.Cp, Ig_kA: S.fault.Ig_kA, IG_kA: S.fault.IG_kA, ts: S.fault.ts, tc: S.fault.tc };
   /* the report prints the size the page selected, not the IEEE 80 area alone */
   if (S.conductor) d.conductor = { ...S.conductor.ieee80, selected_mm2: S.conductor.selected_mm2,
-    off_scale: S.conductor.off_scale, required_mm2: S.conductor.required_mm2 };
+    off_scale: S.conductor.off_scale, required_mm2: S.conductor.required_mm2,
+    basis: S.conductor.basis, governs: S.conductor.governs };
   if (S.grid) d.grid = S.grid;
   if (S.bem) d.bem = S.bem;
   if (S.building) d.building = S.building;
@@ -1510,6 +1544,6 @@ async function init() {
   renderBem(); renderBuild(); reportSections();
   $('#rDate').value = new Date().toISOString().slice(0, 10);
   $('#bDev').onchange();
-  $('#fMode').onchange();
+  $('#fMode').onchange(); $('#gShape').onchange();
 }
 init();
