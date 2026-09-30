@@ -75,7 +75,7 @@ REGISTRY = [
          note="Australian; risk-based touch/step assessment via ENA EG-0."),
     dict(id="BS EN 50522:2022", area="substation", role="cross-check",
          title="Earthing of power installations exceeding 1 kV a.c.",
-         note="+A1:2024. Permissible touch voltage U_Tp(t_F) reported beside IEEE 80."),
+         note="Checked against the 2022 text (A1:2024 not checked). U_Tp from Table B.4 and U_vTp from Formula (A.3) reported beside IEEE 80."),
     dict(id="ENA DOC 045-2022 (EG-1)", area="substation", role="reference",
          title="Substation Earthing Guide", note="Energy Networks Australia."),
     dict(id="IEC 61936-1:2021", area="substation", role="reference",
@@ -223,33 +223,58 @@ def for_modules(modules) -> list:
 # 2. Touch-voltage criteria
 # ---------------------------------------------------------------------------
 
-# BS EN 50522 Table B.3 / Figure 4 (= IEC 61936-1): permissible touch voltage
-# U_Tp against fault duration t_F. Hand to feet, no additional resistance;
-# derived from IEC 60479-1 body impedance (50 % of population) and curve c2.
+# BS EN 50522:2022 Table B.4 / Figure 8: permissible touch voltage U_Tp against
+# fault duration t_F (rounded to 5 V). Weighted over four touching conditions,
+# no additional resistance; IEC 60479-1:2018 body impedance (50 % of the
+# population) and curve c2.  Up to 1.3.4 the software used the 2010 edition's
+# Table B.3 (716, 654, 537, 220, 117, 96, 86, 85 V), kept below for reference.
 EN50522_UTP = [
+    (0.05, 725.0), (0.10, 655.0), (0.20, 525.0), (0.50, 225.0),
+    (1.00, 115.0), (2.00, 95.0), (5.00, 85.0), (10.0, 85.0),
+]
+EN50522_UTP_2010 = [
     (0.05, 716.0), (0.10, 654.0), (0.20, 537.0), (0.50, 220.0),
     (1.00, 117.0), (2.00, 96.0), (5.00, 86.0), (10.0, 85.0),
 ]
+# BS EN 50522:2022 Table B.1: permissible body current I_B (curve c2 of
+# IEC 60479-1:2018, left hand to both feet) against fault duration.
+# (The 2010 edition printed 750 mA at 0.10 s.)
+EN50522_IB = [
+    (0.05, 0.900), (0.10, 0.800), (0.20, 0.600), (0.50, 0.200),
+    (1.00, 0.080), (2.00, 0.060), (5.00, 0.051), (10.0, 0.050),
+]
+
+
+def _loglog(pts, x):
+    if x <= pts[0][0]:
+        return pts[0][1]
+    if x >= pts[-1][0]:
+        return pts[-1][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= x <= x1:
+            w = math.log(x / x0) / math.log(x1 / x0)
+            return math.exp(math.log(y0) + w * math.log(y1 / y0))
+    raise AssertionError("unreachable")
+
+
+def en50522_body_current(t_F: float) -> float:
+    """Permissible body current I_B (A) of BS EN 50522:2022 Table B.1,
+    interpolated log-log and clamped at the ends of the table."""
+    if t_F <= 0:
+        raise ValueError("fault duration must be positive")
+    return _loglog(EN50522_IB, t_F)
 
 
 def en50522_touch_limit(t_F: float) -> float:
-    """Permissible touch voltage U_Tp (V) for fault duration t_F (s).
+    """Permissible touch voltage U_Tp (V) for fault duration t_F (s),
+    BS EN 50522:2022 Table B.4 / Figure 8.
 
     Log-log interpolation of the tabulated points; clamped at the ends of the
-    table (716 V below 0.05 s, 85 V above 10 s; Table B.3 Note 2 allows 80 V
-    for durations much longer than 10 s)."""
+    table (725 V below 0.05 s, 85 V above 10 s; the standard allows 80 V for
+    durations much longer than 10 s)."""
     if t_F <= 0:
         raise ValueError("fault duration must be positive")
-    pts = EN50522_UTP
-    if t_F <= pts[0][0]:
-        return pts[0][1]
-    if t_F >= pts[-1][0]:
-        return pts[-1][1]
-    for (t0, u0), (t1, u1) in zip(pts, pts[1:]):
-        if t0 <= t_F <= t1:
-            w = math.log(t_F / t0) / math.log(t1 / t0)
-            return math.exp(math.log(u0) + w * math.log(u1 / u0))
-    raise AssertionError("unreachable")
+    return _loglog(EN50522_UTP, t_F)
 
 
 # BS EN 50522 Table B.2 = IEC TS 60479-1:2005+AMD1:2016 Table 1, 50 % column:
@@ -283,22 +308,30 @@ def en50522_body_impedance(U_T: float) -> float:
 def en50522_prospective_touch_limit(t_F: float, rho_s: float,
                                     R_F1: float = 1000.0,
                                     Cs: float = 1.0) -> dict:
-    """Permissible prospective touch voltage U_vTp of BS EN 50522 Annex B:
+    """Permissible prospective touch voltage U_vTp of BS EN 50522:2022,
+    Formula (A.3) with the circuit of Figure B.2 (heart current factor 1):
 
-        U_vTp = U_Tp · (1 + R_F / Z_T(U_Tp)),   R_F = R_F1 + R_F2,  R_F2 = 1.5·C_s·ρ_s
+        U_vTp = U_Tp(t_F) + I_B(t_F)·(R_H + R_F),  R_F = R_F1 + R_F2,
+        R_F2 = 1.5 m⁻¹·C_s·ρ_s
 
-    R_F1 is the footwear resistance (1000 Ω in Annex B), R_F2 the resistance
-    to earth of the standing point.  Annex B writes R_F2 = 1.5·ρ_s (C_s = 1,
-    an infinitely thick layer); pass the IEEE 80 C_s for a thin layer.  U_vTp
-    is compared with a prospective (open-circuit) touch voltage such as E_m."""
+    with U_Tp from Table B.4 and I_B from Table B.1.  R_F1 is the footwear
+    resistance (1000 Ω in Figure B.3), R_F2 the resistance to earth of the
+    standing point; the standard writes R_F2 = 1.5·ρ_S (C_s = 1, an
+    infinitely thick layer), so pass the IEEE 80 C_s for a thin layer.
+    U_vTp is compared with a prospective touch voltage such as E_m.
+
+    Up to 1.3.4 this followed the 2010 edition, I_B = U_Tp/Z_T(U_Tp) with the
+    hand-to-hand Z_T of Table B.2, which gives a smaller I_B (178 mA against
+    200 mA at 0.5 s) and so a U_vTp about 10 % lower."""
     if rho_s < 0 or R_F1 < 0:
         raise ValueError("rho_s and R_F1 must not be negative")
     U = en50522_touch_limit(t_F)
+    IB = en50522_body_current(t_F)
     Z = en50522_body_impedance(U)
     RF = R_F1 + 1.5 * Cs * rho_s
-    return dict(U_Tp=U, Z_T=Z, I_B=U / Z, R_F=RF, U_vTp=U * (1.0 + RF / Z),
-                formula="U_vTp = U_Tp·(1 + (R_F1 + 1.5·ρ_s)/Z_T(U_Tp))  "
-                        "(BS EN 50522 Annex B)")
+    return dict(U_Tp=U, Z_T=Z, I_B=IB, R_F=RF, U_vTp=U + IB * RF,
+                formula="U_vTp = U_Tp + I_B·(R_F1 + 1.5·ρ_s)  "
+                        "(BS EN 50522:2022 Formula (A.3), Tables B.1 and B.4)")
 
 
 def ieee80_bare_touch(t_s: float, body_weight: int = 70) -> float:
@@ -311,7 +344,7 @@ def ieee80_bare_touch(t_s: float, body_weight: int = 70) -> float:
 
 def touch_cross_check(t_s: float, E_touch: float, E_mesh: float,
                       body_weight: int = 70, rho_s: float | None = None,
-                      R_F1: float = 1000.0) -> dict:
+                      R_F1: float = 1000.0, Cs: float | None = None) -> dict:
     """Report the EN 50522 permissible touch voltage beside IEEE 80's.
 
     U_Tp is the voltage across the body alone, with no foot, footwear or
@@ -323,7 +356,14 @@ def touch_cross_check(t_s: float, E_touch: float, E_mesh: float,
     prospective limit U_vTp, with footwear R_F1, which is the like-for-like
     comparison for the prospective mesh voltage E_m.  (Up to 1.3.4 the result
     carried E_m/U_Tp, which compares a prospective voltage with a body
-    voltage.)"""
+    voltage.)
+
+    With Cs (the IEEE 80 surface-layer derating of a finite layer) it also
+    gives U_vTp with R_F2 = 1.5·C_s·ρ_s.  BS EN 50522:2010 Table B.4 writes
+    R_F2 = 1.5·ρ_S with no allowance for the layer thickness, i.e. an
+    infinitely thick layer; for a 100 mm layer that overstates the standing
+    resistance, and the book (Sec. 3.6) recommends the C_s value as the
+    conservative one where the edition and national annex are silent (1.3.5)."""
     U = en50522_touch_limit(t_s)
     Eb = ieee80_bare_touch(t_s, body_weight)
     out = dict(standard="BS EN 50522", t_F=t_s, U_Tp=U, E_bare_ieee80=Eb,
@@ -335,9 +375,18 @@ def touch_cross_check(t_s: float, E_touch: float, E_mesh: float,
                    rho_s=rho_s, R_F1=R_F1,
                    mesh_vs_UvTp=E_mesh / pv["U_vTp"] if pv["U_vTp"] else None)
         tail = (f" With {R_F1:.0f} Ω footwear and 1.5·ρ_s = {1.5 * rho_s:.0f} Ω "
-                f"under the feet, the Annex B prospective limit is U_vTp = "
+                f"under the feet, the prospective limit of Formula (A.3) is U_vTp = "
                 f"{pv['U_vTp']:.0f} V, the value to compare with E_m = "
                 f"{E_mesh:.0f} V.")
+        if Cs is not None and 0 < Cs < 1:
+            pc = en50522_prospective_touch_limit(t_s, rho_s, R_F1, Cs)
+            out.update(U_vTp_thin=pc["U_vTp"], R_F_thin=pc["R_F"], Cs=Cs,
+                       mesh_vs_UvTp_thin=E_mesh / pc["U_vTp"] if pc["U_vTp"] else None)
+            verdict = "above" if E_mesh > pc["U_vTp"] else "below"
+            tail += (f" The standard takes the layer as infinitely thick (R_F2 = 1.5·ρ_S); allowing "
+                     f"for its finite thickness (1.5·C_s·ρ_s = "
+                     f"{1.5 * Cs * rho_s:.0f} Ω, C_s = {Cs:.3f}) gives "
+                     f"U_vTp = {pc['U_vTp']:.0f} V, and E_m is {verdict} it.")
     out["note"] = (f"EN 50522 permits U_Tp = {U:.0f} V at t_F = {t_s:g} s across "
                    f"the body; IEEE 80 ({body_weight} kg) permits {Eb:.0f} V "
                    f"across the body alone (R_B = 1000 Ω, no foot resistance) "
