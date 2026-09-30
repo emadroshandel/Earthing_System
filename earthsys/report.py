@@ -206,6 +206,7 @@ LABELS_FA = {
     "Tolerable step voltage": "ولتاژ گام مجاز",
     "Permissible touch voltage (cross-check)": "ولتاژ تماس مجاز (صحت‌سنجی EN 50522)",
     "Permissible prospective touch voltage (cross-check)": "ولتاژ تماس پیش‌بینی‌شده مجاز (صحت‌سنجی EN 50522)",
+    "Prospective touch voltage, finite surface layer": "ولتاژ تماس پیش‌بینی‌شده مجاز با لایهٔ سطحی با ضخامت محدود",
     "IEEE 80 touch limit, body resistance only": "حد ولتاژ تماس IEEE 80 بدون لایه سطحی",
     "Soil resistivity at 1/(4T)": "مقاومت ویژه خاک در فرکانس 1/(4T)",
     "Tolerable touch voltage": "ولتاژ تماس مجاز",
@@ -474,7 +475,7 @@ def _sec_conductor(t, d):
         _row(t, "Ambient temperature", "T_a", d.get("Ta"), "°C", ""),
         _row(t, "Maximum temperature", "T_m", d.get("Tm"), "°C", ""),
         _row(t, "Minimum cross-section", "A", d.get("area_mm2"), "mm²",
-             "IEEE Std 80-2013 Eq. (37)"),
+             "IEEE Std 80-2013 Eq. (45)"),
         # The size the conductor page selects is the largest of the IEEE 80
         # area, the IEC adiabatic area and the Table 54.1 minimum
         # (api.api_conductor -> selected_mm2).  The report used to print the
@@ -484,7 +485,11 @@ def _sec_conductor(t, d):
          if d.get("off_scale") else
          _row(t, "Selected standard size", "A_std",
               d.get("selected_mm2", d.get("standard_mm2")), "mm²",
-              "largest of IEEE 80, IEC 60364-5-54 adiabatic and Table 54.1 minimum"
+              ({"ieee80": "IEEE 80 design basis, not below the Table 54.1 minimum",
+                "iec": "IEC 60364-5-54 design basis, not below the Table 54.1 minimum"}
+               .get(d.get("basis"), "larger of IEEE 80 and IEC 60364-5-54 adiabatic, "
+                                    "not below the Table 54.1 minimum")
+               + (f"; governed by {d['governs']}" if d.get("governs") else ""))
               if d.get("selected_mm2") is not None else "")),
         _row(t, "Equivalent diameter", "d", d.get("diameter_mm"), "mm", ""),
     ]
@@ -529,14 +534,18 @@ def _sec_grid(t, d):
     if xc:
         rows += [
             _row(t, "Permissible touch voltage (cross-check)", "U_Tp", xc.get("U_Tp"), "V",
-                 "BS EN 50522 Table B.3 / IEC 60479-1"),
+                 "BS EN 50522:2022 Table B.4 / IEC 60479-1"),
             _row(t, "IEEE 80 touch limit, body resistance only", "E_touch,0",
                  xc.get("E_bare_ieee80"), "V", "1000·k/√t_s"),
         ]
         if xc.get("U_vTp") is not None:
             rows.append(_row(t, "Permissible prospective touch voltage (cross-check)",
                              "U_vTp", xc.get("U_vTp"), "V",
-                             "BS EN 50522 Annex B, 1000 Ω footwear"))
+                             "BS EN 50522:2022 Formula (A.3), 1000 Ω footwear"))
+        if xc.get("U_vTp_thin") is not None:
+            rows.append(_row(t, "Prospective touch voltage, finite surface layer",
+                             "U_vTp", xc.get("U_vTp_thin"), "V",
+                             f"R_F2 = 1.5·C_s·ρ_s (C_s = {xc.get('Cs', 0):.3f}); conservative"))
     # Print the resistance formula that produced R_g (1.3.3 always printed
     # Sverak, even when Schwarz or the automatic combination was used).
     sverak = "R_g = ρ [ 1/L_T + 1/√(20A) ( 1 + 1/(1 + h√(20/A)) ) ]  — Eq. (57)"
