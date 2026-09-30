@@ -126,7 +126,8 @@ class TestConductorSizing(unittest.TestCase):
     def test_min_buried_sizes(self):
         r = conductor.min_buried_earthing_conductor(False, False)
         self.assertEqual(r["copper_mm2"], 25.0)
-        self.assertEqual(r["steel_mm2"], 50.0)
+        self.assertEqual(r["steel_mm2"], 78.5)        # IEC 60364-5-54:2011 Table 54.1 (1.3.5)
+        self.assertEqual(r["bs7671"]["steel_mm2"], 50.0)  # BS 7671 Table 54.1
 
 
 class TestFaultCurrent(unittest.TestCase):
