@@ -150,6 +150,9 @@
               <div class="field"><label>Zero-seq. reactance X₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fZ0x" type="number" value="15" step="0.01"><span class="u">Ω</span><div class="fh">Zero-sequence reactance of the source, referred to the fault point.</div></div>
             </fieldset>
           </div>
+          <div id="fDirectBox" style="display:none">
+            <div class="field"><label>X/R of the fault loop<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="fXRd" type="number" value="10" step="0.5"><span class="u">–</span><div class="fh">X/R of the earth-fault loop at the fault location, used for the decrement factor D<sub>f</sub> (IEEE 80 Eq. (84)). With 3I₀ entered directly no sequence impedances are used, so take it from the utility's study.</div></div>
+          </div>
           <div class="field"><label>3I₀ (override)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="f3I0" type="number" placeholder="auto" step="0.01"><span class="u">kA</span><div class="fh">The total earth-fault current at the site — three times the zero-sequence current. Fill this in to bypass the impedance calculation entirely; leave it blank to let the program compute it.</div></div>
         </div></div>
         <div class="card"><h3>Grid current factors</h3><div class="body">
@@ -182,7 +185,7 @@
   <!-- ==================== 3. CONDUCTOR ==================== -->
   <section class="page" id="page-conductor">
     <div class="pagehead"><h2>Earthing conductor sizing</h2>
-      <p>Thermal sizing to IEEE Std 80-2013 Eq. (37) and the IEC 60364-5-54 adiabatic
+      <p>Thermal sizing to IEEE Std 80-2013 Eq. (37)/(45) and the IEC 60364-5-54 adiabatic
          equation, plus the minimum sizes required by IEC 60364-5-54 Tables 54.1 and 54.2.</p></div>
     <div class="cols c2">
       <div>
@@ -211,11 +214,16 @@
               <option value="separate|xlpe">Separate PE, XLPE / EPR</option>
               <option value="in_cable|pvc70">PE core in a cable, PVC 70 °C</option>
               <option value="in_cable|xlpe">PE core in a cable, XLPE</option></select><div class="fh">Where the conductor runs and what covers it. This sets the initial and final temperatures, and therefore k — a bare buried conductor may run hotter than one bundled with cables.</div></div>
-          <div class="field"><label>Line conductor size (for PE)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cSline" type="number" value="0" step="1"><span class="u">mm²</span><div class="fh">Cross-section of the line conductor the protective conductor runs with, used for the S/2 and 16 mm² rules of IEC 60364-5-54 Table 54.2. Leave 0 if you are not sizing a PE from a line size.</div></div>
+          <div class="field"><label>Line conductor size (for PE)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="cSline" type="number" value="0" step="1"><span class="u">mm²</span><div class="fh">Cross-section of the line conductor the protective conductor runs with, used for the S/2 and 16 mm² rules of IEC 60364-5-54 Table 54.2 (BS 7671 Table 54.7). Leave 0 if you are not sizing a PE from a line size.</div></div>
           <div class="field wide"><label>Corrosion / mechanical protection<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
             <select id="cProt"><option value="1|0">Corrosion protected, no mechanical protection</option>
               <option value="1|1">Corrosion and mechanically protected</option>
-              <option value="0|0">Not protected against corrosion</option></select><div class="fh">Unprotected buried conductors must meet a larger minimum size to survive corrosion and mechanical damage, whatever the thermal calculation says.</div></div>
+              <option value="0|0" selected>Not protected against corrosion (bare)</option></select><div class="fh">BS 7671 Table 54.1: "protected against corrosion" means a sheath. A bare conductor buried in soil is not protected and must be at least 25 mm² copper or 50 mm² steel, whatever the thermal calculation says; IEC 60364-5-54:2011 (542.3.1, Table 54.1) asks the same 25 mm² of copper, 50 mm² where a lightning protection system is connected, and 10 mm round (78.5 mm²) hot-dip galvanized steel. A sheathed conductor may be 16 mm², or 2.5 mm² copper if it is also mechanically protected.</div></div>
+          <div class="field wide"><label><input id="cLps" type="checkbox"> Lightning protection system connected to this electrode<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">IEC 60364-5-54:2011 Table 54.1: a bare copper earthing conductor buried in soil must be 50 mm² (not 25 mm²) where the earth electrode also serves a lightning protection system (IEC 62305-3).</div></div>
+          <div class="field wide"><label>Design basis<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="cBasis"><option value="both" selected>Both standards — take the larger area</option>
+              <option value="ieee80">IEEE 80 only (HV grid; the joint sets T_m)</option>
+              <option value="iec">IEC 60364-5-54 only (LV installation)</option></select><div class="fh">Which thermal criterion sizes the conductor (book §5.3). An HV substation grid designed to IEEE 80 is sized by IEEE 80 with the joint temperature, which is where welded joints save copper; an LV protective or earthing conductor is sized to IEC 60364-5-54. Taking the larger of the two is the safe choice when both standards apply or the basis is not yet fixed. The Table 54.1 minimum applies in every case. Record the basis in the design report.</div></div>
           <div class="rowbtns"><button class="primary" id="cRun">Size the conductor</button></div>
         </div></div>
       </div>
@@ -256,7 +264,13 @@
           <div class="field wide"><label>Grid shape<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
             <select id="gShape"><option value="rectangular">Square / rectangular</option>
               <option value="L">L-shaped</option><option value="T">T-shaped</option>
-              <option value="irregular">Irregular</option></select><div class="fh">Recorded with the design for the report. The closed-form equations on this page are derived for a rectangle, and the shape factor n<sub>c</sub> of IEEE 80 Eq. (92) needs the true enclosed area, which this page does not ask for — so an L or T shape is still computed as the rectangle that bounds it. For a genuinely irregular grid, draw it on the numerical solver page instead; that takes the real outline.</div></div>
+              <option value="irregular">Irregular</option></select><div class="fh">The closed-form equations need the true area, perimeter and conductor length of an L-, T-shaped or irregular grid (IEEE 80 Eq. (91)–(93) and Example B.4): enter them in the fields that appear. Lx and Ly are then the maximum dimensions. IEEE 80 validated the equations for square, rectangular, triangular, T- and L-shaped grids; for a genuinely irregular outline use the numerical solver page as well.</div></div>
+          <fieldset id="gShapeBox" style="display:none"><legend>Non-rectangular grid</legend>
+            <div class="field"><label>Enclosed area A<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gA" type="number" step="1"><span class="u">m²</span><div class="fh">True area enclosed by the grid (IEEE 80 Example B.4: 4900 m² for the L-shaped grid). Must not exceed Lx × Ly.</div></div>
+            <div class="field"><label>Peripheral length L<sub>p</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLp" type="number" step="1"><span class="u">m</span><div class="fh">Length of the grid's outer boundary (Example B.4: 350 m).</div></div>
+            <div class="field"><label>Horizontal conductor L<sub>C</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLc" type="number" step="1"><span class="u">m</span><div class="fh">Total length of buried horizontal conductor actually laid (Example B.4: 1575 m).</div></div>
+            <div class="field"><label>Maximum distance D<sub>m</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gDm" type="number" step="1"><span class="u">m</span><div class="fh">Maximum distance between any two points on the grid; used by n<sub>d</sub> for T-shaped and irregular grids (IEEE 80 Eq. (93)). Leave blank for an L-shaped grid.</div></div>
+          </fieldset>
           <fieldset><legend>Ground rods</legend>
             <div class="field"><label>Number of rods<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gNr" type="number" value="0"><span class="u">–</span><div class="fh">Total number of vertical ground rods connected to the grid. Rods help most where a low-resistivity layer sits beneath a resistive surface layer.</div></div>
             <div class="field"><label>Rod length L<sub>r</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="gLr" type="number" value="0" step="0.5"><span class="u">m</span><div class="fh">Length of each rod below the grid conductors, not its total driven length.</div></div>
