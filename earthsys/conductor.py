@@ -16,7 +16,8 @@
 """
 Earthing-conductor thermal sizing.
 
-* IEEE Std 80-2013, clause 11.3, Eq. (37) / (42)  -- symmetrical and
+* IEEE Std 80-2013, clause 11.3, Eq. (37) (current form) / (45) (area form);
+  asymmetrical current I_F = I_f x D_f by Eq. (48)  -- symmetrical and
   asymmetrical current, full material table
 * IEC 60364-5-54 clause 543.1.2 -- adiabatic equation S = sqrt(I^2 t)/k
 * IEC 60364-5-54 Table 54.2 -- simplified PE selection from the line conductor
@@ -27,7 +28,7 @@ from __future__ import annotations
 import math
 
 from .materials import (IEEE80_MATERIALS, K_FACTORS_BURIED, K_FACTORS_IN_CABLE,
-                        K_FACTORS_SEPARATE, MIN_EARTHING_CONDUCTOR,
+                        K_FACTORS_SEPARATE, MIN_EARTHING_CONDUCTOR, MIN_BARE_BURIED_IEC2011,
                         diameter_from_area, next_standard_area)
 
 
@@ -37,7 +38,7 @@ from .materials import (IEEE80_MATERIALS, K_FACTORS_BURIED, K_FACTORS_IN_CABLE,
 
 def ieee80_conductor_area(I_kA: float, tc: float, material: str = "cu_hard",
                           Ta: float = 40.0, Tm: float | None = None) -> dict:
-    """Minimum conductor area per IEEE Std 80-2013 Eq. (37).
+    """Minimum conductor area per IEEE Std 80-2013 Eq. (45) (Eq. (37) solved for A).
 
     I_kA : rms current through the conductor (kA)
     tc   : duration of current flow (s)
@@ -64,7 +65,7 @@ def ieee80_conductor_area(I_kA: float, tc: float, material: str = "cu_hard",
         standard_mm2=next_standard_area(A),
         material=m["name"], material_key=material,
         Tm=Tm, Ta=Ta, tc=tc, I_kA=I_kA,
-        formula="IEEE Std 80-2013 Eq. (37)",
+        formula="IEEE Std 80-2013 Eq. (45) (area form of Eq. (37))",
         current_density_A_per_mm2=(I_kA * 1000.0 / A) if A else 0.0,
     )
 
@@ -77,7 +78,7 @@ def ieee80_asymmetric_area(I_kA: float, tc: float, Df: float,
     r["Df"] = Df
     r["I_symmetrical_kA"] = I_kA
     r["I_asymmetrical_kA"] = I_kA * Df
-    r["formula"] = "IEEE Std 80-2013 Eq. (37) with decrement factor D_f"
+    r["formula"] = "IEEE Std 80-2013 Eq. (45) with I_F = D_f·I_f, Eq. (48)"
     return r
 
 
@@ -146,29 +147,45 @@ def pe_from_line_conductor(S_line_mm2: float, same_material: bool = True,
 
     return dict(area_mm2=scaled, standard_mm2=next_standard_area(scaled),
                 base_area_mm2=S_pe, rule=rule,
-                formula="IEC 60364-5-54 Table 54.2")
+                formula="IEC 60364-5-54 Table 54.2 (BS 7671 Table 54.7)")
 
 
 def min_buried_earthing_conductor(corrosion_protected: bool,
-                                  mechanically_protected: bool) -> dict:
-    """IEC 60364-5-54 Table 54.1 minimum sizes for a buried earthing conductor."""
+                                  mechanically_protected: bool,
+                                  lps_connected: bool = False) -> dict:
+    """Minimum size of a buried earthing conductor.
+
+    BS 7671:2018+A2:2022 Table 54.1 (protection against corrosion by a sheath
+    and against mechanical damage), combined, for a conductor not protected
+    against corrosion (bare), with IEC 60364-5-54:2011+A1:2021 542.3.1 and
+    Table 54.1: the larger of the two governs."""
     if not corrosion_protected:
         key = ("unprotected_corrosion", "any")
     else:
         key = ("protected_corrosion",
                "protected_mech" if mechanically_protected else "unprotected_mech")
     v = MIN_EARTHING_CONDUCTOR[key]
-    return dict(copper_mm2=v["copper"], steel_mm2=v["steel"],
-                condition=" / ".join(key),
-                formula="IEC 60364-5-54 Table 54.1")
+    if corrosion_protected:
+        return dict(copper_mm2=v["copper"], steel_mm2=v["steel"],
+                    condition=" / ".join(key),
+                    formula="BS 7671 Table 54.1")
+    iec = MIN_BARE_BURIED_IEC2011
+    cu_iec = iec["copper_lps"] if lps_connected else iec["copper"]
+    return dict(copper_mm2=max(v["copper"], cu_iec), steel_mm2=max(v["steel"], iec["steel"]),
+                condition=" / ".join(key) + (" / LPS connected" if lps_connected else ""),
+                bs7671=dict(copper_mm2=v["copper"], steel_mm2=v["steel"]),
+                iec=dict(copper_mm2=cu_iec, steel_mm2=iec["steel"], steel_note=iec["steel_note"]),
+                formula="BS 7671 Table 54.1 and IEC 60364-5-54:2011 Table 54.1 (542.3.1)")
 
 
 def bonding_conductors(S_pe_main_mm2: float, material: str = "copper") -> dict:
     """Main and supplementary protective bonding conductor sizing.
 
-    Main protective bonding (IEC 60364-5-54 544.1): not less than half the
-    cross-section of the main earthing conductor, minimum 6 mm² copper,
-    need not exceed 25 mm² copper (or equivalent).
+    Main protective bonding (IEC 60364-5-54:2011 544.1): not less than half
+    the cross-section of the largest protective earthing conductor in the
+    installation, minimum 6 mm² copper (16 mm² Al, 50 mm² steel), need not
+    exceed 25 mm² copper or equivalent.  BS 7671 544.1.1 states the same rule
+    against the earthing conductor, and sizes it from the PEN on a PME supply.
     Supplementary bonding (544.2): between two exposed-conductive-parts, not
     less than the smaller protective conductor; between an exposed and an
     extraneous part, not less than half the protective conductor.
