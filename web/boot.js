@@ -48,7 +48,7 @@ window.ES = (function () {
   const MODULES = [
     '__init__.py', 'materials.py', 'soil.py', 'conductor.py', 'faultcurrent.py',
     'ieee80.py', 'bem.py', 'iec60364.py', 'iec62305.py', 'ieee142.py',
-    'airterm.py', 'standards.py', 'reasoning.py', 'report.py', 'api.py',
+    'airterm.py', 'earthpit.py', 'standards.py', 'reasoning.py', 'report.py', 'api.py',
   ];
   const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
 
