@@ -1074,6 +1074,89 @@ $('#bSize').onclick = e => run(e.target, async () => {
     ['Target achieved', '—', d.achieved, '', d.note || '']]));
 });
 
+/* ------------------------------------------------- 6b. EARTH PIT (1.3.6) === */
+function epToggle() {
+  const plate = V('epEl') === 'plate';
+  ['epL', 'epD'].forEach(id => $('#' + id).closest('.field').style.display = plate ? 'none' : '');
+  ['epA', 'epTop', 'epT'].forEach(id => $('#' + id).closest('.field').style.display = plate ? '' : 'none');
+  if (plate && N('epDia', 0.3) < 0.5) set('epDia', 0.8);
+  if (plate && !['copper', 'galvanized_steel'].includes(V('epMat'))) set('epMat', 'copper');
+}
+$('#epEl').onchange = epToggle; epToggle();
+$('#epRun').onclick = e => run(e.target, async () => {
+  const plate = V('epEl') === 'plate';
+  const p = {
+    electrode: V('epEl'), rho: NR('epRho', 'Soil resistivity'), D: NR('epDia', 'Hole diameter'),
+    backfill: V('epFill'), material: V('epMat'), fill_top: N('epFt', 0),
+    season_factor: N('epSeason', 1), n: Math.max(1, Math.round(N('epN', 1))), s: N('epS', 6),
+    housing_class: V('epHous'), t_fault: N('epTf', 1)
+  };
+  if (plate) { p.area = NR('epA', 'Plate area'); p.top = NR('epTop', 'Plate depth'); p.thickness_mm = N('epT', 0); }
+  else { p.L = NR('epL', 'Rod length'); p.d = NR('epD', 'Rod diameter'); }
+  if (NB('epRhoc') !== null) p.rho_c = NB('epRhoc');
+  if (NB('epFb') !== null) p.fill_bottom = NB('epFb');
+  if (NB('epTarget') !== null) p.target = NB('epTarget');
+  if (NB('epI') !== null) p.I_fault = NB('epI');
+  const d = await api('/api/earthpit', p);
+  S.earthpit = d;
+  const g = d.group, gd = d.group_dry, ld = d.loading;
+  kpis('epKpis', [
+    { value: fmt(d.R_bare) + ' <small>Ω</small>', label: 'Same electrode, no backfill' },
+    { value: fmt(d.R_pit) + ' <small>Ω</small>', label: 'One pit' },
+    { value: fmt(100 * d.reduction) + ' <small>%</small>', label: 'Reduction by the backfill' },
+    { value: fmt(g.R) + ' <small>Ω</small>', label: g.n + ' pit(s), measured season' },
+    { value: fmt(gd.R) + ' <small>Ω</small>', label: g.n + ' pit(s), dry season',
+      state: d.required ? (gd.R <= N('epTarget', 2) ? 'ok' : 'bad') : '' },
+    d.required && { value: d.required.reachable ? d.required.n : '—', label: 'Pits for ' + fmt(N('epTarget', 2)) + ' Ω (dry)' }
+  ].filter(Boolean));
+  const bs = d.bs7430;
+  let html = rows([
+    ['Soil resistivity', 'ρ', d.rho, 'Ω·m', ''],
+    ['Backfill resistivity', 'ρ_c', d.rho_c, 'Ω·m', d.backfill + ' — ' + d.backfill_source],
+    ['Electrode without backfill', 'R₀', d.R_bare, 'Ω', d.method],
+    ['Electrode in its pit', 'R₁', d.R_pit, 'Ω', d.method + ', ' + d.nodes + ' nodes'],
+    bs && ['BS 7430 9.5.7 (cross-check)', 'R₁', bs.R, 'Ω', bs.formula],
+    bs && ['  of which in the backfill annulus', '—', bs.R_backfill, 'Ω', 'ρc ln(D/d)/(2πL)'],
+    d.season_factor !== 1 && ['One pit, dry season', 'R₁,dry', d.R_dry, 'Ω', 'soil ρ × ' + fmt(d.season_factor) + '; backfill kept moist'],
+    ['Backfill volume per pit', 'V', d.backfill_volume_m3, 'm³', ''],
+    g.n > 1 && ['Group factor', 'λ', g.lam, '–', 'BS 7430 9.5.4'],
+    g.n > 1 && ['Group of pits in a line', 'R_n', g.R, 'Ω', g.formula],
+    g.n > 1 && ['Group, ideal parallel (for comparison)', 'R₁/n', g.ideal, 'Ω', 'ignores mutual resistance'],
+    g.n > 1 && ['Group, dry season', 'R_n,dry', gd.R, 'Ω', ''],
+    d.required && ['Pits needed for the target (dry season)', 'n', d.required.reachable ? String(d.required.n) : 'not reachable', '–', d.required.note || ('gives ' + fmt(d.required.R) + ' Ω at ' + fmt(d.required.s) + ' m spacing')],
+    ld && ['Fault current per pit', 'I₁', ld.I_per_pit, 'A', ''],
+    ld && ['Current density at the metal', 'J', ld.J_metal, 'A/m²', 'limit ' + fmt(ld.Jmax_metal) + ' A/m² in the backfill (BS 7430 9.8) — ' + (ld.metal_ok ? 'OK' : 'EXCEEDED')],
+    ld && ld.J_boundary !== undefined && ['Current density at the backfill boundary', 'J', ld.J_boundary, 'A/m²', 'limit ' + fmt(ld.Jmax_boundary) + ' A/m² in the soil — ' + (ld.boundary_ok ? 'OK' : 'EXCEEDED')],
+    d.housing && ['Inspection housing', '—', 'Class ' + d.housing.cls + ', ' + fmt(d.housing.load_kN) + ' kN', '', d.housing.use + '; ' + d.housing.rule],
+    ['Re-service the pit above', 'R', d.maintenance.retest_limit, 'Ω', d.maintenance.note]
+  ]);
+  if (d.size_checks.length) {
+    html += '<table class="data"><thead><tr><th>Electrode size</th><th>Required</th><th>Actual</th><th></th></tr></thead><tbody>' +
+      d.size_checks.map(c => `<tr><td>${esc(c.rule)}</td><td>${esc(c.required)}</td><td>${esc(c.actual)}</td><td><span class="badge ${c.ok ? 'ok' : 'bad'}">${c.ok ? 'OK' : 'BELOW'}</span></td></tr>`).join('') + '</tbody></table>';
+  }
+  $('#epOut').innerHTML = html;
+  /* R against hole diameter.  The full-length rod column has the BS 7430
+     closed form, so the curve is drawn from it; the solved point is marked. */
+  const traces = [];
+  if (bs) {
+    const xs = [], ys = [], y0 = [], L = p.L, dd = p.d, r = d.rho, rc = d.rho_c;
+    for (let i = 0; i <= 60; i++) {
+      const D = Math.max(dd * 1.5, 0.02 + i * 0.02); xs.push(D);
+      ys.push(((r - rc) * (Math.log(8 * L / D) - 1) + rc * (Math.log(8 * L / dd) - 1)) / (2 * Math.PI * L));
+      y0.push(d.R_bare);
+    }
+    traces.push({ x: xs, y: ys, mode: 'lines', name: 'BS 7430 9.5.7', line: { color: PAL[0], width: 2.5 } });
+    traces.push({ x: xs, y: y0, mode: 'lines', name: 'no backfill', line: { color: css('--ink-3') || '#888', dash: 'dot' } });
+  }
+  traces.push({ x: [p.D], y: [d.R_pit], mode: 'markers', name: 'numerical solution', marker: { size: 11, color: PAL[1] } });
+  if (!bs) traces.push({ x: [p.D], y: [d.R_bare], mode: 'markers', name: 'no backfill', marker: { size: 9, color: '#888' } });
+  plot('epPlot', traces, {
+    xaxis: { title: { text: 'Hole / well diameter D (m)' }, gridcolor: css('--line') },
+    yaxis: { title: { text: 'Resistance of one pit (Ω)' }, gridcolor: css('--line'), rangemode: 'tozero' }
+  });
+  toast('Earth pit calculated.', 'ok');
+});
+
 /* ======================================================== 7. LIGHTNING === */
 $('#lRun').onclick = e => run(e.target, async () => {
   const p = {
@@ -1325,6 +1408,7 @@ function reportData(figs) {
   if (S.grid) d.grid = S.grid;
   if (S.bem) d.bem = S.bem;
   if (S.building) d.building = S.building;
+  if (S.earthpit) d.earthpit = S.earthpit;
   if (S.lightning) d.lightning = S.lightning;
   if (S.sysgnd) d.sysgnd = S.sysgnd;
   if (S.airterm) d.airterm = S.airterm;
