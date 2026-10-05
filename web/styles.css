@@ -75,6 +75,7 @@ label{font-size:12.5px;color:var(--ink-2)}
 .pagehead{margin-bottom:14px}
 .pagehead h2{font-size:19px;letter-spacing:-.2px}
 .pagehead p{margin:4px 0 0;color:var(--ink-2);font-size:13px;max-width:80ch}
+.sechead{font-size:16px;margin:26px 0 12px;padding-top:14px;border-top:1px solid var(--line)}
 .cols{display:grid;gap:16px}
 .cols.c2{grid-template-columns:minmax(320px,400px) 1fr}
 .cols.c2e{grid-template-columns:1fr 1fr}
