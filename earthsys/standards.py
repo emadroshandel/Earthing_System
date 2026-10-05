@@ -138,7 +138,26 @@ REGISTRY = [
          note="Current consolidated version +A4:2026."),
     dict(id="BS 7430:2011+A1:2015", area="industrial", role="implemented",
          title="Code of practice for protective earthing of electrical installations",
-         note="Module 6 λ tables. Replaced by BS 7430:2026."),
+         note="Module 6 λ tables; 9.5.7 backfilled rod and 9.8 current density (earth pits). Replaced by BS 7430:2026."),
+    # Earth electrodes and earth pits (1.3.6) -------------------------------
+    dict(id="IEC 62561-2:2012", area="electrodes", role="implemented",
+         title="Lightning protection system components (LPSC) — Part 2: Requirements for "
+               "conductors and earth electrodes",
+         note="Table 3 minimum electrode sizes (earth-pit module). Superseded by IEC 62561-2:2018."),
+    dict(id="IEC 62561-5:2023", area="electrodes", role="implemented",
+         title="Lightning protection system components (LPSC) — Part 5: Requirements for earth "
+               "electrode inspection housings and earth electrode seals",
+         note="Housing classes L/M/H, 4/15/30 kN."),
+    dict(id="IEC 62561-7:2011", area="electrodes", role="reference",
+         title="Lightning protection system components (LPSC) — Part 7: Requirements for "
+               "earthing enhancing compounds",
+         note="Declared resistivity, leaching, sulphur and corrosion tests. Superseded by IEC 62561-7:2018."),
+    dict(id="CBIP Publication 302 (2007)", area="electrodes", role="cross-check",
+         title="Manual on Earthing of AC Power Systems",
+         note="Bentonite 8.7 Ω·m; earth-pit construction (Fig. 8.2) and maintenance (8.4.5)."),
+    dict(id="Iranian earthing safety regulation (2007)", area="electrodes", role="implemented",
+         title="آیین‌نامه ایمنی سیستم اتصال به زمین (ارتینگ) — Earthing system safety regulation",
+         note="Supreme Council of Technical Protection; Art. 15–24 electrode sizes, Art. 49 spacing, Art. 64 2 Ω."),
     # Overhead lines ---------------------------------------------------------
     dict(id="AS/NZS 7000:2016", area="overhead-lines", role="reference",
          title="Overhead line design", note="Structure earthing and EPR."),
@@ -193,6 +212,7 @@ AREAS = {
     "data-centres": "Data centres",
     "telecom": "Telecommunications",
     "fault-distribution": "Fault-current distribution",
+    "electrodes": "Earth electrodes and earth pits",
 }
 
 # Which areas each report section draws on.
@@ -206,6 +226,7 @@ MODULE_AREAS = {
     "lightning": ["renewables", "overhead-lines"],
     "airterm": ["renewables"],
     "sysgnd": ["industrial"],
+    "earthpit": ["electrodes"],
 }
 
 
