@@ -29,10 +29,10 @@ import json
 import math
 import os
 
-from . import (airterm, bem, conductor, faultcurrent, iec60364, iec62305, ieee80,
-               ieee142, materials, reasoning, report, soil, standards)
+from . import (airterm, bem, conductor, earthpit, faultcurrent, iec60364, iec62305,
+               ieee80, ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.3.5"
+APP_VERSION = "1.3.6"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -723,6 +723,40 @@ def api_rods_required(p):
         float(p.get("s", 6.0)), int(p.get("max_n", 60)))
 
 
+def api_earthpit(p):
+    """Earth pit: an electrode in a hole of low-resistivity backfill (1.3.6)."""
+    electrode = _require_choice(p.get("electrode", "rod"), {"rod", "plate"}, "Electrode")
+    _require_choice(p.get("backfill", "bentonite_4to1"), set(earthpit.BACKFILLS), "Backfill")
+    spec = {"rho": "Soil resistivity (ohm.m)", "D": "Backfill diameter (m)"}
+    if electrode == "rod":
+        spec.update(L="Rod length (m)", d="Rod diameter (m)")
+    else:
+        spec.update(area="Plate area (m²)", top="Plate depth (m)")
+    _require_positive(p, spec)
+    _require_nonneg(p, {"fill_top": "Top of backfill (m)", "fill_bottom": "Bottom of backfill (m)",
+                        "top": "Depth of rod top (m)", "thickness_mm": "Plate thickness (mm)"})
+    for key, label in (("rho_c", "Backfill resistivity (ohm.m)"), ("s", "Spacing between pits (m)"),
+                       ("target", "Target resistance (ohm)"), ("I_fault", "Fault current (A)"),
+                       ("t_fault", "Fault duration (s)"), ("season_factor", "Seasonal factor")):
+        if p.get(key) not in (None, ""):
+            _require_positive(p, {key: label})
+    if p.get("backfill") == "custom" and p.get("rho_c") in (None, ""):
+        raise ValueError("Backfill resistivity (ohm.m) is required for a custom backfill.")
+    n = int(p.get("n", 1) or 1)
+    if not 1 <= n <= 100:
+        raise ValueError("Number of pits must be between 1 and 100.")
+    if electrode == "rod" and float(p["D"]) <= float(p["d"]):
+        raise ValueError("Backfill diameter must be larger than the rod diameter.")
+    if p.get("season_factor") not in (None, "") and float(p["season_factor"]) < 1:
+        raise ValueError("Seasonal factor must be 1 or more (dry-season resistivity / measured).")
+    ft, fb = p.get("fill_top"), p.get("fill_bottom")
+    if ft not in (None, "") and fb not in (None, "") and float(fb) <= float(ft):
+        raise ValueError("The bottom of the backfill must be deeper than its top.")
+    _require_choice(str(p.get("housing_class", "L")).upper(), set(earthpit.HOUSING_CLASSES),
+                    "Inspection housing class")
+    return earthpit.design(p)
+
+
 def api_lightning(p):
     _require_positive(p, {"rho": "Soil resistivity (ohm.m)"})
     _require_positive(p, {k: v for k, v in (
@@ -907,6 +941,7 @@ ROUTES = {
     "/api/building": api_building,
     "/api/electrode": api_electrode,
     "/api/rods-required": api_rods_required,
+    "/api/earthpit": api_earthpit,
     "/api/lightning": api_lightning,
     "/api/airterm": api_airterm,
     "/api/system-grounding": api_sysgnd,
