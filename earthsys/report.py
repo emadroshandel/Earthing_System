@@ -49,6 +49,7 @@ T = {
         "impulse": "Behaviour under the lightning impulse",
         "airterm": "Air termination and protection zone (IEC 62305-3)",
         "sysgnd": "System neutral grounding (IEEE Std 142)",
+        "earthpit": "Earth pits (backfilled electrodes)",
         "checks": "Compliance summary",
         "figures": "Figures", "figure": "Figure",
         "parameter": "Parameter", "symbol": "Symbol", "value": "Value",
@@ -93,6 +94,7 @@ T = {
         "impulse": "رفتار سیستم زمین در برابر ضربه صاعقه",
         "airterm": "صاعقه‌گیر و محدوده حفاظت‌شده (IEC 62305-3)",
         "sysgnd": "زمین کردن نقطه خنثی سیستم (IEEE 142)",
+        "earthpit": "چاه ارت (الکترود در مواد کاهنده مقاومت)",
         "checks": "جمع‌بندی انطباق با استاندارد",
         "figures": "نمودارها", "figure": "نمودار",
         "parameter": "پارامتر", "symbol": "نماد", "value": "مقدار",
@@ -619,6 +621,50 @@ def _sec_building(t, d):
             f"{_checks_table(t, d.get('checks', []), d.get('narrative'))}")
 
 
+def _sec_earthpit(t, d):
+    if not d:
+        return ""
+    g, gd = d.get("group") or {}, d.get("group_dry") or {}
+    rows = [
+        _row(t, "Soil resistivity", "ρ", d.get("rho"), "Ω·m", ""),
+        _row(t, "Backfill resistivity", "ρ_c", d.get("rho_c"), "Ω·m",
+             f"{d.get('backfill', '')} — {d.get('backfill_source', '')}"),
+        _row(t, "Electrode without backfill", "R₀", d.get("R_bare"), "Ω", d.get("method", "")),
+        _row(t, "Electrode in its pit", "R₁", d.get("R_pit"), "Ω", d.get("method", "")),
+    ]
+    bs = d.get("bs7430")
+    if bs:
+        rows.append(_row(t, "BS 7430 9.5.7 cross-check", "R₁", bs.get("R"), "Ω", bs.get("formula", "")))
+    if d.get("season_factor", 1) != 1:
+        rows.append(_row(t, "One pit, dry season", "R₁,dry", d.get("R_dry"), "Ω",
+                         f"soil ρ × {_fmt(d.get('season_factor'))}"))
+    if g.get("n", 1) > 1:
+        rows += [_row(t, "Pits in a line", "n", g.get("n"), "", f"spacing {_fmt(g.get('s'))} m"),
+                 _row(t, "Group resistance", "R_n", g.get("R"), "Ω", g.get("formula", "")),
+                 _row(t, "Group resistance, dry season", "R_n,dry", gd.get("R"), "Ω", "")]
+    req = d.get("required")
+    if req:
+        rows.append(_row(t, "Pits needed for the target (dry season)", "n",
+                         req.get("n") if req.get("reachable") else "—", "", req.get("note", "")))
+    ld = d.get("loading")
+    if ld:
+        rows.append(_row(t, "Current density at the metal", "J", ld.get("J_metal"), "A/m²",
+                         f"BS 7430 9.8 limit {_fmt(ld.get('Jmax_metal'))} A/m²"))
+        if ld.get("J_boundary") is not None:
+            rows.append(_row(t, "Current density at the backfill boundary", "J", ld.get("J_boundary"),
+                             "A/m²", f"BS 7430 9.8 limit {_fmt(ld.get('Jmax_boundary'))} A/m²"))
+    hs = d.get("housing")
+    if hs:
+        rows.append(_row(t, "Inspection housing", "-", f"Class {hs.get('cls')} ({_fmt(hs.get('load_kN'))} kN)",
+                         "", hs.get("rule", "")))
+    mt = d.get("maintenance") or {}
+    rows.append(_row(t, "Re-service the pit above", "R", mt.get("retest_limit"), "Ω", mt.get("note", "")))
+    for c in d.get("size_checks", []):
+        rows.append(_row(t, "Electrode size", "-", f"{c.get('actual')} ({'OK' if c.get('ok') else 'below'})",
+                         "", f"{c.get('rule')}: {c.get('required')}"))
+    return f"<h2>{t['earthpit']}</h2>{_table(t, rows)}"
+
+
 def _sec_lightning(t, d):
     if not d:
         return ""
@@ -778,7 +824,7 @@ def _sec_sysgnd(t, d):
 def _sec_standards(t, data):
     from . import standards as st
     mods = [m for m in ("soil", "fault", "conductor", "grid", "bem", "building",
-                        "lightning", "airterm", "sysgnd") if data.get(m)]
+                        "earthpit", "lightning", "airterm", "sysgnd") if data.get(m)]
     if not mods:
         return ""
     body = "".join(
@@ -824,6 +870,7 @@ def build(data: dict, lang: str = "en") -> str:
         _sec_grid(t, data.get("grid")),
         _sec_bem(t, data.get("bem")),
         _sec_building(t, data.get("building")),
+        _sec_earthpit(t, data.get("earthpit")),
         _sec_lightning(t, data.get("lightning")),
         _sec_airterm(t, data.get("airterm")),
         _sec_sysgnd(t, data.get("sysgnd")),
