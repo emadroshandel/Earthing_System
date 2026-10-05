@@ -436,6 +436,57 @@
           <div class="body tight"><div id="bPlot" class="plot"></div></div></div>
       </div>
     </div>
+
+    <h3 class="sechead" id="earthpit">Earth pit — electrode in low-resistivity backfill</h3>
+    <div class="cols c2">
+      <div>
+        <div class="card"><h3>Pit</h3><div class="body">
+          <div class="field wide"><label>Electrode<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="epEl"><option value="rod">Vertical rod in a bored hole</option>
+              <option value="plate">Plate at the bottom of a dug well</option></select><div class="fh">A rod driven or set in a bored hole filled with backfill (BS 7430 9.5.7; CBIP 302 Fig. 8.2), or a plate laid at the bottom of a dug earth well (Iranian earthing regulation, Art. 15–22). The plate is modelled as a horizontal disc of the same area.</div></div>
+          <div class="field"><label>Soil resistivity ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epRho" type="number" value="100"><span class="u">Ω·m</span><div class="fh">Measured resistivity of the soil around the pit. Use the value for the depth of the electrode.</div></div>
+          <div class="field"><label>Rod length L<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epL" type="number" value="3" step="0.5"><span class="u">m</span><div class="fh">Length of the rod in the hole. The rod is assumed to start at the surface.</div></div>
+          <div class="field"><label>Rod diameter d<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epD" type="number" value="0.016" step="0.001"><span class="u">m</span><div class="fh">Diameter of the rod — 16 mm copper-bonded steel is common. IEC 62561-2 Table 3 asks for at least 14–15 mm; the Iranian regulation (Art. 24) 12 mm copper, 16 mm steel.</div></div>
+          <div class="field"><label>Plate area (one face)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epA" type="number" value="0.5" step="0.05"><span class="u">m²</span><div class="fh">One face of the plate. The Iranian regulation (Art. 15) asks for at least 1 × 0.5 m; IEC 62561-2 for 0.5 × 0.5 m.</div></div>
+          <div class="field"><label>Plate depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epTop" type="number" value="3" step="0.1"><span class="u">m</span><div class="fh">Depth of the plate centre. Lay it in permanently moist ground (Art. 16) and at least 0.6 m deep (Art. 22, BS 7430 9.5.2).</div></div>
+          <div class="field"><label>Plate thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epT" type="number" value="2" step="0.5"><span class="u">mm</span><div class="fh">Copper ≥ 2 mm, galvanized steel ≥ 3 mm (Iranian regulation, Art. 15).</div></div>
+          <div class="field wide"><label>Electrode material</label>
+            <select id="epMat"><option value="copper_bonded_steel">Copper-bonded steel</option><option value="copper">Copper</option>
+              <option value="galvanized_steel">Hot-dip galvanized steel</option><option value="stainless_steel">Stainless steel</option></select></div>
+        </div></div>
+        <div class="card"><h3>Backfill</h3><div class="body">
+          <div class="field wide"><label>Material<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="epFill"><option value="bentonite_4to1">Bentonite slurry 4:1 — 8.7 Ω·m (CBIP)</option>
+              <option value="bentonite_300">Bentonite at 300 % moisture — 2.5 Ω·m (IEEE 80)</option>
+              <option value="gem">Enhancement compound — declared value</option>
+              <option value="concrete">Concrete — 30–200 Ω·m</option>
+              <option value="custom">Other / measured mix</option></select><div class="fh">Use the manufacturer's declared resistivity for a commercial compound (IEC 62561-7) or a soil-box measurement for a site mix such as salt–charcoal–clay. Salt leaches away and must be renewed (IEEE 80 14.5).</div></div>
+          <div class="field"><label>Backfill resistivity ρ<sub>c</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epRhoc" type="number" value="" placeholder="from material"><span class="u">Ω·m</span><div class="fh">Leave empty to use the value of the chosen material.</div></div>
+          <div class="field"><label>Hole / well diameter D<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epDia" type="number" value="0.3" step="0.05"><span class="u">m</span><div class="fh">A bored hole is typically 0.3 m (CBIP 302); a dug well 0.8–1.0 m.</div></div>
+          <div class="field"><label>Backfill from depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epFt" type="number" value="0" step="0.1"><span class="u">m</span><div class="fh">Top of the backfill column. CBIP 302 fills the top of the hole with excavated soil.</div></div>
+          <div class="field"><label>Backfill to depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epFb" type="number" value="" step="0.1" placeholder="auto"><span class="u">m</span><div class="fh">Bottom of the backfill. Empty: the bottom of the rod, or 0.2 m below the plate.</div></div>
+          <div class="field"><label>Dry-season factor<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epSeason" type="number" value="1.5" step="0.1"><span class="u">–</span><div class="fh">Ratio of the dry-season soil resistivity to the measured value (§11.6). The backfill is assumed to stay moist — keep it watered.</div></div>
+        </div></div>
+        <div class="card"><h3>Group, loading and housing</h3><div class="body">
+          <div class="field"><label>Number of pits<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epN" type="number" value="1" step="1" min="1"><span class="u">–</span><div class="fh">Equal pits in a straight line, bonded together.</div></div>
+          <div class="field"><label>Spacing between pits<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epS" type="number" value="6" step="0.5"><span class="u">m</span><div class="fh">At least the electrode depth (Iranian regulation, Art. 49); twice the rod length makes good use of each pit.</div></div>
+          <div class="field"><label>Target resistance<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epTarget" type="number" value="2" step="0.5"><span class="u">Ω</span><div class="fh">The program finds how many pits are needed in the dry season. The Iranian regulation (Art. 64) asks for less than 2 Ω for the total earthing resistance of a substation.</div></div>
+          <div class="field"><label>Fault current to earth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epI" type="number" value="" placeholder="optional"><span class="u">A</span><div class="fh">Current into the whole group, for the current-density check of BS 7430 9.8. Leave empty to skip.</div></div>
+          <div class="field"><label>Fault duration<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="epTf" type="number" value="1" step="0.1"><span class="u">s</span><div class="fh">Duration of the fault current.</div></div>
+          <div class="field wide"><label>Inspection housing<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="epHous"><option value="L">Class L — walkways (4 kN)</option><option value="M">Class M — cars (15 kN)</option>
+              <option value="H">Class H — heavy vehicles (30 kN)</option></select><div class="fh">IEC 62561-5:2023 load classes for the inspection pit cover and housing.</div></div>
+          <div class="rowbtns"><button class="primary" id="epRun">Calculate earth pit</button></div>
+        </div></div>
+      </div>
+      <div>
+        <div id="epKpis" class="kpis"></div>
+        <div class="card"><h3>Earth pit results</h3><div class="body" id="epOut">
+          <div class="empty">Set the pit and run the calculation. The field around the electrode and its backfill is solved numerically (axisymmetric finite volumes); for a full-length rod column the BS 7430 formula is shown alongside.</div></div></div>
+        <div class="card"><h3>Pit resistance vs hole diameter</h3>
+          <div class="body tight"><div id="epPlot" class="plot"></div></div></div>
+      </div>
+    </div>
   </section>
 
   <!-- ==================== 7. LIGHTNING ==================== -->
