@@ -250,9 +250,15 @@
     const sp = d.spacings || [];
     SEC.soil('soilSection', {
       rho1: d.rho1, rho2: d.rho2, h1: d.h,
+      rho3: d.n_layers >= 3 ? d.rho3 : null, h2: d.n_layers >= 3 ? d.h2 : null,
+      rho4: d.n_layers === 4 ? d.rho4 : null, h3: d.n_layers === 4 ? d.h3 : null,
       rhoEq: d.equivalent && d.equivalent.rho_equivalent,
       depth: NUM('soilDepth', 0.5), rodLen: NUM('soilRod', 0),
-      aMax: sp.length ? Math.max.apply(null, sp) : null
+      aMax: sp.length ? Math.max.apply(null, sp) : null,
+      status: d.layer_status || [],
+      doi: d.depth_of_investigation && d.depth_of_investigation.doi,
+      doiK: d.depth_of_investigation && d.depth_of_investigation.factor,
+      schl: d.array === 'schlumberger'
     });
   }
 
