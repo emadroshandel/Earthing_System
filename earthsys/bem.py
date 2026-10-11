@@ -39,6 +39,11 @@ Soil models
                   layer see the lower-layer resistivity.  (Version 1.1 used
                   the upper-layer function for every segment, which put R_g
                   about 2 % low for rods reaching a more conductive layer.)
+* three-layer     G from the exact image expansion of earthsys.layered: the
+                  images near the electrodes one by one, the deep ones from
+                  the spectral solution as Taylor tables in r (version 1.4).
+                  Every conductor is split at both interfaces and each
+                  segment sees the resistivity of its own layer.
 
 Coordinates: x, y horizontal (m); z is DEPTH, positive downwards, the soil
 surface being z = 0.
@@ -74,12 +79,35 @@ class SoilModel:
 
     def __init__(self, rho1: float, rho2: float | None = None,
                  h: float | None = None, max_images: int = 60,
-                 tol: float = 1e-6):
+                 tol: float = 1e-6, rho3: float | None = None,
+                 h2: float | None = None, rho4: float | None = None,
+                 h3: float | None = None):
         self.rho1 = float(rho1)
         self.rho2 = float(rho2) if rho2 else None
         self.h = float(h) if h else None
+        self.rho3 = float(rho3) if rho3 else None
+        self.h2 = float(h2) if h2 else None
+        self.three = (self.rho2 is not None and self.h is not None and
+                      self.rho3 is not None and self.h2 is not None)
+        self.green = None
+        if self.three:
+            from . import layered
+            rhos = [self.rho1, self.rho2, self.rho3]
+            hs = [self.h, self.h2]
+            if rho4 and h3:
+                rhos.append(float(rho4))
+                hs.append(float(h3))
+            self.earth = layered.LayeredEarth(rhos, hs)
+            self.rhos = rhos
+            self.interfaces = list(self.earth.depths)
+            self.uniform = False
+            self.K = (self.rho2 - self.rho1) / (self.rho2 + self.rho1)
+            self.N = self.N_tail = 0
+            return
         self.uniform = self.rho2 is None or self.h is None or \
             abs(self.rho2 - self.rho1) < 1e-9
+        self.rhos = [self.rho1] if self.uniform else [self.rho1, self.rho2]
+        self.interfaces = [] if self.uniform else [self.h]
         self.K = 0.0 if self.uniform else \
             (self.rho2 - self.rho1) / (self.rho2 + self.rho1)
         self.N_tail = 0
@@ -141,7 +169,31 @@ class SoilModel:
             return 2.0 * self.rho1 * (1.0 + self.K) / (4.0 * math.pi)
         return self.rho2 * (1.0 - self.K ** 2) / (4.0 * math.pi)
 
+    def layer_of(self, z: float) -> int:
+        """1-based layer index of depth z (a point on an interface belongs
+        to the layer above)."""
+        return 1 + sum(1 for d in self.interfaces if z > d)
+
+    def prepare(self, Z: float, r_max: float):
+        """Three-layer soil: build (or extend) the Green's function tables
+        for points no deeper than Z and no further apart than r_max."""
+        if not self.three:
+            return
+        from . import layered
+        if self.green is None:
+            self.green = layered.LayeredGreen(self.earth, Z, r_max)
+        else:
+            self.green.ensure(Z, r_max)
+
     def describe(self):
+        if self.three:
+            n = len(self.rhos)
+            names = {3: "Three", 4: "Four"}.get(n, str(n))
+            parts = [f"ρ{'₁₂₃₄₅'[i]} = {r:g} Ω·m to {d:g} m"
+                     for i, (r, d) in enumerate(zip(self.rhos, self.interfaces))]
+            parts.append(f"ρ{'₁₂₃₄₅'[n - 1]} = {self.rhos[-1]:g} Ω·m below")
+            return (f"{names}-layer soil: " + ", ".join(parts) +
+                    " (exact image expansion with spectral deep-image tables)")
         if self.uniform:
             return f"Uniform soil, ρ = {self.rho1:g} Ω·m"
         extra = (f" (+ {self.N_tail - self.N} deep images tabulated)"
@@ -152,16 +204,21 @@ class SoilModel:
 
 
 class Segment:
-    __slots__ = ("p1", "p2", "radius", "mid", "length", "tag", "layer")
+    __slots__ = ("p1", "p2", "radius", "mid", "length", "tag", "layer", "net",
+                 "shell")
 
-    def __init__(self, p1, p2, radius, tag="", layer=1):
+    def __init__(self, p1, p2, radius, tag="", layer=1, net=0, shell=0.0):
         self.p1 = np.asarray(p1, dtype=float)
         self.p2 = np.asarray(p2, dtype=float)
         self.radius = float(radius)
         self.mid = 0.5 * (self.p1 + self.p2)
         self.length = float(np.linalg.norm(self.p2 - self.p1))
         self.tag = tag
-        self.layer = layer          # 1 = upper layer, 2 = lower layer
+        self.layer = layer          # 1-based soil layer of the segment
+        self.net = int(net)         # electrically connected network index
+        # concrete encasement: ρ_c ln(r_c/a)/2π (Ω·m); the leakage of the
+        # segment crosses this before it reaches the soil at r_c = radius
+        self.shell = float(shell)
 
 
 def image_terms(soil, src_layer: int, fld_layer: int):
@@ -205,6 +262,45 @@ def image_terms(soil, src_layer: int, fld_layer: int):
     return T
 
 
+def _offset_path(pts, d, closed=True):
+    """Offset a polyline by `d` (positive = outwards for a closed path,
+    to the right of the direction of travel for an open one), with mitred
+    corners."""
+    P = [np.array(q, float) for q in pts]
+    if closed and np.allclose(P[0], P[-1]):
+        P = P[:-1]
+    n = len(P)
+    if closed:
+        area = 0.5 * sum(P[i][0] * P[(i + 1) % n][1] - P[(i + 1) % n][0] * P[i][1]
+                         for i in range(n))
+        sgn = 1.0 if area > 0 else -1.0    # CCW: outward normal is right
+    else:
+        sgn = 1.0
+
+    def normal(a, b):
+        t = (b - a) / max(np.linalg.norm(b - a), 1e-12)
+        return np.array([t[1], -t[0]]) * sgn
+
+    out = []
+    for i in range(n):
+        if not closed and i in (0, n - 1):
+            a, b = (P[0], P[1]) if i == 0 else (P[-2], P[-1])
+            out.append(P[i] + d * normal(a, b))
+            continue
+        a, b, c = P[i - 1], P[i], P[(i + 1) % n]
+        n1, n2 = normal(a, b), normal(b, c)
+        bis = n1 + n2
+        nb = np.linalg.norm(bis)
+        if nb < 1e-9:
+            out.append(b + d * n1)
+            continue
+        bis /= nb
+        out.append(b + d * bis / max(float(bis @ n1), 0.2))
+    if closed:
+        out.append(out[0])
+    return [tuple(map(float, q)) for q in out]
+
+
 class Network:
     """Buried electrode network: conductors, rods, rings, arbitrary paths."""
 
@@ -214,15 +310,50 @@ class Network:
                                "(pip install numpy).")
         self.soil = soil
         self.IG = float(IG)
-        self.raw = []          # (p1, p2, radius, tag)
+        self.raw = []          # (p1, p2, radius, tag, net)
+        self.encase = {}       # raw index -> dict(radius, rho, eps_r): concrete shell
         self.segments: list[Segment] = []
         self.I = None
         self.V = None
+        # Electrically separate metal networks.  Network 0 is the energised
+        # main grid, which takes the fault current IG.  Others (an isolated
+        # fence, a remote structure) take their own injected current --
+        # zero for a floating network, which then settles at whatever
+        # potential the soil around it imposes.
+        self.nets = [dict(name="main", injection=None, kind="main")]
+        self.fences = []       # dict(net, path, reach) for fence touch checks
+        self.Vnet = None
+        self.Z = None          # mutual-resistance matrix between networks
+        self._net = 0          # network that add_* methods attach to
+
+    def add_network(self, name="floating", injection=0.0, kind="floating"):
+        """Declare a separate metal network and return its index.
+
+        `injection` is the current (A) driven into it from outside; zero
+        means it floats.  Conductors added while it is the current network
+        (see `use_network`) belong to it."""
+        self.nets.append(dict(name=name, injection=float(injection), kind=kind))
+        return len(self.nets) - 1
+
+    def use_network(self, k: int):
+        self._net = int(k)
+        return self
 
     # -- geometry building -------------------------------------------------
-    def add_conductor(self, p1, p2, radius, tag=""):
+    def add_conductor(self, p1, p2, radius, tag="", net=None, concrete=None):
+        """A straight conductor.  `concrete` = dict(radius=r_c, rho=ρ_c[,
+        eps_r]) encases it in a coaxial concrete cylinder of radius r_c."""
         self.raw.append((tuple(map(float, p1)), tuple(map(float, p2)),
-                         float(radius), tag))
+                         float(radius), tag,
+                         self._net if net is None else int(net)))
+        if concrete:
+            rc = float(concrete["radius"])
+            if rc <= radius:
+                raise ValueError("The concrete radius must exceed the radius "
+                                 "of the steel it encases.")
+            if float(concrete["rho"]) <= 0:
+                raise ValueError("Concrete resistivity must be positive.")
+            self.encase[len(self.raw) - 1] = dict(concrete)
         return self
 
     def add_grid(self, Lx, Ly, D, depth, radius, x0=0.0, y0=0.0, tag="grid"):
@@ -256,14 +387,71 @@ class Network:
             self.add_conductor((a[0], a[1], depth), (b[0], b[1], depth), radius, tag)
         return self
 
+    def add_fence(self, path, post_spacing=3.0, post_depth=0.762,
+                  post_radius=0.0255, wire_offset=None, wire_depth=0.5,
+                  wire_radius=0.005, bonded=False, closed=True,
+                  name="fence", reach=1.0):
+        """A metal fence: posts driven into the soil along `path`, with an
+        optional buried wire run parallel to it.
+
+        path         : list of (x, y) vertices of the fence line
+        post_spacing : maximum distance between posts (m); posts are also
+                       placed at every vertex
+        wire_offset  : horizontal offset (m) of a buried fence wire from the
+                       fence line, positive outwards (None = no wire).  It
+                       is bonded to the posts through the fence fabric.
+        bonded       : True connects the fence to the main grid (network 0);
+                       False makes it a separate, floating network.
+        Returns the index of the network the fence belongs to.
+        """
+        pts = [tuple(map(float, q[:2])) for q in path]
+        if closed and pts[0] != pts[-1]:
+            pts.append(pts[0])
+        if len(pts) < 2:
+            raise ValueError("A fence needs at least two vertices.")
+        k = 0 if bonded else self.add_network(name, 0.0, kind="fence")
+        prev = self._net
+        self._net = k
+        posts = []
+        for a, b in zip(pts[:-1], pts[1:]):
+            L = math.hypot(b[0] - a[0], b[1] - a[1])
+            if L < 1e-9:
+                continue
+            nseg = max(1, int(math.ceil(L / float(post_spacing) - 1e-9)))
+            for j in range(nseg):
+                t = j / nseg
+                posts.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+        if not closed:
+            posts.append(pts[-1])
+        for x, y in posts:
+            self.add_conductor((x, y, 0.0), (x, y, float(post_depth)),
+                               post_radius, "fence_post")
+        if wire_offset is not None:
+            wp = _offset_path(pts, float(wire_offset), closed)
+            for a, b in zip(wp[:-1], wp[1:]):
+                self.add_conductor((a[0], a[1], wire_depth),
+                                   (b[0], b[1], wire_depth),
+                                   wire_radius, "fence_wire")
+        self._net = prev
+        self.fences.append(dict(net=k, path=pts, closed=closed,
+                                reach=float(reach), name=name,
+                                bonded=bool(bonded), posts=len(posts)))
+        return k
+
     # -- discretisation ----------------------------------------------------
     def discretise(self, target: float = 2.0, max_segments: int = 3000):
         total = sum(np.linalg.norm(np.array(b) - np.array(a))
-                    for a, b, _, _ in self.raw)
+                    for a, b, *_ in self.raw)
         if total / max(target, 1e-6) > max_segments:
             target = total / max_segments
         self.segments = []
-        for a, b, rad, tag in self.raw:
+        for ir, (a, b, rad, tag, nk) in enumerate(self.raw):
+            enc = self.encase.get(ir)
+            shell = 0.0
+            if enc:
+                rc = float(enc["radius"])
+                shell = float(enc["rho"]) * math.log(rc / rad) / (2 * math.pi)
+                rad = rc
             a = np.array(a, float)
             b = np.array(b, float)
             L = float(np.linalg.norm(b - a))
@@ -271,23 +459,29 @@ class Network:
             # one layer and sees that layer's Green's function
             cuts = [0.0, 1.0]
             s = self.soil
-            if not s.uniform and (a[2] - s.h) * (b[2] - s.h) < 0:
-                cuts.insert(1, (s.h - a[2]) / (b[2] - a[2]))
+            for zi in s.interfaces:
+                if (a[2] - zi) * (b[2] - zi) < 0:
+                    cuts.append((zi - a[2]) / (b[2] - a[2]))
+            cuts = sorted(cuts)
             for t0, t1 in zip(cuts[:-1], cuts[1:]):
                 q1 = a + (b - a) * t0
                 q2 = a + (b - a) * t1
                 Lq = float(np.linalg.norm(q2 - q1))
-                n = max(1, int(math.ceil(Lq / target - 1e-9)))
+                # a thick (concrete-encased) conductor keeps its segments
+                # longer than its radius, as the thin-wire kernel requires
+                tg = max(target, 1.5 * rad) if shell > 0 else target
+                n = max(1, int(math.ceil(Lq / tg - 1e-9)))
                 for k in range(n):
                     p1 = q1 + (q2 - q1) * k / n
                     p2 = q1 + (q2 - q1) * (k + 1) / n
                     zm = 0.5 * (p1[2] + p2[2])
-                    lay = 2 if (not s.uniform and zm > s.h) else 1
-                    self.segments.append(Segment(p1, p2, rad, tag, lay))
+                    lay = s.layer_of(zm)
+                    self.segments.append(Segment(p1, p2, rad, tag, lay, nk, shell))
         return len(self.segments)
 
     # -- Green's function --------------------------------------------------
-    def _green_terms(self, field, src_pts, skip_direct=False, src_layer=1):
+    def _green_terms(self, field, src_pts, skip_direct=False, src_layer=1,
+                     min_rh2=0.0):
         """Sum of image contributions between field points and source points.
 
         field     : (M, 3) array of field points (either layer)
@@ -302,9 +496,22 @@ class Network:
         dx = field[:, None, 0] - src_pts[None, :, 0]
         dy = field[:, None, 1] - src_pts[None, :, 1]
         rh2 = dx * dx + dy * dy
+        if min_rh2:
+            rh2 = np.maximum(rh2, min_rh2)
         zf = field[:, 2]
         zs = src_pts[None, :, 2]
         out = np.zeros_like(rh2)
+        if s.three:
+            s.prepare(max(float(zf.max()), float(zs.max())),
+                      float(np.sqrt(rh2.max())) if rh2.size else 1.0)
+            lay = np.array([s.layer_of(z) for z in zf])
+            c = s.rhos[src_layer - 1] / (4.0 * math.pi)
+            for fl in range(1, len(s.rhos) + 1):
+                m = lay == fl
+                if m.any():
+                    out[m] = c * s.green.sum_terms(src_layer, fl, rh2[m],
+                                                   zf[m][:, None], zs, skip_direct)
+            return out
         if s.uniform:
             masks = [(1, np.ones(len(field), bool))]
         else:
@@ -316,7 +523,18 @@ class Network:
             zfm = zf[m][:, None]
             r2 = rh2[m]
             acc = np.zeros_like(r2)
-            for coef, sgn, shift in image_terms(s, src_layer, fl):
+            terms = image_terms(s, src_layer, fl)
+            if not skip_direct and not np.any(zfm):
+                # Field points on the surface: an image at z and one at -z
+                # are the same distance away, so (sgn, shift) and
+                # (-sgn, -shift) merge -- this halves the work for the
+                # surface-potential maps, which dominate post-processing.
+                merged = {}
+                for coef, sgn, shift in terms:
+                    key = (sgn, shift) if sgn > 0 else (-sgn, -shift)
+                    merged[key] = merged.get(key, 0.0) + coef
+                terms = [(c, k[0], k[1]) for k, c in merged.items()]
+            for coef, sgn, shift in terms:
                 if skip_direct and sgn == 1 and shift == 0.0 and fl == src_layer:
                     continue
                 zi = sgn * zs + shift
@@ -326,10 +544,15 @@ class Network:
             out[m] = acc
         return out
 
-    def _coeff_column(self, field, seg: Segment, nq: int, skip_direct=False):
+    def _coeff_column(self, field, seg: Segment, nq: int, skip_direct=False,
+                      reduced=False):
         t, w = _gauss(nq)
         pts = seg.p1[None, :] + (seg.p2 - seg.p1)[None, :] * t[:, None]
-        G = self._green_terms(field, pts, skip_direct, seg.layer)
+        # `reduced`: the field point sits on the surface of a thick
+        # conductor (a concrete-encased bar, whose radius is that of the
+        # concrete), so the horizontal distance is floored at that radius
+        G = self._green_terms(field, pts, skip_direct, seg.layer,
+                              seg.radius ** 2 if reduced else 0.0)
         return G @ w                                  # average over the segment
 
     # -- assembly and solution --------------------------------------------
@@ -347,6 +570,11 @@ class Network:
         mids = np.array([s.mid for s in segs])
         lens = np.array([s.length for s in segs])
         P = np.zeros((n, n))
+        if self.soil.three:
+            ends = np.array([q for s in segs for q in (s.p1, s.p2)])
+            ext = float(np.hypot(np.ptp(ends[:, 0]), np.ptp(ends[:, 1])))
+            # the surface map extends a margin beyond the electrodes
+            self.soil.prepare(float(ends[:, 2].max()), ext + 60.0)
         rho1 = self.soil.rho1
 
         # ---- pass 1: mid-point collocation ------------------------------
@@ -374,48 +602,136 @@ class Network:
                 pts.append(si.p1[None, :] + (si.p2 - si.p1)[None, :] * tf[:, None])
             pts = np.concatenate(pts, axis=0)
             skip = False
-            col = self._coeff_column(pts, sj, nq_near, skip_direct=skip)
+            col = self._coeff_column(pts, sj, nq_near, skip_direct=skip,
+                                     reduced=sj.shell > 0)
             col = col.reshape(len(idx), nf) @ wf
             P[idx, j] = col
 
         # ---- exact self terms -------------------------------------------
         for j, sj in enumerate(segs):
             L, a = sj.length, sj.radius
-            rho_j = self.soil.rho2 if sj.layer == 2 else rho1
-            self_direct = rho_j / (2.0 * math.pi * L) * (math.log(2.0 * L / a) - 1.0)
+            rho_j = self.soil.rhos[sj.layer - 1]
+            if sj.shell > 0:
+                # exact average over a tube (thick encasement, L ~ r_c)
+                self_direct = rho_j / (4.0 * math.pi * L * L) * 2.0 * (
+                    L * math.asinh(L / a) - math.sqrt(L * L + a * a) + a)
+            else:
+                self_direct = rho_j / (2.0 * math.pi * L) * (math.log(2.0 * L / a) - 1.0)
             tfp = sj.p1[None, :] + (sj.p2 - sj.p1)[None, :] * tf[:, None]
             img = self._coeff_column(tfp, sj, 16, skip_direct=True) @ wf
-            P[j, j] = self_direct + float(img)
+            P[j, j] = self_direct + float(img) + sj.shell / L
         return P
 
     def solve(self, target: float = 2.0):
         if not self.segments:
             self.discretise(target)
         n = len(self.segments)
+        m = len(self.nets)
         P = self.build_matrix()
-        A = np.zeros((n + 1, n + 1))
+        # Incidence of segments on networks.  Every segment of network k is
+        # at the same potential V_k, and the currents leaving network k add
+        # up to the current injected into it:
+        #     P I - E V = 0 ,   E^T I = J
+        E = np.zeros((n, m))
+        for i, sg in enumerate(self.segments):
+            E[i, sg.net] = 1.0
+        empty = [self.nets[k]["name"] for k in range(m) if E[:, k].sum() == 0]
+        if empty:
+            raise ValueError("Network(s) without any conductor: "
+                             + ", ".join(empty))
+        A = np.zeros((n + m, n + m))
         A[:n, :n] = P
-        A[:n, n] = -1.0
-        A[n, :n] = 1.0
-        b = np.zeros(n + 1)
-        b[n] = self.IG
-        sol = np.linalg.solve(A, b)
-        self.I = sol[:n]
-        self.V = float(sol[n])
-        return dict(segments=n, GPR=self.V, Rg=self.V / self.IG, IG=self.IG,
-                    I_min=float(self.I.min()), I_max=float(self.I.max()),
-                    soil=self.soil.describe(),
-                    total_length=float(sum(s.length for s in self.segments)))
+        A[:n, n:] = -E
+        A[n:, :n] = E.T
+        # one solve per unit injection gives the mutual-resistance matrix
+        # Z (V_j for 1 A into network k) and the matching current shapes,
+        # so a fence's own resistance and its coupling to the grid come out
+        # of the same factorisation.
+        B = np.zeros((n + m, m))
+        B[n:, :] = np.eye(m)
+        sol = np.linalg.solve(A, B)
+        self.Ibasis = sol[:n, :]
+        self.Z = sol[n:, :]
+        J = np.array([self.IG] + [nt["injection"] for nt in self.nets[1:]])
+        self.I = self.Ibasis @ J
+        self.Vnet = self.Z @ J
+        self.V = float(self.Vnet[0])
+        out = dict(segments=n, GPR=self.V, Rg=float(self.Z[0, 0]), IG=self.IG,
+                   I_min=float(self.I.min()), I_max=float(self.I.max()),
+                   soil=self.soil.describe(),
+                   total_length=float(sum(s.length for s in self.segments)))
+        if m == 1:
+            out["Rg"] = self.V / self.IG if self.IG else float(self.Z[0, 0])
+        else:
+            out["networks"] = self.network_summary()
+        return out
+
+    def network_summary(self):
+        """Potential, current and resistances of every network."""
+        out = []
+        for k, nt in enumerate(self.nets):
+            segs = [s for s in self.segments if s.net == k]
+            I_k = float(sum(self.I[i] for i, s in enumerate(self.segments)
+                            if s.net == k))
+            # resistance of network k alone in the soil, the others removed
+            # is not what Z[k,k] is: Z[k,k] keeps the others present but
+            # floating, which is the physical situation on site.
+            out.append(dict(
+                index=k, name=nt["name"], kind=nt["kind"],
+                V=float(self.Vnet[k]),
+                V_pct_GPR=(100.0 * float(self.Vnet[k]) / self.V
+                           if self.V else None),
+                current=I_k, R_self=float(self.Z[k, k]),
+                R_mutual_main=float(self.Z[k, 0]),
+                transfer_from_main=float(self.V - self.Vnet[k]),
+                segments=len(segs),
+                length=float(sum(s.length for s in segs))))
+        return out
 
     # -- post-processing ---------------------------------------------------
-    def potential_at(self, points):
-        """Earth-surface / soil potential (V) at arbitrary points (N, 3)."""
+    def potential_at(self, points, chunk: int = 400):
+        """Earth-surface / soil potential (V) at arbitrary points (N, 3).
+
+        All segments are summed at once with a 4-point Gauss rule (one
+        vectorised Green's-function call per soil layer and chunk of field
+        points); field points closer than five segment lengths to a segment
+        are then corrected to a 12-point rule, which is what the
+        per-segment loop used to do, at a fraction of the cost.
+        """
         pts = np.atleast_2d(np.asarray(points, float))
         out = np.zeros(len(pts))
-        for j, sj in enumerate(self.segments):
+        if not len(pts):
+            return out
+        segs = self.segments
+        t4, w4 = _gauss(4)
+        t12, w12 = _gauss(12)
+        by_layer = {}
+        for j, sj in enumerate(segs):
+            by_layer.setdefault(sj.layer, []).append(j)
+        for lay, idx in by_layer.items():
+            idx = np.array(idx)
+            p1 = np.array([segs[j].p1 for j in idx])
+            p2 = np.array([segs[j].p2 for j in idx])
+            q = (p1[:, None, :] + (p2 - p1)[:, None, :] * t4[None, :, None]).reshape(-1, 3)
+            wq = (self.I[idx][:, None] * w4[None, :]).ravel()
+            for a in range(0, len(pts), chunk):
+                f = pts[a:a + chunk]
+                out[a:a + chunk] += self._green_terms(f, q, False, lay) @ wq
+        # near-field correction
+        for j, sj in enumerate(segs):
             d = np.linalg.norm(pts - sj.mid, axis=1)
-            nq = 4 if np.all(d > 5 * sj.length) else 12
-            out += self.I[j] * self._coeff_column(pts, sj, nq)
+            near = np.where(d <= 5 * sj.length)[0]
+            if near.size == 0:
+                continue
+            f = pts[near]
+            q12 = sj.p1[None, :] + (sj.p2 - sj.p1)[None, :] * t12[:, None]
+            q4 = sj.p1[None, :] + (sj.p2 - sj.p1)[None, :] * t4[:, None]
+            # a field point closer to the axis than the conductor radius is
+            # on the metal (the top of a fence post, say): take the potential
+            # at the conductor surface rather than the line-source singularity
+            g = (self._green_terms(f, q12, False, sj.layer, sj.radius ** 2) @ w12
+                 - self._green_terms(f, q4, False, sj.layer) @ w4)
+            out[near] += self.I[j] * g
         return out
 
     def surface_potential(self, xlim, ylim, nx=61, ny=61, z=0.0):
@@ -450,10 +766,16 @@ class Network:
                     touch_max=float(touch.max()), step_max=float(step_v.max()),
                     step_distance=step)
 
-    def touch_bbox(self, margin: float = 1.0):
-        """Bounding box of the buried metal, expanded by `margin` (arm reach)."""
-        xs = [c for it in self.raw for c in (it[0][0], it[1][0])]
-        ys = [c for it in self.raw for c in (it[0][1], it[1][1])]
+    def touch_bbox(self, margin: float = 1.0, net=0):
+        """Bounding box of the buried metal, expanded by `margin` (arm reach).
+
+        By default only the main (energised) network counts, because the
+        touch voltage is GPR minus the surface potential; an isolated fence
+        has its own touch check (`fence_touch`).  net=None takes all metal.
+        """
+        raw = [it for it in self.raw if net is None or it[4] == net] or self.raw
+        xs = [c for it in raw for c in (it[0][0], it[1][0])]
+        ys = [c for it in raw for c in (it[0][1], it[1][1])]
         return (min(xs) - margin, max(xs) + margin,
                 min(ys) - margin, max(ys) + margin)
 
@@ -496,12 +818,31 @@ class Network:
                                    np.zeros(np.size(px))])
             return np.asarray(self.potential_at(pts)).reshape(np.shape(px))
 
+        # Metal that reaches the surface (fence posts) pins the soil next to
+        # it at its own potential, so a foot placed on top of a post would
+        # read a meaningless step.  Like the commercial codes, the scan
+        # leaves out points within 0.25 m of such a conductor.
+        tops = np.array([[sg.p1[0], sg.p1[1]] for sg in self.segments
+                         if min(sg.p1[2], sg.p2[2]) < 0.05
+                         and abs(sg.p2[0] - sg.p1[0]) + abs(sg.p2[1] - sg.p1[1]) < 1e-9])
+
+        def _off_metal(px, py):
+            if not len(tops):
+                return np.ones(np.shape(px), bool)
+            px = np.asarray(px, float)
+            py = np.asarray(py, float)
+            d2 = np.full(px.shape, np.inf)
+            for tx, ty in tops:
+                d2 = np.minimum(d2, (px - tx) ** 2 + (py - ty) ** 2)
+            return d2 > 0.25 ** 2
+
         def _stepfield(px, py, V0):
             """|dV| over one step in the worst direction, differenced at the
             step distance itself.  For a locally linear field this is
             |grad V| * step, which is what the step voltage is."""
-            return np.hypot(np.abs(_V(px + st, py) - V0),
-                            np.abs(_V(px, py + st) - V0))
+            ok = _off_metal(px, py) & _off_metal(px + st, py) & _off_metal(px, py + st)
+            return np.where(ok, np.hypot(np.abs(_V(px + st, py) - V0),
+                                         np.abs(_V(px, py + st) - V0)), 0.0)
 
         Xq, Yq = np.meshgrid(np.asarray(sp["x"], dtype=float),
                              np.asarray(sp["y"], dtype=float))
@@ -512,7 +853,7 @@ class Network:
         # 2.6x with nx alone.  Sample the perimeter densely as well, so the
         # answer does not depend on the resolution the user chose for the
         # picture.
-        b = self.touch_bbox(0.0)
+        b = self.touch_bbox(0.0, net=None)
         peri_max, peri_at = 0.0, None
         if all(np.isfinite(b)):
             n_per = 240
@@ -539,7 +880,74 @@ class Network:
             step_note=("differenced over the %.2f m step itself and sampled "
                        "along the electrode perimeter, so it does not depend "
                        "on the plot resolution" % st),
-            touch_box=list(box), GPR=self.V, surface=sp)
+            touch_box=list(box), GPR=self.V, surface=sp,
+            fences=[self.fence_touch(f) for f in self.fences])
+
+    def fence_touch(self, fence, spacing=0.5, step=1.0):
+        """Touch voltage on a fence: the fence's own potential minus the
+        surface potential where a person can stand and reach it, within
+        `reach` (1 m) on either side of the fence line, plus the step
+        voltage across the fence line.
+
+        For a fence bonded to the grid the fence potential is the GPR; an
+        isolated fence floats at its own potential, which is what makes the
+        outside touch voltage smaller -- and the inside one, where the
+        surface is lifted by the grid, sometimes larger.
+        """
+        if isinstance(fence, int):
+            fence = self.fences[fence]
+        Vf = float(self.Vnet[fence["net"]]) if self.Vnet is not None else self.V
+        pts = [np.array(q, float) for q in fence["path"]]
+        reach = fence.get("reach", 1.0)
+        if fence.get("closed", True):
+            P = pts[:-1] if np.allclose(pts[0], pts[-1]) else pts
+            area = 0.5 * sum(P[i][0] * P[(i + 1) % len(P)][1]
+                             - P[(i + 1) % len(P)][0] * P[i][1]
+                             for i in range(len(P)))
+            sgn = 1.0 if area > 0 else -1.0
+        else:
+            sgn = 1.0
+        samples, tang, norm = [], [], []
+        for a, b in zip(pts[:-1], pts[1:]):
+            L = float(np.linalg.norm(b - a))
+            if L < 1e-9:
+                continue
+            t = (b - a) / L
+            nrm = np.array([t[1], -t[0]]) * sgn     # outward
+            k = max(2, int(math.ceil(L / spacing)) + 1)
+            for u in np.linspace(0.0, 1.0, k)[:-1]:
+                samples.append(a + (b - a) * u)
+                norm.append(nrm)
+        samples = np.array(samples)
+        norm = np.array(norm)
+        offs = np.linspace(-reach, reach, 5)          # -1, -0.5, 0, .5, 1
+        offs = offs[np.abs(offs) > 1e-9]
+        res = {}
+        for side, sel in (("inside", offs < 0), ("outside", offs > 0)):
+            o = offs[sel]
+            q = (samples[:, None, :] + norm[:, None, :] * o[None, :, None]).reshape(-1, 2)
+            V = self.potential_at(np.column_stack([q, np.zeros(len(q))]))
+            T = Vf - V
+            j = int(np.argmax(np.abs(T)))
+            res[side] = dict(touch_max=float(T[j]), at=[float(q[j, 0]), float(q[j, 1])],
+                             touch_min=float(T.min()))
+        # step across the fence line
+        q1 = samples + norm * (step / 2)
+        q2 = samples - norm * (step / 2)
+        V1 = self.potential_at(np.column_stack([q1, np.zeros(len(q1))]))
+        V2 = self.potential_at(np.column_stack([q2, np.zeros(len(q2))]))
+        js = int(np.argmax(np.abs(V1 - V2)))
+        worst = max(res["inside"]["touch_max"], res["outside"]["touch_max"],
+                    key=abs)
+        return dict(name=fence.get("name", "fence"), net=fence["net"],
+                    bonded=fence.get("bonded", False), V_fence=Vf,
+                    V_pct_GPR=100.0 * Vf / self.V if self.V else None,
+                    transfer_from_main=float(self.V - Vf),
+                    touch_inside=res["inside"], touch_outside=res["outside"],
+                    touch_max=float(worst),
+                    step_across=float(abs(V1[js] - V2[js])),
+                    step_at=[float(samples[js, 0]), float(samples[js, 1])],
+                    posts=fence.get("posts"))
 
     def current_distribution(self):
         return [dict(x=float(s.mid[0]), y=float(s.mid[1]), z=float(s.mid[2]),
@@ -549,16 +957,74 @@ class Network:
 
     def geometry_json(self):
         return [dict(p1=list(map(float, s.p1)), p2=list(map(float, s.p2)),
-                     r=s.radius, tag=s.tag) for s in self.segments]
+                     r=s.radius, tag=s.tag, net=s.net) for s in self.segments]
 
 
 # ---------------------------------------------------------------------------
 # Convenience: build a network from a description dict
 # ---------------------------------------------------------------------------
 
+def foundation_geometry(item: dict) -> dict:
+    """Equivalent wire of a reinforced-concrete foundation element.
+
+    shape "pier"  : vertical cylinder (pile, pier, pole base) of `diameter`,
+                    from `top_depth` down `length`;
+    shape "strip" : horizontal beam (strip footing, grade beam) from (x0, y0)
+                    to (x1, y1) at `depth`, cross-section `width` × `height`.
+    The cage of `bars` bars of `bar_diameter` at `cover` inside the concrete
+    becomes one bar of the cage's geometric-mean radius
+        a_eq = (n a b^{n−1})^{1/n}   (b = radius of the circle of bars),
+    and the section one concrete cylinder of radius r_c (the circle for a
+    pier; (w + h)/4 + 0.09·min(w, h) for a rectangle, which gives w/4 for a
+    flat strip and 0.59 w for a square, the radii of equal capacitance).
+    The leakage then crosses ρ_c ln(r_c/a_eq)/2π per metre of concrete
+    before it reaches the soil (Fagan and Lee 1970)."""
+    shape = item.get("shape", "pier")
+    n = int(item.get("bars", 4))
+    if n < 1:
+        raise ValueError("A foundation needs at least one reinforcing bar.")
+    a = 0.5 * float(item.get("bar_diameter", 0.016))
+    cover = float(item.get("cover", 0.05))
+    if shape == "pier":
+        rc = 0.5 * float(item["diameter"])
+    else:
+        wd, ht = float(item["width"]), float(item["height"])
+        rc = 0.25 * (wd + ht) + 0.09 * min(wd, ht)
+    if n == 1:
+        a_eq = a
+    else:
+        b = max(rc - cover - a, 2 * a)
+        a_eq = (n * a * b ** (n - 1)) ** (1.0 / n)
+    if a_eq >= 0.95 * rc:
+        raise ValueError("The concrete cover is too thin for the bar cage "
+                         "given; check the diameter and the cover.")
+    rho_c = float(item.get("rho_c", 50.0))
+    if rho_c <= 0:
+        raise ValueError("Concrete resistivity must be positive.")
+    return dict(a_eq=a_eq, rc=rc, rho_c=rho_c, eps_r=float(item.get("eps_c", 10.0)),
+                shell_ohm_m=rho_c * math.log(rc / a_eq) / (2 * math.pi))
+
+
+def add_foundation(net: "Network", item: dict):
+    g = foundation_geometry(item)
+    conc = dict(radius=g["rc"], rho=g["rho_c"], eps_r=g["eps_r"])
+    if item.get("shape", "pier") == "pier":
+        top = float(item.get("top_depth", 0.0))
+        net.add_conductor((item["x"], item["y"], top),
+                          (item["x"], item["y"], top + float(item["length"])),
+                          g["a_eq"], "foundation", concrete=conc)
+    else:
+        d = float(item.get("depth", 0.5))
+        net.add_conductor((item["x0"], item["y0"], d), (item["x1"], item["y1"], d),
+                          g["a_eq"], "foundation", concrete=conc)
+    return g
+
+
 def build_network(spec: dict) -> Network:
     soil = SoilModel(spec.get("rho1", 100.0), spec.get("rho2"),
-                     spec.get("h_layer"))
+                     spec.get("h_layer"), rho3=spec.get("rho3"),
+                     h2=spec.get("h_layer2"), rho4=spec.get("rho4"),
+                     h3=spec.get("h_layer3"))
     net = Network(soil, spec.get("IG", 1000.0))
     r_cond = spec.get("conductor_radius", 0.005)
 
@@ -580,4 +1046,25 @@ def build_network(spec: dict) -> Network:
                               item.get("depth", 0.5), item.get("radius", r_cond))
         elif kind == "conductor":
             net.add_conductor(item["p1"], item["p2"], item.get("radius", r_cond))
+        elif kind == "foundation":
+            add_foundation(net, item)
+        elif kind == "fence":
+            if "path" in item:
+                path = item["path"]
+            else:
+                x0, y0 = item.get("x0", 0.0), item.get("y0", 0.0)
+                Lx, Ly = item["Lx"], item["Ly"]
+                path = [(x0, y0), (x0 + Lx, y0), (x0 + Lx, y0 + Ly), (x0, y0 + Ly)]
+            wo = item.get("wire_offset")
+            if item.get("wire", wo is not None) is False:
+                wo = None
+            net.add_fence(path, item.get("post_spacing", 3.0),
+                          item.get("post_depth", 0.762),
+                          item.get("post_radius", 0.0255),
+                          wire_offset=wo,
+                          wire_depth=item.get("wire_depth", 0.5),
+                          wire_radius=item.get("wire_radius", r_cond),
+                          bonded=bool(item.get("bonded", False)),
+                          closed=item.get("closed", True),
+                          name=item.get("name", "fence"))
     return net
