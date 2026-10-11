@@ -414,9 +414,20 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     grid_depth: N('soilDepth', 0.5), rod_length: N('soilRod', 0),
     equivalent_method: V('soilEquiv'), grid_area: N('soilArea', 0)
   };
+  payload.layers = V('soilLayers');
   const d = await api('/api/soil/invert', payload);
   S.soil = d; markNav('soil', true);
-  kpis('soilKpis', [
+  const three = d.n_layers >= 3;
+  const four = d.n_layers === 4;
+  const ms = d.model_selection;
+  kpis('soilKpis', three ? [
+    { value: fmt(d.rho1) + ' / ' + fmt(d.rho2) + ' <small>Ω·m</small>', label: 'Layers 1 and 2: ρ₁ / ρ₂' },
+    { value: fmt(d.rho3) + (four ? ' / ' + fmt(d.rho4) : '') + ' <small>Ω·m</small>', label: four ? 'Layers 3 and 4: ρ₃ / ρ₄' : 'Layer 3 ρ₃' },
+    { value: d.depths.map(z => fmt(z)).join(' / ') + ' <small>m</small>', label: 'Interface depths' },
+    { value: d.n_layers, label: d.model_warning && ms && ms.chosen < d.n_layers ? 'Layers in the model (the readings support ' + ms.chosen + ')' : 'Layers in the model', state: d.model_warning ? 'bad' : undefined },
+    { value: fmt(d.rms_pct, 2) + ' %', label: 'RMS fit error (' + d.fit_quality + ')', state: d.fit_warning ? 'bad' : 'ok' },
+    { value: fmt(d.equivalent.rho_equivalent) + ' <small>Ω·m</small>', label: 'Equivalent uniform ρ' }
+  ] : [
     { value: fmt(d.rho1) + ' <small>Ω·m</small>', label: 'Upper layer ρ₁' },
     { value: fmt(d.rho2) + ' <small>Ω·m</small>', label: 'Lower layer ρ₂' },
     { value: fmt(d.h) + ' <small>m</small>', label: 'Layer thickness h' },
@@ -424,25 +435,63 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     { value: fmt(d.rms_pct, 2) + ' %', label: 'RMS fit error (' + d.fit_quality + ')', state: d.fit_warning ? 'bad' : 'ok' },
     { value: fmt(d.equivalent.rho_equivalent) + ' <small>Ω·m</small>', label: 'Equivalent uniform ρ' }
   ]);
+  const NAME = { 2: 'Two', 3: 'Three', 4: 'Four' };
+  const alts = [];
+  if (three) alts.push([d.two_layer, 'Two-layer fit']);
+  if (four && d.three_layer) alts.push([d.three_layer, 'Three-layer fit']);
+  if (!three && d.three_layer_alternative) alts.push([d.three_layer_alternative, 'Three-layer fit (not supported)']);
+  if (d.n_layers === 3 && d.four_layer_alternative) alts.push([d.four_layer_alternative, 'Four-layer fit (not supported)']);
   plot('soilPlot', [
     { x: d.spacings, y: d.measured, mode: 'markers', name: 'Measured', marker: { size: 9, color: PAL[1] } },
-    { x: d.curve_x, y: d.curve_y, mode: 'lines', name: 'Two-layer fit', line: { width: 2.5, color: PAL[0] } }
+    { x: d.curve_x, y: d.curve_y, mode: 'lines', name: NAME[d.n_layers] + '-layer fit', line: { width: 2.5, color: PAL[0] } },
+    ...alts.map(([a, nm], i) => ({ x: a.curve_x, y: a.curve_y, mode: 'lines', name: nm + ', RMS ' + fmt(a.rms_pct, 1) + ' %', line: { width: 1.6, color: PAL[2 + i], dash: i ? 'dot' : 'dash' } }))
   ], {
     xaxis: { type: 'log', title: { text: 'Electrode spacing (m)' }, gridcolor: css('--line') },
     yaxis: { title: { text: 'Apparent resistivity ρₐ (Ω·m)' }, gridcolor: css('--line') }
   });
-  $('#soilOut').innerHTML = rows([
+  const U = d.uncertainty;
+  const rng = (k, unit, sym) => [sym + ', one-standard-deviation range', sym,
+    U[k].factor >= 20 ? 'not resolved' : fmt(U[k].low_68) + ' – ' + fmt(U[k].high_68), U[k].factor >= 20 ? '' : unit,
+    U[k].factor >= 20 ? 'the readings do not fix it on its own (see the equivalence note)' : ''];
+  const LS = d.layer_status || [];
+  const flag = (i, base) => {
+    const t = LS[i - 1];
+    const w = !t ? '' : t.below_reach ? 'below the reach of the traverse — not measured'
+      : !t.resolved ? (!t.rho_resolved && !t.top_resolved ? 'not resolved by the readings'
+        : !t.rho_resolved ? 'resistivity not resolved by the readings'
+        : 'depth of its top not resolved by the readings') : '';
+    return [base, w].filter(Boolean).join('; ');
+  };
+  const modelRows = three ? [
+    ['Layer 1 resistivity', 'ρ₁', d.rho1, 'Ω·m', NAME[d.n_layers] + '-layer least-squares inversion (exact Hankel-transform forward model)'],
+    ['Layer 2 resistivity', 'ρ₂', d.rho2, 'Ω·m', flag(2, '')],
+    ['Layer 3 resistivity', 'ρ₃', d.rho3, 'Ω·m', flag(3, four ? '' : 'extends to any depth')],
+    ...(four ? [['Layer 4 resistivity', 'ρ₄', d.rho4, 'Ω·m', flag(4, 'extends to any depth')]] : []),
+    ['Layer 1 thickness', 'h₁', d.h, 'm', ''],
+    ['Layer 2 thickness', 'h₂', d.h2, 'm', 'second interface at ' + fmt(d.depths[1]) + ' m'],
+    ...(four ? [['Layer 3 thickness', 'h₃', d.h3, 'm', 'third interface at ' + fmt(d.depths[2]) + ' m']] : []),
+    ['Reflection factors', four ? 'K₁₂, K₂₃, K₃₄' : 'K₁₂, K₂₃', fmt(d.K, 3) + ', ' + fmt(d.K23, 3) + (four ? ', ' + fmt(d.K34, 3) : ''), '–', 'K = (ρ_below − ρ_above)/(ρ_below + ρ_above)'],
+    ['RMS fit error', 'ε', d.rms_pct, '%', 'two-layer fit: ' + fmt(d.two_layer.rms_pct, 2) + ' %' + (four && d.three_layer ? '; three-layer fit: ' + fmt(d.three_layer.rms_pct, 2) + ' %' : '')],
+    ...(U ? [
+      [...rng('rho1', 'Ω·m', 'ρ₁').slice(0, 4), 'Linearised covariance s²(JᵀJ)⁻¹ in log parameters, ' + U.dof + ' degrees of freedom'],
+      rng('rho2', 'Ω·m', 'ρ₂'), rng('rho3', 'Ω·m', 'ρ₃'), ...(four ? [rng('rho4', 'Ω·m', 'ρ₄')] : []),
+      rng('h', 'm', 'h₁'), rng('h2', 'm', 'h₂'), ...(four ? [rng('h3', 'm', 'h₃')] : [])
+    ] : [])
+  ] : [
     ['Upper-layer resistivity', 'ρ₁', d.rho1, 'Ω·m', 'Two-layer least-squares inversion'],
-    ['Lower-layer resistivity', 'ρ₂', d.rho2, 'Ω·m', ''],
+    ['Lower-layer resistivity', 'ρ₂', d.rho2, 'Ω·m', flag(2, '')],
     ['Upper-layer thickness', 'h', d.h, 'm', ''],
     ['Reflection factor', 'K', d.K, '–', 'K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁)'],
     ['RMS fit error', 'ε', d.rms_pct, '%', ''],
-    ...(d.uncertainty ? [
-      ['ρ₁, one-standard-deviation range', 'ρ₁', fmt(d.uncertainty.rho1.low_68) + ' – ' + fmt(d.uncertainty.rho1.high_68), 'Ω·m', 'Linearised covariance s²(JᵀJ)⁻¹, ' + d.uncertainty.dof + ' degrees of freedom'],
-      ['ρ₂, one-standard-deviation range', 'ρ₂', fmt(d.uncertainty.rho2.low_68) + ' – ' + fmt(d.uncertainty.rho2.high_68), 'Ω·m', ''],
-      ['h, one-standard-deviation range', 'h', fmt(d.uncertainty.h.low_68) + ' – ' + fmt(d.uncertainty.h.high_68), 'm', ''],
-      ['Correlation of ρ₁ with h', 'r', d.uncertainty.corr_rho1_h, '–', 'Near −1: ρ₁ and h are traded against each other (equivalence)']
-    ] : []),
+    ...(U ? [
+      ['ρ₁, one-standard-deviation range', 'ρ₁', fmt(U.rho1.low_68) + ' – ' + fmt(U.rho1.high_68), 'Ω·m', 'Linearised covariance s²(JᵀJ)⁻¹, ' + U.dof + ' degrees of freedom'],
+      ['ρ₂, one-standard-deviation range', 'ρ₂', fmt(U.rho2.low_68) + ' – ' + fmt(U.rho2.high_68), 'Ω·m', ''],
+      ['h, one-standard-deviation range', 'h', fmt(U.h.low_68) + ' – ' + fmt(U.h.high_68), 'm', ''],
+      ['Correlation of ρ₁ with h', 'r', U.corr_rho1_h, '–', 'Near −1: ρ₁ and h are traded against each other (equivalence)']
+    ] : [])
+  ];
+  $('#soilOut').innerHTML = (d.model_warning ? `<div class="note warn"><b>Not supported by the readings.</b> ${esc(d.model_warning)}</div>` : '') + rows([
+    ...modelRows,
     ['Arithmetic average of ρₐ', 'ρ̄', d.uniform_average, 'Ω·m', 'For comparison only'],
     ['Electrode penetration', '—', d.equivalent.penetration, 'm', ''],
     ['Equivalent uniform resistivity', 'ρ', d.equivalent.rho_equivalent, 'Ω·m', d.equivalent.note]
@@ -451,10 +500,14 @@ $('#soilRun').onclick = e => run(e.target, async () => {
     `</tbody></table>` + (d.fit_warning ? `<div class="note warn"><b>Fit quality.</b> ${esc(d.fit_warning)}</div>` : '') +
     (d.fit_note ? `<div class="note info"><b>Fit quality.</b> ${esc(d.fit_note)}</div>` : '') +
     (d.pin_depth_note ? `<div class="note info"><b>Short spacings.</b> ${esc(d.pin_depth_note)}</div>` : '') +
-    `<div class="note info">The two-layer model is fitted by minimising the relative
+    (ms ? `<div class="note ${ms.chosen >= 3 ? 'info' : ''}"><b>How many layers.</b> ${esc(ms.reason)}${ms.four_reason ? ' ' + esc(ms.four_reason) : ''}${ms.chosen < d.n_layers ? ' ' + NAME[d.n_layers] + ' layers were requested, so that model is shown above, with the warning at the top of this panel.' : ''}</div>` : '') +
+    `<div class="note info">The ${NAME[d.n_layers].toLowerCase()}-layer model is fitted by minimising the relative
      error over all spacings (IEEE Std 81-2025 §7.6). Use the equivalent uniform resistivity for the
-     closed-form IEEE 80 equations, and the layered model itself for the numerical solver.</div>`;
-  toast(d.fit_warning ? 'Soil model fitted — but read the fit-quality warning before using it.' : 'Soil model fitted.', d.fit_warning ? 'err' : 'ok');
+     closed-form IEEE 80 equations, and the layered model itself for the numerical solver
+     (its <i>Use the fitted soil model</i> button copies it across).</div>`;
+  toast(d.model_warning ? 'Soil model fitted — but the readings do not support all of it; read the warning.'
+    : d.fit_warning ? 'Soil model fitted — but read the fit-quality warning before using it.' : 'Soil model fitted.',
+    d.fit_warning || d.model_warning ? 'err' : 'ok');
 });
 
 /* ============================================================ 2. FAULT === */
@@ -674,29 +727,33 @@ function renderGrid(d) {
 $('#gShape').onchange = () => { $('#gShapeBox').style.display = V('gShape') === 'rectangular' ? 'none' : ''; };
 $('#gRun').onclick = e => run(e.target, async () => renderGrid(await api('/api/ieee80/design', gridPayload())));
 /* A poor two-layer fit must not flow silently into the grid design. */
-function confirmPoorFit() {
-  const b = $('#gPull');
+function confirmPoorFit(id, again) {
+  const b = $(id || '#gPull');
   if (b.dataset.ack === '1') { b.dataset.ack = ''; return true; }
   b.dataset.ack = '1';
-  toast('The soil fit is poor (' + fmt(S.soil.rms_pct, 1) + ' % RMS) — see module 1. Press Pull inputs again to use it anyway.', 'err');
+  toast((S.soil.fit_warning ? 'The soil fit is poor (' + fmt(S.soil.rms_pct, 1) + ' % RMS)'
+    : 'The readings do not support all of this ' + S.soil.n_layers + '-layer model')
+    + ' — see module 1. Press ' + (again || 'Pull inputs') + ' again to use it anyway.', 'err');
   return false;
 }
 $('#gPull').onclick = e => run(e.target, async () => {
   if (S.conductor) set('gd', S.conductor.diameter_m.toFixed(4));
   if (S.fault) { set('gIG', num(S.fault.IG_kA, 4)); set('gTs', S.fault.ts); }
   let msg = 'Inputs pulled from the earlier modules.';
-  if (S.soil && S.soil.fit_warning && !confirmPoorFit()) return;
+  if (S.soil && (S.soil.fit_warning || S.soil.model_warning) && !confirmPoorFit()) return;
   if (S.soil) {
     const m = V('soilEquiv');
     if (S.soil.rho1 && S.soil.rho2 && S.soil.h && (m === 'auto' || m === 'grid')) {
       /* collapse the layered soil for THIS grid: its area and buried length */
       const g = gridPayload();
-      const eq = await api('/api/soil/equivalent', {
-        rho1: S.soil.rho1, rho2: S.soil.rho2, h: S.soil.h, equivalent_method: 'grid',
-        Lx: g.Lx, Ly: g.Ly, D: g.D, h_grid: g.h, n_rods: g.n_rods, Lr: g.Lr });
+      const q = { rho1: S.soil.rho1, rho2: S.soil.rho2, h: S.soil.h, equivalent_method: 'grid',
+        Lx: g.Lx, Ly: g.Ly, D: g.D, h_grid: g.h, n_rods: g.n_rods, Lr: g.Lr };
+      if (S.soil.n_layers >= 3) { q.rho3 = S.soil.rho3; q.h2 = S.soil.h2; }
+      if (S.soil.n_layers === 4) { q.rho4 = S.soil.rho4; q.h3 = S.soil.h3; }
+      const eq = await api('/api/soil/equivalent', q);
       S.soil.equivalent = eq;
       set('gRho', num(eq.rho_equivalent, 1));
-      msg = `Equivalent ρ = ${fmt(eq.rho_equivalent, 1)} Ω·m for this ${fmt(g.Lx)} × ${fmt(g.Ly)} m grid (grid-size rule, F = ${fmt(eq.F, 3)}). Pull again if you change the grid size.`;
+      msg = `Equivalent ρ = ${fmt(eq.rho_equivalent, 1)} Ω·m for this ${fmt(g.Lx)} × ${fmt(g.Ly)} m grid (grid-size rule on the ${({ 2: 'two', 3: 'three', 4: 'four' })[S.soil.n_layers]}-layer model, F = ${fmt(eq.F, 3)}). Pull again if you change the grid size.`;
     } else {
       set('gRho', num(S.soil.equivalent.rho_equivalent, 1));
     }
@@ -741,7 +798,13 @@ const BEM_DEF = {
   rod: { kind: 'rod', x: 0, y: 0, top_depth: 0.5, length: 3, radius: 0.008 },
   ring: { kind: 'ring', cx: 0, cy: 0, r: 10, depth: 0.6, radius: 0.005, n_sides: 32 },
   rectangle: { kind: 'rectangle', x0: 0, y0: 0, Lx: 12, Ly: 8, depth: 0.6, radius: 0.005 },
-  conductor: { kind: 'conductor', p1: [0, 0, 0.6], p2: [20, 0, 0.6], radius: 0.005 }
+  conductor: { kind: 'conductor', p1: [0, 0, 0.6], p2: [20, 0, 0.6], radius: 0.005 },
+  fence: { kind: 'fence', x0: -3, y0: -3, Lx: 76, Ly: 76, post_spacing: 3, post_depth: 0.76, post_radius: 0.025,
+           wire: 1, wire_offset: 1, wire_depth: 0.5, bonded: 0 },
+  pier: { kind: 'foundation', shape: 'pier', x: 0, y: 0, top_depth: 0, length: 3, diameter: 0.4,
+          bars: 6, bar_diameter: 0.016, cover: 0.05, rho_c: 50, eps_c: 10 },
+  footing: { kind: 'foundation', shape: 'strip', x0: 0, y0: 0, x1: 10, y1: 0, depth: 0.8, width: 0.6, height: 0.4,
+             bars: 4, bar_diameter: 0.016, cover: 0.05, rho_c: 50, eps_c: 10 }
 };
 /* ---------------------------------------------------- parameter labels ---
    The geometry tables used to show the raw key of each parameter, so a column
@@ -792,6 +855,38 @@ const PARAM_META = {
     x0: ['Corner x', 'm', 'x co-ordinate of the grid corner'],
     y0: ['Corner y', 'm', 'y co-ordinate of the grid corner']
   },
+  fence: {
+    x0: ['Corner x', 'm', 'x co-ordinate of the fence corner'],
+    y0: ['Corner y', 'm', 'y co-ordinate of the fence corner'],
+    Lx: ['Fence length Lx', 'm', 'Length of the fenced rectangle'],
+    Ly: ['Fence width Ly', 'm', 'Width of the fenced rectangle'],
+    post_spacing: ['Post spacing', 'm', 'Maximum distance between fence posts; posts are also placed at each corner'],
+    post_depth: ['Post depth', 'm', 'Depth the posts are set into the soil'],
+    post_radius: ['Post radius', 'm', 'Radius of a post — 0.025 m is a 50 mm post'],
+    wire: ['Buried wire (1/0)', '', '1 adds a buried conductor along the fence, connected to the fence only; 0 leaves the posts alone'],
+    wire_offset: ['Wire offset', 'm', 'Distance of the buried fence wire from the fence line, positive outwards'],
+    wire_depth: ['Wire depth', 'm', 'Burial depth of the fence wire'],
+    bonded: ['Bonded to grid (1/0)', '', '1 connects the fence to the grid, so it rises to the full GPR; 0 isolates it, so it floats at the potential the soil imposes']
+  },
+  foundation_bem: {
+    x: ['Centre x', 'm', 'x co-ordinate of the pier axis'],
+    y: ['Centre y', 'm', 'y co-ordinate of the pier axis'],
+    top_depth: ['Depth to top', 'm', 'Depth from ground level to the top of the concrete in contact with the soil'],
+    length: ['Length', 'm', 'Length of the pier or pile in the soil'],
+    diameter: ['Concrete diameter', 'm', 'Diameter of the concrete cylinder'],
+    x0: ['From x', 'm', 'x co-ordinate of one end of the footing'],
+    y0: ['From y', 'm', 'y co-ordinate of one end of the footing'],
+    x1: ['To x', 'm', 'x co-ordinate of the other end'],
+    y1: ['To y', 'm', 'y co-ordinate of the other end'],
+    depth: ['Depth to axis', 'm', 'Depth from ground level to the middle of the footing section'],
+    width: ['Section width', 'm', 'Width of the concrete section'],
+    height: ['Section height', 'm', 'Height of the concrete section'],
+    bars: ['Number of bars', '', 'Longitudinal reinforcing bars, bonded together and to the earthing conductor'],
+    bar_diameter: ['Bar diameter', 'm', 'Diameter of one reinforcing bar — 0.016 m is a 16 mm bar'],
+    cover: ['Cover', 'm', 'Concrete cover from the outside of the concrete to the bars'],
+    rho_c: ['Concrete resistivity', 'Ω·m', 'Resistivity of the concrete: about 30–100 Ω·m in moist ground (Fagan and Lee; EPRI), several hundred when dry'],
+    eps_c: ['Concrete ε_r', '', 'Relative permittivity of the concrete, used by the lightning model only; about 10 when moist']
+  },
   rectangle: {
     Lx: ['Length Lx', 'm', 'Length of the buried rectangle'],
     Ly: ['Width Ly', 'm', 'Width of the buried rectangle'],
@@ -830,14 +925,16 @@ function renderBem() {
   const tb = $('#nTable tbody'); tb.innerHTML = '';
   BEM_ITEMS.forEach((it, i) => {
     const tr = document.createElement('tr');
-    const flds = Object.keys(it).filter(k => k !== 'kind').map(k => {
+    const pk = it.kind === 'foundation' ? 'foundation_bem' : it.kind;
+    const flds = Object.keys(it).filter(k => k !== 'kind' && k !== 'shape').map(k => {
       const v = it[k];
       const inp = Array.isArray(v)
         ? `<input data-i="${i}" data-k="${k}" value="${v.join(',')}">`
         : `<input type="number" step="any" data-i="${i}" data-k="${k}" value="${v}">`;
-      return paramField(it.kind, k, inp);
+      return paramField(pk, k, inp);
     }).join('');
-    tr.innerHTML = `<td><b>${it.kind}</b></td><td><div class="pgrid">${flds}</div></td><td><button class="ghost">✕</button></td>`;
+    const lab = it.kind === 'foundation' ? (it.shape === 'strip' ? 'strip footing' : 'pier / pile') : it.kind;
+    tr.innerHTML = `<td><b>${lab}</b></td><td><div class="pgrid">${flds}</div></td><td><button class="ghost">✕</button></td>`;
     tr.querySelector('button').onclick = () => { BEM_ITEMS.splice(i, 1); renderBem(); };
     $$('input', tr).forEach(inp => inp.onchange = () => {
       const k = inp.dataset.k;
@@ -876,6 +973,18 @@ $('#nFromGrid').onclick = () => {
   set('nRho1', g.rho); set('nIG', (g.IG_kA * 1000).toFixed(0));
   renderBem(); toast('Geometry built from the IEEE 80 grid.');
 };
+/* Copy the fitted layered model into the solver: the numerical solver takes
+   the layers themselves, not the equivalent uniform resistivity. */
+$('#nSoilPull').onclick = () => {
+  const d = S.soil;
+  if (!d) { toast('Fit a soil model on the soil page first.', 'err'); return; }
+  if ((d.fit_warning || d.model_warning) && !confirmPoorFit('#nSoilPull', 'Use the fitted soil model')) return;
+  set('nRho1', num(d.rho1, 1));
+  set('nRho2', d.rho2 ? num(d.rho2, 1) : ''); set('nHl', d.h ? num(d.h, 3) : '');
+  set('nRho3', d.n_layers >= 3 ? num(d.rho3, 1) : ''); set('nH2', d.n_layers >= 3 ? num(d.h2, 3) : '');
+  set('nRho4', d.n_layers === 4 ? num(d.rho4, 1) : ''); set('nH3', d.n_layers === 4 ? num(d.h3, 3) : '');
+  toast(`The ${({ 2: 'two', 3: 'three', 4: 'four' })[d.n_layers]}-layer soil model is now the solver's soil.`, 'ok');
+};
 $('#nRun').onclick = e => run(e.target, async () => {
   if (!BEM_ITEMS.length) throw new Error('Add at least one electrode element.');
   const p = {
@@ -884,6 +993,8 @@ $('#nRun').onclick = e => run(e.target, async () => {
     step_distance: N('nStep', 1)
   };
   if (NB('nRho2') !== null && NB('nHl') !== null) { p.rho2 = NB('nRho2'); p.h_layer = NB('nHl'); }
+  if (NB('nRho3') !== null || NB('nH2') !== null) { p.rho3 = NB('nRho3'); p.h_layer2 = NB('nH2'); }
+  if (NB('nRho4') !== null || NB('nH3') !== null) { p.rho4 = NB('nRho4'); p.h_layer3 = NB('nH3'); }
   if (S.grid) p.limits = { E_touch: S.grid.tolerable.E_touch, E_step: S.grid.tolerable.E_step };
   const d = await api('/api/bem', p);
   S.bem = d; markNav('numerical', d.checks ? d.checks.every(c => c.passed) : true);
@@ -893,6 +1004,8 @@ $('#nRun').onclick = e => run(e.target, async () => {
     { value: fmt(d.GPR) + ' <small>V</small>', label: 'Ground potential rise' },
     { value: fmt(d.touch_max) + ' <small>V</small>', label: 'Max touch voltage', state: lim.E_touch ? (d.touch_max <= lim.E_touch ? 'ok' : 'bad') : '' },
     { value: fmt(d.step_max) + ' <small>V</small>', label: 'Max step voltage', state: lim.E_step ? (d.step_max <= lim.E_step ? 'ok' : 'bad') : '' },
+    ...(d.fences || []).map(f => ({ value: fmt(Math.abs(f.touch_max)) + ' <small>V</small>', label: `Fence touch (${f.bonded ? 'bonded' : 'isolated'})`,
+      state: lim.E_touch ? (Math.abs(f.touch_max) <= lim.E_touch ? 'ok' : 'bad') : '' })),
     { value: d.segments, label: 'Segments solved' },
     { value: fmt(d.total_length) + ' <small>m</small>', label: 'Buried length' }
   ]);
@@ -968,12 +1081,164 @@ $('#nRun').onclick = e => run(e.target, async () => {
   ]) + (d.probes && d.probes.length ? `<h4 style="margin:12px 0 6px">Reference points</h4>
     <table class="data"><thead><tr><th>Point</th><th style="text-align:right">x</th><th style="text-align:right">y</th><th style="text-align:right">Potential (V)</th><th style="text-align:right">Touch (V)</th></tr></thead><tbody>` +
     d.probes.map(q => `<tr><td>${esc(q.label)}</td><td class="n">${fmt(q.x)}</td><td class="n">${fmt(q.y)}</td><td class="n">${fmt(q.V)}</td><td class="n">${fmt(q.touch)}</td></tr>`).join('') +
-    '</tbody></table>' : '') +
+    '</tbody></table>' : '') + bemNetworksHtml(d) +
     (S.grid && d.probes?.[0] ? `<div class="note info">Direct comparison — IEEE 80 closed-form mesh voltage
       <b>${fmt(S.grid.mesh.Em)} V</b> against the numerical corner-mesh touch voltage
       <b>${fmt(d.probes[0].touch)} V</b>: a difference of
       <b>${fmt((d.probes[0].touch / S.grid.mesh.Em - 1) * 100, 1)} %</b>.</div>` : '');
   toast('Numerical solution complete.', 'ok');
+});
+
+function bemNetworksHtml(d) {
+  let h = '';
+  if (d.networks && d.networks.length > 1) {
+    h += `<h4 style="margin:12px 0 6px">Separate metal networks</h4>
+    <table class="data"><thead><tr><th>Network</th><th style="text-align:right">Potential (V)</th><th style="text-align:right">% of GPR</th>
+      <th style="text-align:right">Own resistance (Ω)</th><th style="text-align:right">Transfer from grid (V)</th></tr></thead><tbody>` +
+      d.networks.map(n => `<tr><td>${esc(n.name)}${n.kind === 'main' ? ' (energised)' : ' (floating)'}</td><td class="n">${fmt(n.V)}</td>
+        <td class="n">${fmt(n.V_pct_GPR, 1)}</td><td class="n">${fmt(n.R_self, 3)}</td><td class="n">${fmt(n.transfer_from_main)}</td></tr>`).join('') +
+      '</tbody></table><div class="hint">Own resistance is the network energised alone with the others present but floating. The transfer voltage is what a person bridging the grid and that network would see.</div>';
+  }
+  (d.fences || []).forEach(f => {
+    h += `<h4 style="margin:12px 0 6px">Fence — ${esc(f.name)} (${f.bonded ? 'bonded to the grid' : 'isolated'})</h4>` + rows([
+      ['Fence potential', 'V_F', f.V_fence, 'V', `${fmt(f.V_pct_GPR, 1)} % of GPR`],
+      ['Touch, standing inside', 'U_T,in', Math.abs(f.touch_inside.touch_max), 'V', `at x = ${fmt(f.touch_inside.at[0])} m, y = ${fmt(f.touch_inside.at[1])} m`],
+      ['Touch, standing outside', 'U_T,out', Math.abs(f.touch_outside.touch_max), 'V', `at x = ${fmt(f.touch_outside.at[0])} m, y = ${fmt(f.touch_outside.at[1])} m`],
+      ['Step across the fence line', 'U_S', f.step_across, 'V', ''],
+      ['Posts modelled', '—', String(f.posts), '–', '']
+    ]);
+  });
+  return h;
+}
+
+$('#tRun').onclick = e => run(e.target, async () => {
+  if (!BEM_ITEMS.length) throw new Error('Add the station electrodes first.');
+  const ang = N('tDir', 0) * Math.PI / 180;
+  const st = V('tStart').split(',').map(Number);
+  if (st.length < 2 || st.some(v => !isFinite(v))) throw new Error('Give the start point as x, y.');
+  const p = {
+    rho1: N('nRho1', 100), IG: N('nIG', 1000), items: BEM_ITEMS, segment_length: N('nSeg', 3),
+    route: {
+      start: st, direction: [Math.cos(ang), Math.sin(ang)], length: N('tLen', 1000), depth: N('tDepth', 1),
+      kind: V('tKind'), radius: N('tRad', 0.1), metal: V('tMetal'), wall: NB('tWall'), r_dc_per_km: NB('tRdc'),
+      coating_res: NB('tCoat'), leak_ohm_km: NB('tLeak'), near: V('tNear'), far: V('tFar'), R_far: NB('tRfar'),
+      access_points: V('tAccess').split(',').map(Number).filter(v => isFinite(v) && v > 0)
+    }
+  };
+  if (NB('nRho2') !== null && NB('nHl') !== null) { p.rho2 = NB('nRho2'); p.h_layer = NB('nHl'); }
+  if (NB('nRho3') !== null || NB('nH2') !== null) { p.rho3 = NB('nRho3'); p.h_layer2 = NB('nH2'); }
+  if (NB('nRho4') !== null || NB('nH3') !== null) { p.rho4 = NB('nRho4'); p.h_layer3 = NB('nH3'); }
+  if (S.grid) p.limits = { E_touch: S.grid.tolerable.E_touch };
+  const d = await api('/api/transfer', p);
+  S.transfer = d;
+  const pr = d.profile, sc = css('--line');
+  $('#tOut').innerHTML = `<div id="tPlot" class="plot" style="height:300px;margin-top:10px"></div>` +
+    `<div class="note ${d.passed === false ? 'bad' : 'info'}">${esc(d.narrative)}</div>` + rows([
+      ['Series impedance', 'z', `${fmt(d.z_per_km[0], 3)} + j${fmt(d.z_per_km[1], 3)}`, 'Ω/km', 'earth return (Carson) plus the metal'],
+      ['Leakage resistance', 'r_L', d.leak_ohm_km === null ? '∞' : d.leak_ohm_km, 'Ω·km', d.parameter_note || ''],
+      ['Attenuation length', '1/α', d.attenuation_length === null ? '∞' : d.attenuation_length, 'm', 'distance over which the metal potential falls by 1/e'],
+      ['GPR without the conductor', '—', d.GPR_without, 'V', ''],
+      ['GPR with it', 'GPR', d.GPR, 'V', `current drawn away ${fmt(d.I_diverted)} A`],
+      ['Far-end metal potential', 'V_far', d.V_far, 'V', `${fmt(d.V_far_pct, 1)} % of GPR`],
+      ['Far-end transferred touch', 'U_T', d.transfer_far, 'V', d.E_touch ? `tolerable ${fmt(d.E_touch)} V` : ''],
+      ['Largest touch along the route', '—', d.touch_max, 'V', `at ${fmt(d.touch_max_at)} m`]
+    ]) + `<table class="data" style="margin-top:8px"><thead><tr><th>Access point (m)</th><th style="text-align:right">Metal (V)</th><th style="text-align:right">Soil (V)</th><th style="text-align:right">Touch (V)</th><th></th></tr></thead><tbody>` +
+    d.access.map(a => `<tr><td>${fmt(a.s)}</td><td class="n">${fmt(a.V_metal)}</td><td class="n">${fmt(a.V_soil)}</td><td class="n">${fmt(a.touch)}</td><td>${a.passed === null ? '' : (a.passed ? '✓' : '✗')}</td></tr>`).join('') +
+    '</tbody></table>' + (d.notes || []).map(n => `<div class="note info">${esc(n)}</div>`).join('') +
+    (d.remedy && d.remedy.length ? '<ul class="small">' + d.remedy.map(r => `<li>${esc(r)}</li>`).join('') + '</ul>' : '');
+  plot('tPlot', [
+    { x: pr.s, y: pr.V_metal, mode: 'lines', name: 'Metal potential', line: { color: PAL[0], width: 2.5 } },
+    { x: pr.s, y: pr.V_soil, mode: 'lines', name: 'Soil potential', line: { color: PAL[2], width: 2 } },
+    { x: pr.s, y: pr.touch, mode: 'lines', name: 'Touch (metal − soil)', line: { color: PAL[1], width: 2.5 } },
+    d.E_touch ? { x: [0, d.length], y: [d.E_touch, d.E_touch], mode: 'lines', name: 'Tolerable touch', line: { color: PAL[1], dash: 'dot' } } : null
+  ].filter(Boolean), {
+    xaxis: { title: { text: 'Distance from the station (m)' }, gridcolor: sc },
+    yaxis: { title: { text: 'Voltage (V)' }, gridcolor: sc }
+  });
+  toast('Transferred potential computed.', 'ok');
+});
+
+$('#hRun').onclick = e => run(e.target, async () => {
+  if (!BEM_ITEMS.length) throw new Error('Add the electrodes first.');
+  const [model, level] = V('hModel').split('|');
+  const wave = V('hWave');
+  const wf = wave === 'tb781' ? ['first_tb781', 'subsequent_tb781'] : ['first_heidler', 'subsequent_heidler'];
+  const p = {
+    items: BEM_ITEMS.filter(it => it.kind !== 'fence'), rho0: NB('hRho') ?? N('nRho1', 100), eps_r: N('hEps', 10),
+    soil_model: model, level, f_max: N('hFmax', 10) * 1e6, waveforms: wf,
+    peaks: { [wf[0]]: N('hI1', 31.1), [wf[1]]: N('hI2', 11.8) }
+  };
+  if (V('hLayers') === 'layered' && NB('nRho2') !== null && NB('nHl') !== null) {
+    p.rho0 = N('nRho1', 100);
+    const rho = [NB('nRho2')], h = [NB('nHl')];
+    if (NB('nRho3') !== null && NB('nH2') !== null) { rho.push(NB('nRho3')); h.push(NB('nH2')); }
+    if (rho.length === 2 && NB('nRho4') !== null && NB('nH3') !== null) { rho.push(NB('nRho4')); h.push(NB('nH3')); }
+    p.layers = { rho, h };
+  }
+  if ($('#hIon').checked) p.E0 = N('hE0', 400);
+  if (BEM_ITEMS.some(it => it.kind === 'fence')) toast('Fences are left out of the lightning model.', '');
+  const fd = V('hFeed').trim();
+  if (fd) {
+    const v = fd.split(',').map(Number);
+    if (v.length < 2 || v.some(x => !isFinite(x))) throw new Error('Give the injection point as x, y, depth.');
+    p.feed = v;
+  }
+  const d = await api('/api/hf', p);
+  S.hf = d;
+  const sc = css('--line');
+  const r1 = d.responses[wf[0]], r2 = d.responses[wf[1]];
+  const ion = !!d.ionisation;
+  const kp = (r, lab) => ion
+    ? `<div class="kpi"><div class="v">${fmt(r.Z_impulse_ion)} <small>Ω</small></div><div class="l">Impulse impedance, ${lab} (ionised; ${fmt(r.Z_impulse)} without)</div></div>
+       <div class="kpi"><div class="v">${fmt(r.IC_ion, 2)}</div><div class="l">Impulse coefficient, ${lab} (ionised; ${fmt(r.IC, 2)} without)</div></div>`
+    : `<div class="kpi"><div class="v">${fmt(r.Z_impulse)} <small>Ω</small></div><div class="l">Impulse impedance, ${lab}</div></div>
+       <div class="kpi"><div class="v">${fmt(r.IC, 2)}</div><div class="l">Impulse coefficient, ${lab}</div></div>`;
+  $('#hOut').innerHTML = `<div class="kpis" style="margin-top:10px">
+      <div class="kpi"><div class="v">${fmt(d.R)} <small>Ω</small></div><div class="l">Low-frequency R</div></div>
+      ${kp(r1, 'first')}${kp(r2, 'subsequent')}
+    </div>
+    <div id="hPlotZ" class="plot" style="height:320px"></div>
+    <div id="hPlotT" class="plot" style="height:500px"></div>
+    <div class="note info">${esc(d.narrative)}</div>` + rows([
+      ['Soil', '—', d.soil, '', ''],
+      ['Segments / nodes', 'N', `${d.segments} / ${d.nodes}`, '', 'thin-wire model'],
+      ['Injection point', '—', d.feed.map(v => fmt(v)).join(', '), 'm', 'nearest node'],
+      ['Low-frequency resistance', 'R_LF', d.R, 'Ω', 'Z(jω) as ω → 0'],
+      ['First stroke: peak current', 'I_p', r1.I_peak_kA, 'kA', r1.label],
+      ['First stroke: peak potential rise', 'V_p', r1.V_peak_kV, 'kV', `at ${fmt(r1.t_V_peak)} µs; R·I_p = ${fmt(r1.V_lf_kV)} kV`],
+      ['Subsequent stroke: peak current', 'I_p', r2.I_peak_kA, 'kA', r2.label],
+      ['Subsequent stroke: peak potential rise', 'V_p', r2.V_peak_kV, 'kV', `at ${fmt(r2.t_V_peak)} µs; R·I_p = ${fmt(r2.V_lf_kV)} kV`],
+      ion && ['Ionisation current', 'I_g', d.ionisation.Ig_kA, 'kA', `E₀ = ${fmt(d.ionisation.E0)} kV/m, ρ = ${fmt(d.ionisation.rho)} Ω·m`],
+      ion && ['First stroke with ionisation', 'V_p,i', r1.V_peak_ion_kV, 'kV', `R falls to ${fmt(r1.R_min)} Ω at the current peak`],
+      ion && ['Subsequent stroke with ionisation', 'V_p,i', r2.V_peak_ion_kV, 'kV', `R falls to ${fmt(r2.R_min)} Ω`]
+    ].filter(Boolean)) + (d.single && d.single.alipio ? `<div class="note info">Alipio–Visacro formulas for a horizontal electrode of this length
+      (frequency-dependent soil): impulse coefficient ${fmt(d.single.alipio.first.IC, 2)} (first) and
+      ${fmt(d.single.alipio.subsequent.IC, 2)} (subsequent), effective length ${fmt(d.single.alipio.first.L_eff, 0)} m and
+      ${fmt(d.single.alipio.subsequent.L_eff, 0)} m.</div>` : '') +
+    (d.notes || []).map(n => `<div class="note">${esc(n)}</div>`).join('');
+  plot('hPlotZ', [
+    { x: d.f, y: d.absZ.map(z => z / d.R), mode: 'lines', name: '|Z| / R', line: { color: PAL[0], width: 2.5 } },
+    { x: d.f, y: d.phase, mode: 'lines', name: 'Phase (°)', yaxis: 'y2', line: { color: PAL[1], width: 1.8, dash: 'dot' } }
+  ], {
+    xaxis: { title: { text: 'Frequency (Hz)' }, type: 'log', gridcolor: sc },
+    yaxis: { title: { text: '|Z(jω)| / R' }, type: 'log', gridcolor: sc },
+    yaxis2: { title: { text: 'Phase (°)' }, overlaying: 'y', side: 'right', showgrid: false },
+    margin: { l: 62, r: 60, t: 26, b: 60 }, legend: { orientation: 'h', y: -0.32, yanchor: 'top', font: { size: 11 } }
+  });
+  plot('hPlotT', [
+    { x: r1.t_us, y: r1.v_kV, mode: 'lines', name: 'Potential rise, first (kV)', line: { color: PAL[0], width: 2.4 } },
+    { x: r1.t_us, y: r1.i_kA, mode: 'lines', name: 'Current, first (kA)', yaxis: 'y2', line: { color: PAL[0], width: 1.2, dash: 'dot' } },
+    { x: r2.t_us, y: r2.v_kV, mode: 'lines', name: 'Potential rise, subsequent (kV)', line: { color: PAL[1], width: 2.4 } },
+    { x: r2.t_us, y: r2.i_kA, mode: 'lines', name: 'Current, subsequent (kA)', yaxis: 'y2', line: { color: PAL[1], width: 1.2, dash: 'dot' } },
+    ion ? { x: r1.t_us, y: r1.v_ion_kV, mode: 'lines', name: 'First, with ionisation (kV)', line: { color: PAL[0], width: 1.8, dash: 'dash' } } : null,
+    ion ? { x: r2.t_us, y: r2.v_ion_kV, mode: 'lines', name: 'Subsequent, with ionisation (kV)', line: { color: PAL[1], width: 1.8, dash: 'dash' } } : null
+  ].filter(Boolean), {
+    xaxis: { title: { text: 'Time (µs)' }, gridcolor: sc },
+    yaxis: { title: { text: 'Potential rise (kV)' }, gridcolor: sc },
+    yaxis2: { title: { text: 'Current (kA)' }, overlaying: 'y', side: 'right', showgrid: false },
+    margin: { l: 62, r: 60, t: 26, b: 175 }, legend: { orientation: 'h', y: -0.19, yanchor: 'top', font: { size: 11 } }
+  });
+  toast('Lightning response computed.', 'ok');
 });
 
 /* ========================================================= 6. BUILDING === */
@@ -1406,7 +1671,7 @@ function reportData(figs) {
     off_scale: S.conductor.off_scale, required_mm2: S.conductor.required_mm2,
     basis: S.conductor.basis, governs: S.conductor.governs };
   if (S.grid) d.grid = S.grid;
-  if (S.bem) d.bem = S.bem;
+  if (S.bem) d.bem = { ...S.bem, ...(S.transfer ? { transfer: S.transfer } : {}), ...(S.hf ? { hf: S.hf } : {}) };
   if (S.building) d.building = S.building;
   if (S.earthpit) d.earthpit = S.earthpit;
   if (S.lightning) d.lightning = S.lightning;
