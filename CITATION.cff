@@ -2,6 +2,8 @@ cff-version: 1.2.0
 title: "Earthing System: earthing system design for homes, buildings, substations and power plants"
 message: "If you use this software in academic work, please cite it as below."
 type: software
+version: "1.6.1"
+date-released: "2026-10-11"
 authors:
   - family-names: Roshandel
     given-names: Emad
@@ -12,8 +14,11 @@ abstract: >-
   An open-source earthing (grounding) system design application implementing
   IEEE Std 80, IEC 60364-4-41 and -5-54, IEC 62305-3, IEC 60909 and IEEE Std
   142, with a boundary-element numerical solver for arbitrary electrode
-  geometry in uniform or two-layer soil, and a bilingual design-report
-  generator. Runs locally as a desktop or browser application, or entirely in
+  geometry in uniform or layered soil (up to four layers), fences and other
+  separate metal, concrete foundations, transferred potential along long
+  conductors, the frequency-domain lightning response of earth electrodes
+  (layered soil, soil ionisation, frequency-dependent soil), and a bilingual
+  design-report generator. Runs locally as a desktop or browser application, or entirely in
   the browser via Pyodide.
 keywords:
   - earthing
@@ -22,4 +27,6 @@ keywords:
   - IEC 60364
   - IEC 62305
   - boundary element method
+  - layered soil
+  - lightning
   - power systems
