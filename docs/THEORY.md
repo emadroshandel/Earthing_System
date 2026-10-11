@@ -206,8 +206,11 @@ so, with `R = ΔV/I`,
 **What `a` means physically.** There is a persistent teaching shortcut that "the Wenner
 array reads the resistivity down to a depth of `a`". It is a shortcut, not a theorem: the
 measurement is a weighted average over a volume whose *median* depth of investigation is
-roughly `a/2` to `a`, with contributions from much deeper. That is exactly why we do not
-use the raw numbers as a layer model — we **invert** them.
+about `0.52a` (Edwards, 1977; `0.38s` for Schlumberger), with contributions from much deeper
+but fading. That is exactly why we do not use the raw numbers as a layer model — we
+**invert** them — and why a layer the fit places far below the longest spacing is an
+extrapolation, not a measurement. The soil page marks the median depth on its section and,
+since 1.6.1, veils any layer that starts deeper than twice it.
 
 Practical rules for the traverse: use spacings in a roughly logarithmic ladder
 (0.5, 1, 2, 3, 5, 8, 12, 20, 30 m), extend the largest spacing to at least the diagonal of
@@ -242,13 +245,13 @@ Each reflection produces an image source at `2nh`, weighted by `Kⁿ`. Summing o
 reflections and then over the four Wenner electrodes gives
 
 ```
-ρₐ(a) = ρ₁ [ 1 + 4 Σ(n=1..∞) Kⁿ ( 1/√(1+(2nh/a)²) − 1/√(4+(2nh/a)²) ) ]     … (2.4)
+ρₐ(a) = ρ₁ [ 1 + 4 Σ(n=1..∞) Kⁿ ( 1/√(1+(2nh/a)²) − 1/√(4+(2nh/a)²) ) ]   … (2.4)
 ```
 
 and for Schlumberger
 
 ```
-ρₐ(s) = ρ₁ [ 1 + 2 Σ(n=1..∞) Kⁿ / (1 + (2nh/s)^2)^(3/2) ]                   … (2.5)
+ρₐ(s) = ρ₁ [ 1 + 2 Σ(n=1..∞) Kⁿ / (1 + (2nh/s)^2)^(3/2) ]                … (2.5)
 ```
 
 **Sanity checks a student should do themselves:**
@@ -271,7 +274,7 @@ We measure `ρₐ` at several spacings and want `(ρ₁, ρ₂, h)`. This is a t
 non-linear least-squares problem. Earthing System minimises the **relative** residual
 
 ```
-Φ(ρ₁, ρ₂, h) = Σᵢ [ (ρₐ,model(aᵢ) − ρₐ,meas(aᵢ)) / ρₐ,meas(aᵢ) ]²          … (2.6)
+Φ(ρ₁, ρ₂, h) = Σᵢ [ (ρₐ,model(aᵢ) − ρₐ,meas(aᵢ)) / ρₐ,meas(aᵢ) ]²        … (2.6)
 ```
 
 Two deliberate choices are worth teaching:
@@ -284,7 +287,7 @@ Two deliberate choices are worth teaching:
    free: a factor-of-two error costs the same whether the value is 10 or 10 000.
 
 The optimiser is a Nelder–Mead simplex written out in `soil.py`, so the software has no
-SciPy dependency. It is started from nine different initial guesses and the best result is
+SciPy dependency. It is started from twenty-seven initial guesses and the best result is
 kept, because the objective can have local minima when the data are noisy.
 
 **Reading the RMS error.** Below about 5 % the two-layer model is a good description.
@@ -307,6 +310,8 @@ site has three layers. Fitting two layers gives roughly `ρ₁ ≈ 378 Ω·m`, `
 large spacing, which is exactly what you should expect and exactly what the residual
 column shows you. For a grid buried at 0.5 m this is a perfectly serviceable model,
 because the electrode never sees the third layer.
+Since version 1.4 *Automatic* also tries three layers here. They fit at 1.05 % RMS, but
+with only six readings the F test of §2.8 gives `p = 0.23`, so the two-layer model stands.
 
 ![Figure 5 — Two-layer inversion of the example traverse, with the residuals below. The fit follows the falling branch and misses the rise beyond 6 m — the signature of a third layer that a two-layer model cannot represent.](figures/fig05_inversion.png)
 
@@ -325,20 +330,35 @@ the two-layer earth. The disc on a two-layer earth has an exact image-series sol
 
 ```
 R_disc = ρ₁ F / (4r)
-F(K, h/r) = 1 + (4/πr) Σₙ Kⁿ [ r·atan(r/nh) − (nh/2)·ln(1 + r²/n²h²) ]          … (2.8)
+F(K, h/r) = 1 + (4/πr) Σₙ Kⁿ [ r·atan(r/nh) − (nh/2)·ln(1 + r²/n²h²) ]   … (2.8)
 ```
 
 The conductor near field (Sverak's `ρ/L_T` term) lies in the upper layer and keeps `ρ₁`,
 so the equivalent resistivity is
 
 ```
-ρ_eq = ρ₁ · (F/4r + 1/L_T) / (1/4r + 1/L_T)                                        … (2.9)
+ρ_eq = ρ₁ · (F/4r + 1/L_T) / (1/4r + 1/L_T)                              … (2.9)
 ```
 
 which returns `ρ₁` exactly in uniform soil. **Pull inputs** on the grid page evaluates
 (2.9) for the grid actually entered there. Checked against the two-layer numerical solver
 for 48 grids (10–70 m, h = 1–30 m, ρ₂/ρ₁ = 0.1–25), the closed form with (2.9) is
 conservative in every case, typically by 3–20 %.
+
+**Any number of layers (version 1.4).** Over the images of the surface kernel the disc
+factor is a sum, and since `∫₀^∞ e^(−λq)(1 − cos λr)/λ² dλ = r·atan(r/q) − (q/2)ln(1 + r²/q²)`
+the whole sum is one smooth integral of the kernel `B(μ)` of (2.10):
+
+```
+F = 1 + (4/πr) ∫₀^∞ B(μ) (1 − cos 2μr)/(2μ²) dμ                         … (2.9a)
+```
+
+It equals the two-layer series (2.8) to 10⁻¹³ and needs no image series for three or four
+layers. Tested against the three-layer numerical solver on 24 cases, the closed form with
+(2.9) stays conservative in every one (+3 to +43 %). For the grid page a three- or
+four-layer model can also be collapsed to an **equivalent two-layer** one for the grid in
+hand: the top layer is kept and the layers below are replaced by the half-space that gives
+the same disc factor at `r = √(A/π)` (within −2.1 to +3.3 % of the three-layer solver).
 
 > **What version 1.1 did.** It weighted the layers by the *burial depth* of the
 > electrodes. For the IEEE 80 Annex B grid in 2 m of 400 Ω·m that gave `ρ_eq = 400` whatever
@@ -352,6 +372,81 @@ The numerical solver needs none of this: it uses the layered model directly.
 then rises (or the reverse) the site has at least three layers, the fitted `ρ₁` and `h` are
 not physical, and module 1 now says so and asks for confirmation before a poor fit is
 pulled into the grid design.
+
+### 2.8 Three and four layers
+
+Some curves cannot be followed by two layers at all: they fall and then rise (H-type, a
+conductive layer sandwiched between resistive ones) or rise and then fall (K-type). Since
+version 1.4 module 1 fits three layers, and since 1.5 four.
+
+**The forward model.** For more than two layers only the kernel of the Hankel integral
+changes. Seen from above, each interface reflects like a single one, except that the stack
+below gives it a reflection coefficient that depends on the spatial frequency `λ`.
+Climbing from the deepest interface,
+
+```
+R_{N−1} = K_{N−1,N}
+R_i(λ)  = [K_{i,i+1} + R_{i+1} x_{i+1}] / [1 + K_{i,i+1} R_{i+1} x_{i+1}],
+          x_{i+1} = e^(−2λh_{i+1})
+θ(λ)    = R₁ e^(−2λh₁) / (1 − R₁ e^(−2λh₁))                             … (2.10)
+
+ψ(r) = ∫₀^∞ θ(λ) J₀(λr) dλ
+ρₐ,Wenner(a) = ρ₁ [ 1 + 4a(ψ(a) − ψ(2a)) ]                         … (2.11)
+```
+
+with `K_{i,i+1} = (ρ_{i+1} − ρ_i)/(ρ_{i+1} + ρ_i)` and `h_i` the thickness of layer `i`. For two
+layers `R₁ = K` and (2.11) is the image series (2.4). For three or more layers the image
+series is double and, with a conductive layer between resistive ones, converges very slowly
+(tens of thousands of terms), so the software sums the top interface's images exactly and
+integrates the rest of the kernel by Gauss–Legendre quadrature. This reproduces (2.4) to
+10⁻⁶ and the complete three-layer image series to 10⁻⁸, in under a millisecond per traverse.
+
+**The fit** of `ρ₁, ρ₂, ρ₃, h₁, h₂` minimises the same relative misfit (2.6) in log space, by
+Levenberg–Marquardt from 64 shape-based starts plus four built from the two-layer fit. It
+found the global minimum in 30 of 30 random test earths.
+
+**Is the extra layer real?** Two more parameters always lower the misfit. With `Φ₂`, `Φ₃` the
+minimised misfits and `N` readings, the F test
+
+```
+F = [(Φ₂ − Φ₃)/2] / [Φ₃/(N − 5)]
+p = ((N − 5)/(N − 5 + 2F))^((N − 5)/2)                           … (2.12)
+```
+
+keeps the third layer only when `p < 0.05` and the RMS falls by at least a fifth. For a
+fourth layer the same test uses `Φ₃`, `Φ₄` and `N − 7`, so it needs at least nine readings.
+On noisy synthetic traverses the rule added no false layer to 15 two-layer sites and found
+the third layer in 14 of 15 three-layer sites. The example of §2.6 is the cautionary case:
+three layers fit it at 1.05 % RMS against 4.5 %, but with six readings `p = 0.23`. Six
+readings cannot establish a fifth parameter; *Automatic* keeps two layers and says why.
+Choosing *Three layers* or *Four layers* forces the model onto the page but not past the
+test: since 1.6.1 a warning above the results gives the supported model, and layers that
+are not resolved, or that start deeper than twice the median depth of investigation (§2.2),
+are flagged and drawn veiled. Forced onto the built-in example traverse (longest spacing
+40 m), three layers put 2 Ω·m below 141 m and four put 66 Ω·m below 70 m: two different
+guesses at ground the traverse never reached, both rejected at `p ≈ 0.8`.
+
+**Equivalence.** A thin middle layer is seen only through its effect on the current that
+crosses it. The covariance of the fit says which combination `h₂ρ₂^β` the readings fix:
+`β ≈ −1` for a thin conductive layer (its conductance `S = h/ρ` is fixed) and `β ≈ +1` for a
+thin resistive one (its transverse resistance `T = ρh`). The software prints `β`, names `S`
+or `T` when it applies, and reports a parameter as not resolved when its own spread exceeds a
+factor of 20.
+
+**Checks.** On the two field traverses of Gonos and Stathopulos the three-layer fits match or
+improve on the published genetic-algorithm, differential-evolution and simulated-annealing
+fits (case B coincides with Li and Rao's within 1.5 % in every parameter). On the
+thirteen-reading traverse of Zhang et al. a fourth layer is accepted (RMS 11.7 % → 3.8 %,
+`p = 0.001`) and its thin layer's conductance agrees with both published fits within a factor
+of 1.18; on Slaoui and Erchiqui's sounding a fourth layer is refused (`p = 1`).
+
+**Why it matters.** On case B of Gonos and Stathopulos the two-layer fit is a 0.19 m skin of
+20 523 Ω·m over 77.5 Ω·m. Put the 70 × 70 m Annex B grid on it and the numerical solver gives
+`R_g` = 0.519 Ω; on the three-layer model the same grid has 0.959 Ω. The two-layer fit
+understates the GPR by 46 % — the unsafe direction.
+
+The full treatment, with the equivalence maps and the worked examples, is §2.7 of the book
+*Earthing System — Theory and Practice*.
 
 ---
 
@@ -511,7 +606,7 @@ I² t / A² = (δ c) / (ρ₂₀ α) · ln[ (K₀ + T_m) / (K₀ + T_a) ]
 Writing `TCAP = δ·c` (the volumetric heat capacity) and rearranging:
 
 ```
-A = I / √( (TCAP·10⁻⁴)/(t_c · α_r · ρ_r) · ln[(K₀+T_m)/(K₀+T_a)] )          … (4.1)
+A = I / √( (TCAP·10⁻⁴)/(t_c · α_r · ρ_r) · ln[(K₀+T_m)/(K₀+T_a)] )       … (4.1)
 ```
 
 which is IEEE Std 80-2013 Equation (37). The `10⁻⁴` is a unit conversion only
@@ -527,7 +622,8 @@ that feedback between ambient and the limit temperature.
 IEC 60364-5-54 writes it as
 
 ```
-S = √(I² t) / k,     k = √( Q_c(B + 20)/ρ₂₀ · ln[1 + (T_f − T_i)/(B + T_i)] )     … (4.2)
+S = √(I² t) / k
+k = √( Q_c(B + 20)/ρ₂₀ · ln[1 + (T_f − T_i)/(B + T_i)] )               … (4.2)
 ```
 
 with `B = 1/α₀`. Compare term by term with (4.1): `Q_c` is `TCAP`, `B + 20` plays the role
@@ -715,7 +811,8 @@ mesh*. It is not an average; it is the worst case.
 ### 7.2 The mesh factor `K_m`
 
 ```
-K_m = (1/2π) { ln[ D²/(16hd) + (D+2h)²/(8Dd) − h/(4d) ] + (K_ii/K_h) ln[8/(π(2n−1))] }   … (7.1)
+K_m = (1/2π) { ln[ D²/(16hd) + (D+2h)²/(8Dd) − h/(4d) ]
+               + (K_ii/K_h) ln[8/(π(2n−1))] }                       … (7.1)
 ```
 
 Term by term:
@@ -851,7 +948,7 @@ an **image source of the same sign** at the mirrored depth — the opposite sign
 to the grounded-plane problem in electrostatics, and a good exam question:
 
 ```
-G(field, source) = ρ/(4π) [ 1/√(r_h² + (z−z')²) + 1/√(r_h² + (z+z')²) ]          … (8.3)
+G(field, source) = ρ/(4π) [ 1/√(r_h² + (z−z')²) + 1/√(r_h² + (z+z')²) ]   … (8.3)
 ```
 
 with `z` measured downwards from the surface. Note `ρ/4π`, not `ρ/2π` — the factor of two
@@ -919,7 +1016,7 @@ cheap collocation only for far pairs. This is the single most important implemen
 detail in `bem.py`, and it is the sort of thing that separates a solver you can trust from
 one that merely runs.
 
-### 8.6 Two-layer soil
+### 8.6 Layered soil
 
 The same image series as §2.4, now in three dimensions:
 
@@ -930,6 +1027,29 @@ G = ρ₁/(4π) Σ(n=−N..N) K^|n| [ 1/√(r_h² + (z − z' − 2nh)²)
 
 At `n = 0` this reduces to (8.3). At `K = 0` all other terms vanish. Both are checked in
 the test suite, and both are good student exercises.
+
+**Three and four layers (versions 1.4–1.5).** The two-layer formulas are one rule applied to
+every reflection, and the rule builds the Green's function of any number of layers. Treat
+the field of the source as waves, each the potential `a/R` of a point source, travelling up
+or down. A wave in layer `L` meeting the plane to layer `M` splits into a reflected wave,
+`R = (ρ_M − ρ_L)/(ρ_M + ρ_L)` times as strong with its source mirrored in the plane, and a
+transmitted one, `1 + R` times as strong with its source unmoved; the surface reflects with
+`R = +1`. The field in layer `j` of a unit source in layer `i` is then
+
+```
+G_ij = ρ_i/(4π) Σ_k a_k / √(r_h² + (z − s_k z' − D_k)²)                  … (8.6)
+```
+
+with a sign `s_k = ±1` and a shift `D_k` (a sum of `±2d` over the interface depths) for each
+image. The software traces the waves plane by plane and merges those that coincide. With a
+conductive layer between resistive ones the series is long (123 000 images above 10⁻¹⁰ for
+300/30/3000 Ω·m), so images near the electrode are kept one by one, those further away are
+merged in bins, and all the rest are taken from the spectral (Hankel-transform) solution,
+tabulated once per soil model. Checks: against an independent spectral computation to
+3.5 × 10⁻¹⁰; a three-layer model with two equal layers reproduces the two-layer solver to
+4 × 10⁻⁵; rods crossing both interfaces agree with an axisymmetric finite-volume solution
+within 0.13 %. Every conductor is split at every interface, and each segment uses the
+resistivity of its own layer in its self term.
 
 ### 8.7 What to compare, and why it matters
 
@@ -951,6 +1071,64 @@ irregularity or strong soil layering — and the numerical answer is the one to 
 ![Figure 15 — A traverse across the middle of the grid. Touch voltage is largest at the grid edge; step voltage peaks just outside the perimeter conductor, where the surface gradient is steepest.](figures/fig13_profile.png)
 
 *Figure 15 — A traverse across the middle of the grid. Touch voltage is largest at the grid edge; step voltage peaks just outside the perimeter conductor, where the surface gradient is steepest.*
+
+### 8.8 Separate pieces of metal: fences (version 1.5)
+
+A fence that is not bonded to the grid, a pipe crossing the yard or a neighbour's earth is
+neither at the GPR nor at remote earth: it **floats** at whatever potential the soil imposes.
+Number the separate networks `k = 1 … m` (network 1 is the grid) and let `E` be the incidence
+matrix, `E_ik = 1` when segment `i` belongs to network `k`. In place of (8.2),
+
+```
+⎡ P   −E ⎤ ⎡ I ⎤   ⎡ 0 ⎤
+⎣ Eᵀ   0 ⎦ ⎣ V ⎦ = ⎣ J ⎦,        V = Z J,   Z_jk = Z_kj                  … (8.7)
+```
+
+where `J_k` is the current driven into network `k` (`I_G` for the grid, zero for a floating
+fence). Solving once per unit injection gives the mutual-resistance matrix `Z`; a floating
+fence then sits at `Z_F1 I_G`, the fraction `Z_F1/Z_11` of the GPR. A floating fence has **two**
+touch voltages, of opposite sign: outside, where the soil has fallen below the fence, and
+inside, where the grid has lifted the soil above it. The module reports both, and the step
+across the fence line.
+
+IEEE 80 Annex H Grid 4 (an isolated fence around Grid 3) is reproduced within 1.5 % of CDEGS
+or WinIGS for every quantity except one step voltage (4 %); the fence floats at 57 % of the
+GPR and the grid-to-fence transfer voltage is 309 V against 309.2 V (CDEGS) and 312.4 V
+(WinIGS). Grid 5 (an L-shaped grid with a bonded fence) is reproduced within 2.5 %.
+
+### 8.9 Transferred potential along long conductors (version 1.5)
+
+A pipe, rail, cable screen or bare wire that leaves the site carries the station's potential
+with it. Over kilometres it is a lossy transmission line: series impedance `z` per metre with
+earth return, leakage `g` per metre into soil that the station holds at `V_s(x)`:
+
+```
+dV/dx = −z I,        dI/dx = −g (V − V_s(x))                             … (8.8)
+
+z = z_int + π² f 10⁻⁷ + j(ωμ₀/2π) ln(D_e/a),     D_e = 658.5 √(ρ/f) m    … (8.9)
+```
+
+(Carson's earth return; for steel, `z_int` is the skin-effect surface impedance, more than
+three times the d.c. resistance at 50 Hz). A bare conductor leaks as a horizontal wire,
+`g = π/(ρ[ln(2ℓ/√(2ad)) − 1])`; a coating adds `r_c/(2πa)` in series; a cable screen has
+`g = 0`. The software takes `V_s(x)` from the solver along the route, solves (8.8) as a ladder,
+and corrects the GPR for the current the conductor draws away, by reciprocity:
+
+```
+GPR = R_g I_G / (1 + R_g (a − c))                                       … (8.10)
+```
+
+`a` is the admittance the conductor presents at the station and `c` the share of its leakage
+that returns to lift the grid. Checks: the line solution against `cosh γ(L−x)/cosh γL` to
+4 × 10⁻⁹; a 150 m bare wire bonded to a 40 m grid gives the GPR within 1 % of the full solver
+(6 % low without the correction `c`).
+
+**Teaching point.** Put four 2 km conductors on Grid 3 (GPR 720 V). An insulated screen earthed
+remotely through 10 Ω keeps 89 % of the GPR at its far end. A coated pipe keeps 97 %. A bare
+copper wire leaks, falls to 42 % and halves the GPR — it is a counterpoise. An insulating
+joint at the fence leaves the pipe floating at 3.5 %, but a person at the joint touches
+512 V, because the soil there is still at 74 % of the GPR. Put the joint where the soil
+potential has fallen.
 
 ---
 
@@ -1025,7 +1203,7 @@ diameter**. Going from 12 mm to 25 mm rod diameter changes `R` by about 12 %; go
 written with the half-length `ℓ = L/2` and `s = 2h`):
 
 ```
-R = ρ/(4πℓ) [ ln(4ℓ/a) + ln(4ℓ/s) − 2 + s/(2ℓ) − s²/(16ℓ²) + … ]          … (9.4)
+R = ρ/(4πℓ) [ ln(4ℓ/a) + ln(4ℓ/s) − 2 + s/(2ℓ) − s²/(16ℓ²) + … ]         … (9.4)
 ```
 
 > **A published-formula trap.** Several references — including popular open-source code —
@@ -1039,7 +1217,8 @@ R = ρ/(4πℓ) [ ln(4ℓ/a) + ln(4ℓ/s) − 2 + s/(2ℓ) − s²/(16ℓ²) + �
 foundation electrode `R ≈ 0.2ρ/∛V` deserves a mention: concrete in contact with soil is a
 surprisingly good conductor (its pore water is alkaline and ionic), and a building's own
 foundation reinforcement is usually the cheapest low-resistance electrode available. It is
-mandatory for new buildings in several countries for exactly this reason.
+mandatory for new buildings in several countries for exactly this reason. Piles, piers and strip
+footings, which are long and slender rather than compact, are treated in §9.8.
 
 ### 9.5 Electrodes in parallel — why you never get `R/n`
 
@@ -1088,6 +1267,64 @@ summer and freezes in winter, and a rod electrode can easily **double** its resi
 between seasons. The margin the software reports on the TT check is not an academic
 number — it is the seasonal allowance. Teach students to look at it, not just at the
 PASS badge.
+
+### 9.7 Earth pits (version 1.3.6)
+
+An earth pit sets the rod in a hole filled with backfill of resistivity `ρ_c` below the
+soil's. §1.2 showed where the resistance of an electrode lives: in the innermost shells. For
+a rod the cylinder of soil between its diameter `d` and a diameter `D` holds the fraction
+`ln(D/d)/(ln(8L/d) − 1)` of the rod's whole resistance — 46 % for a 3 m × 16 mm rod in a
+0.3 m hole. Filling that cylinder replaces `ρ` by `ρ_c` there and leaves the rest:
+
+```
+R = ρ/(2πL)[ln(8L/D) − 1] + ρ_c/(2πL) ln(D/d)          (BS 7430 9.5.7)   … (9.7)
+```
+
+Two shells in series: a rod of the hole's diameter in soil, plus the backfill annulus.
+Two consequences run against intuition. No backfill can do better than the fat rod
+(`ρ_c → 0` gives Dwight with `D` for `d`: 17.9 Ω against 33.1 Ω bare for the 3 m rod in
+100 Ω·m), and backfill does not cure the seasons, because the soil term is still
+proportional to `ρ`. The software's earth-pit card solves the pit numerically (axisymmetric
+finite volumes), which handles partial columns and plates at the bottom of a well; (9.7) lies
+within 2.5 % of that solution, on the conservative side. It also checks the current density
+at the metal and at the backfill boundary against BS 7430 9.8,
+`J_max = 10³ √(57.7/(ρ t))` A/m².
+
+### 9.8 Piles, piers and strip footings: the concrete shell (version 1.6)
+
+The hemisphere `R ≈ 0.2ρ/∛V` of §9.4 suits a compact foundation whose steel fills it. A pile,
+pier, pole base or strip footing is long and slender, with its steel near the axis, and the
+concrete is a coaxial shell in series with the soil — (9.7) again, with concrete for backfill
+(Fagan and Lee 1970):
+
+```
+R = ρ_c/(2πL) ln(r_c/a) + ρ/(2πL)(ln(4L/r_c) − 1)
+  = R_bare + (ρ_c − ρ)/(2πL) · ln(r_c/a)                                 … (9.8)
+```
+
+The second form gives the rule worth remembering: **concrete helps exactly when it is less
+resistive than the soil**, whatever the dimensions. Buried concrete in moist ground is about
+30–100 Ω·m (Fagan and Lee measured 30 Ω·m; IEEE 142 gives about 30; IEEE 80 21–100 wet); an
+exposed slab is several hundred (EPRI measured 196 Ω·m wet and 264 Ω·m dry on a pad). The
+software's default is 50 Ω·m.
+
+A cage of `n` bars of radius `a` on a circle of radius `b` acts as one bar of its
+geometric-mean radius, and a rectangular section `w × h` as a cylinder of equal capacitance:
+
+```
+a_eq = (n a b^(n−1))^(1/n),     r_c = (w + h)/4 + 0.09 min(w, h)     … (9.9)
+```
+
+(`w/4` for a flat strip and `0.59w` for a square, both exact). Six 16 mm bars on a 0.14 m
+circle give `a_eq` = 0.10 m, half the radius of a 0.4 m pier: a reinforced pier is close to a
+bare rod of its own diameter.
+
+The numerical page has **Pier / pile** and **Strip footing** elements. The solver puts the
+concrete shell `ρ_c ln(r_c/a_eq)/(2πL)` in series with each segment's leakage, uses the
+kernel reduced to the concrete's radius for near pairs and keeps those segments at least
+1.5 `r_c` long. Fagan and Lee's own table for a 10 ft, ¾ in rod in 16 in of concrete is
+reproduced within 3 %, and Wiener's measured footings (6–13 Ω over 14 months) fall inside the
+measured range. The lightning model takes the same elements (§10.7, Figure 21).
 
 ---
 
@@ -1252,11 +1489,112 @@ behaves like about 21 Ω during the front, and the peak earth potential rise for
 III current of 100 kA is around **2100 kV rather than the 450 kV that I·R would give**.
 
 Equation (10.3) is an estimate, not a measurement — a defensible number needs an impulse
-test or a full transmission-line model, and it deliberately ignores soil ionisation, which
+test or a full field model (§10.7), and it deliberately ignores soil ionisation, which
 pushes the other way (§10.1) and can be significant at high current density. But it is the
 right order and it points the right way, which is what a warning has to do. Size
 equipotential bonding and SPD coordination on the impulse value; never quote the measured
 resistance as if it described the lightning performance of an extended earthing system.
+
+### 10.7 The lightning response computed: the electromagnetic model (versions 1.5–1.6)
+
+§10.4–10.6 put numbers on the impulse behaviour with closed-form estimates. For an electrode
+of any shape the numerical page computes the response itself, in the frequency domain, in the
+manner of Grcev's electromagnetic model and the HEM of Visacro and Soares. The conductors are
+cut into segments; segment `k` carries a longitudinal current `I_L` along it and leaks a
+transverse current `I_T` into the soil, and at angular frequency `ω`
+
+```
+(V_a + V_b)/2 = Σ_j Z^T_kj I_T,j
+V_a − V_b    = Σ_j Z^L_kj I_L,j + Z_i,k I_L,k                           … (10.4)
+Kirchhoff's current law at every node
+```
+
+with the couplings
+
+```
+Z^T_kj = 1/(4πκ ℓ_k ℓ_j) ∫∫ [ e^(−γR)/R + K e^(−γR')/R' ] dl dl'
+Z^L_kj = jωμ₀/(4π) ∫∫ [ t_k·t_j e^(−γR)/R + K t_k·t'_j e^(−γR')/R' ] dl dl'
+                                                                   … (10.5)
+
+κ = σ + jωε,   γ = √(jωμ₀κ),   K = (κ − jωε₀)/(κ + jωε₀)
+```
+
+where the image current `t'_j` keeps only the vertical part of the current, mirrored, and
+Sommerfeld integrals add what the image leaves out at high frequency. As `ω → 0` it is the
+solver of §8. The harmonic impedance `Z(jω)` gives the potential rise for a lightning current
+`i(t)`:
+
+```
+v(t) = R i(t) + F⁻¹{ [Z(jω) − R] I(jω) }
+Z_p = max v / max i,     IC = Z_p / R                              … (10.6)
+```
+
+Soil may be constant or frequency dependent (Alipio–Visacro, CIGRE TB 781). The model
+reproduces Grcev's Sommerfeld results within about 5 % from 100 Ω·m up, the potential rise
+measured on a 3 m rod (CIGRE TB 781) within 9 % with frequency-dependent soil, and the
+impulse coefficients of Alipio and Visacro.
+
+**Layered soil (1.6).** The exact Green's functions of a stratified half-space follow from
+two transmission lines along `z`, TM and TE, with `u_i = √(λ² + γ_i²)`, `Z^e_i = u_i/κ_i` and
+`Z^h_i = jωμ₀/u_i` in layer `i`. With `V^e`, `V^h` their voltages for a unit shunt current and
+`I^e` the current for a unit series voltage,
+
+```
+G = ∫₀^∞ g̃ J₀(λρ) λ dλ,       g̃_φ   = 2κ'(V^e − V^h)/λ²
+g̃_A,h = 2V^h/(jωμ₀),          g̃_A,v = 2I^e/κ'                     … (10.7)
+```
+
+for the scalar potential and the vector potential of horizontal and vertical currents
+(Michalski and Zheng's formulation C; `κ'` of the source layer). For `λ ≫ |γ|` these become
+the image series of §8.6 with complex reflection coefficients `(κ_L − κ_M)/(κ_L + κ_M)`. The
+software integrates the direct term and the images within about a metre of the electrode
+exactly and tabulates the smooth remainder per frequency. Against the exact two-layer model of
+Arnautovski-Toseva, Grcev and El Khamlichi Drissi (2007) for 10 m and 50 m wires in four
+two-layer soils it agrees within 1 % up to 100 kHz and 3.5 % at 1 MHz for the 10 m wire, and
+within 4.5 % up to 1 MHz for the 50 m wire (Figure 19); its low-frequency limit matches the
+solver of §8 within 0.2 %. Image models alone (quasi-static images, with or without
+retardation) missed the same benchmark by up to 26 %.
+
+![Figure 19 — Harmonic impedance of end-fed horizontal wires (5 mm radius, 0.75 m deep, ε_r = 10) in two-layer soil: Earthing System (lines) against the exact Sommerfeld model of Arnautovski-Toseva et al. 2007 (circles). (a) 10 m wire; (b) 50 m wire.](figures/fig19_layered_hf.png)
+
+*Figure 19 — Harmonic impedance of end-fed horizontal wires (5 mm radius, 0.75 m deep, ε_r = 10) in two-layer soil: Earthing System (lines) against the exact Sommerfeld model of Arnautovski-Toseva et al. 2007 (circles). (a) 10 m wire; (b) 50 m wire.*
+
+**Soil ionisation (1.6).** Grcev (2009) combined the CIGRE/IEEE resistance under ionisation
+with the frequency response: ionisation acts on the resistive drop `R i(t)` of (10.6) and the
+reactive part `x(t)` is kept,
+
+```
+v_i(t) = R(t) i(t) + x(t)
+R(t) = R / √(1 + i(t)/I_g),      I_g = E₀ρ / (2πR²)               … (10.8)
+```
+
+with `E₀` the critical field of the soil (400 kV/m CIGRE, 300 kV/m IEEE; 300–1500 kV/m have
+been published, and a higher value is the cautious choice). For a single electrode Grcev also
+gave `A_i = 1/√(1 + I_m/I_g) + A − 1`. His 10 m rod in 100 Ω·m (`R` = 11 Ω, `E₀` = 300 kV/m)
+gives 8.3 Ω for the 30 kA first stroke (published 8.3 Ω) and 13.9 Ω for the 12 kA subsequent
+stroke (published 13.4 Ω). The lesson is in Figure 20: ionisation lowers the slow first stroke
+by a quarter, but the subsequent stroke peaks during its inductive rise, before the soil has
+broken down, and is lowered by only 6 %.
+
+![Figure 20 — A 10 m rod in 100 Ω·m soil under the Heidler currents used by Grcev (2009), without ionisation and with it (E₀ = 300 kV/m). (a) First stroke, 30 kA; (b) subsequent stroke, 12 kA. R(t) is the ionised resistance of (10.8).](figures/fig20_ionisation.png)
+
+*Figure 20 — A 10 m rod in 100 Ω·m soil under the Heidler currents used by Grcev (2009), without ionisation and with it (E₀ = 300 kV/m). (a) First stroke, 30 kA; (b) subsequent stroke, 12 kA. R(t) is the ionised resistance of (10.8).*
+
+**Foundations (1.6).** A conductor cast in concrete leaks through the concrete first. In the
+lightning model the shell of §9.8 becomes an admittance `2πκ_c/ln(r_c/a)` per metre in series
+with the soil, `κ_c = 1/ρ_c + jωε_c`, and the soil sees a conductor of the concrete's radius
+(Figure 21).
+
+![Figure 21 — (a) A 3.05 m rod bare and cast in 0.41 m of concrete against soil resistivity: Earthing System (lines) and Fagan and Lee's Table VII (markers); the concrete helps once the soil is more resistive than the concrete. (b) Harmonic impedance of a 3 m concrete pier (0.4 m, six 16 mm bars, ρ_c = 50 Ω·m) and a bare 3 m rod in 100 and 1000 Ω·m soil.](figures/fig21_foundation.png)
+
+*Figure 21 — (a) A 3.05 m rod bare and cast in 0.41 m of concrete against soil resistivity: Earthing System (lines) and Fagan and Lee's Table VII (markers); the concrete helps once the soil is more resistive than the concrete. (b) Harmonic impedance of a 3 m concrete pier (0.4 m, six 16 mm bars, ρ_c = 50 Ω·m) and a bare 3 m rod in 100 and 1000 Ω·m soil.*
+
+**Limits.** Conductors are thin wires. A foundation is a cylinder of concrete (rafts and
+blocks are not modelled, nor is breakdown of the concrete, which Fagan and Lee observed under
+impulse current). All layers share one frequency dependence and permittivity. The ionisation
+formula is instantaneous and was recommended for electrodes up to about 30 m. The full
+derivations and checks are §11.9 and §13.11 of the book *Earthing System — Theory and
+Practice*.
 
 ---
 
@@ -1422,7 +1760,7 @@ inadequate earth termination simply moves the damage.
 ---
 
 ## 12. System neutral grounding — module 9
-### 11.1 The problem with an ungrounded system
+### 12.1 The problem with an ungrounded system
 
 An "ungrounded" system is not isolated from earth; it is capacitively coupled to it through
 the distributed cable capacitance `C₀`. A single earth fault therefore draws only the
@@ -1435,7 +1773,7 @@ restrikes the arc, pumping more energy into the L-C circuit. Each restrike ratch
 trapped charge up, and voltages of 5–6 per unit can develop — puncturing insulation
 somewhere else entirely, often in a machine winding far from the original fault.
 
-### 11.2 High-resistance grounding — why `I_R ≥ 3I_C0`
+### 12.2 High-resistance grounding — why `I_R ≥ 3I_C0`
 
 Insert a resistor in the neutral. Now the fault circuit is `R` in parallel with the
 capacitive path. The resistor **drains the trapped charge** between half cycles, so the
@@ -1443,7 +1781,7 @@ ratchet cannot build. The criterion is that the resistive current must at least 
 capacitive current:
 
 ```
-I_R ≥ 3 I_C0,     R_N = V_LN / I_R          … (11.1)
+I_R ≥ 3 I_C0,     R_N = V_LN / I_R          … (12.1)
 ```
 
 Satisfying it limits transient overvoltage to about 2.5 per unit, which insulation can
@@ -1458,10 +1796,10 @@ does the job and the system can run with a standing earth fault while it is loca
 and high-resistance grounding is no longer appropriate — move to low-resistance grounding
 and trip on the first fault.
 
-### 11.3 "Effectively grounded" and arrester selection
+### 12.3 "Effectively grounded" and arrester selection
 
 ```
-X₀/X₁ ≤ 3   and   R₀/X₁ ≤ 1          … (11.2)
+X₀/X₁ ≤ 3   and   R₀/X₁ ≤ 1          … (12.2)
 ```
 
 When both hold, the healthy-phase voltage rise during an earth fault stays below about
@@ -1528,6 +1866,14 @@ watch it fail by 130 mm, and have the students find the three different ways to 
 taller rods, a third rod, or a finer mesh. It is the clearest demonstration in the whole
 course that geometry, not resistance, is what protects a structure from a direct strike.
 
+**Optional session 5 — Layers, separate metal and lightning (§2.8, §8.6–8.9, §9.7–9.8, §10.7).**
+Fit the H-type traverse of the soil page with two and three layers and read the F test; put
+the Annex B grid on both models and compare `R_g`. Add an isolated fence and find the two
+touch voltages; then bond it and compare. Run a 2 km pipe out of the station with and without
+an insulating joint. Finish with the lightning card: a 3 m rod, then the same rod in a
+concrete pier, then two-layer soil and ionisation, and explain each change in the impulse
+coefficient.
+
 **Assessment idea.** Give each student a different soil traverse and fault level and ask
 for a complete design report, generated by the software but with a written justification of
 every input choice — because the software will happily compute a beautiful answer from
@@ -1568,6 +1914,14 @@ wrong inputs, and knowing which inputs matter is the actual skill.
 | IΔn | RCD rated residual current | A |
 | l₁, s, k_i, k_c, k_m | IEC 62305 electrode length and separation factors | m, – |
 | 3I_C0, R_N | System charging current, neutral resistor | A, Ω |
+| ρ₃, ρ₄, h₁ … h₃ | Resistivities and thicknesses of further layers | Ω·m, m |
+| S, T | Conductance `h/ρ` and transverse resistance `ρh` of a thin layer | S, Ω·m² |
+| Z, E | Mutual-resistance matrix of separate networks; network incidence matrix | Ω, – |
+| z, g, γ | Series impedance, leakage and propagation constant of a long conductor | Ω/m, S/m, 1/m |
+| ρ_c, r_c, a_eq | Concrete resistivity, concrete radius, equivalent bar radius | Ω·m, m, m |
+| κ, γ | Complex conductivity `σ + jωε`, propagation constant `√(jωμ₀κ)` | S/m, 1/m |
+| Z(jω), Z_p, IC | Harmonic impedance, impulse impedance, impulse coefficient | Ω, Ω, – |
+| E₀, I_g | Critical field of the soil, ionisation current | kV/m, kA |
 
 ---
 
@@ -1716,3 +2070,17 @@ for the EPR. Module 7 reports the frequency-dependent value.
 40. F. Dawalibi and D. Mukhedkar, "Optimum design of substation grounding in two-layer earth", *IEEE Trans. PAS*, 94, 1975
 41. J. G. Sverak, "Sizing of ground conductors against fusing", *IEEE Trans. PAS*, 100, 1981
 42. R. Alipio and S. Visacro, "Modeling the frequency dependence of electrical parameters of soil", *IEEE Trans. Electromagnetic Compatibility*, 56(5), 2014
+43. L. Grcev, "Modeling of grounding electrodes under lightning currents", *IEEE Trans. Electromagnetic Compatibility*, 51(3), 2009
+44. K. A. Michalski and D. Zheng, "Electromagnetic scattering and radiation by surfaces of arbitrary shape in layered media, Part I: Theory", *IEEE Trans. Antennas and Propagation*, 38(3), 1990
+45. V. Arnautovski-Toseva, L. Grcev and K. El Khamlichi Drissi, "High frequency electromagnetic analysis of horizontal grounding conductor and near-by passive parallel conductor within two-layer soil", *Proc. 15th Int. Conf. on Software, Telecommunications and Computer Networks (SoftCOM)*, IEEE, 2007
+46. V. Arnautovski-Toseva and L. Grcev, "Image and exact models of a vertical wire penetrating a two-layered earth", *IEEE Trans. Electromagnetic Compatibility*, 53(4), 2011
+47. V. Arnautovski-Toseva and L. Grcev, "On the image model of a buried horizontal wire", *IEEE Trans. Electromagnetic Compatibility*, 58(1), 2016
+48. E. J. Fagan and R. H. Lee, "The use of concrete-enclosed reinforcing rods as grounding electrodes", *IEEE Trans. Industry and General Applications*, IGA-6(4), 1970
+49. P. Wiener, "A comparison of concrete encased grounding electrodes to driven ground rods", *IEEE Trans. Industry and General Applications*, IGA-6(3), 1970
+50. I. F. Gonos and I. A. Stathopulos, "Estimation of multilayer soil parameters using genetic algorithms", *IEEE Trans. Power Delivery*, 20(1), 2005
+51. CIGRE TB 781 (2019) and S. Visacro and R. Alipio, "Frequency dependence of soil parameters", *IEEE Trans. Power Delivery*, 27(2), 2012 — frequency-dependent soil in the lightning model
+52. IEEE Std 80-2013 Annex H — benchmark grids with fences (Grids 4 and 5)
+53. Electric Power Research Institute, *Touch and Step Voltage Measurements on Field Installed Ground Grid and Concrete Pads*, Technical Update 1018976, 2009
+54. L. S. Edwards, "A modified pseudosection for resistivity and IP", *Geophysics*, 42(5), 1977 — median depth of investigation of the Wenner and Schlumberger arrays
+
+The book *Earthing System — Theory and Practice* (version 3.5, with Earthing System 1.6.1) treats every topic above at length, with the derivations, worked examples and verification tables.
