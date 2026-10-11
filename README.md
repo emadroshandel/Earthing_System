@@ -4,8 +4,10 @@
 
 Implements IEEE Std 80-2013, IEC 60364-4-41 / -5-54, IEC 62305-3, IEC 60909-0 and
 IEEE Std 142, adds a boundary-element numerical solver for arbitrary electrode geometry in
-uniform or two-layer soil, explains *why* every compliance criterion passed or failed, and
-produces a printable design report in English or Persian. Version 1.3 places the design in
+uniform or layered soil (up to four layers) — with fences and other separate metal,
+concrete foundations, transferred potential along pipes, rails and cable screens, and the
+frequency-domain lightning response of any electrode — explains *why* every compliance
+criterion passed or failed, and produces a printable design report in English or Persian. Version 1.3 places the design in
 the wider standards landscape: BS EN 50522, ENA EG-0/EG-1 and AS 2067 touch-voltage criteria,
 CIGRE TB 781 frequency-dependent soil, and the codes for renewables, pipelines, HVDC
 electrodes, data centres, telecommunications and fault-current distribution
@@ -18,7 +20,7 @@ entirely inside your browser with no installation at all.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/validation-112%20checks-brightgreen.svg)](tests/test_validation.py)
+[![Tests](https://img.shields.io/badge/validation-344%20tests-brightgreen.svg)](#12-validation-and-tests)
 
 ---
 
@@ -33,14 +35,13 @@ entirely inside your browser with no installation at all.
 7. [The numerical solver](#7-the-numerical-solver)
 8. [Reports](#8-reports)
 9. [Python API](#9-python-api)
-10. [What it writes](#10-what-it-writes)
-11. [Theory and teaching material](#11-theory-and-teaching-material)
-12. [Validation and tests](#12-validation-and-tests)
-13. [Running it online](#13-running-it-online)
-14. [Limitations](#14-limitations)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Contributing](#16-contributing)
-17. [Licence and references](#17-licence-and-references)
+10. [Theory and teaching material](#11-theory-and-teaching-material)
+11. [Validation and tests](#12-validation-and-tests)
+12. [Running it online](#13-running-it-online)
+13. [Limitations](#14-limitations)
+14. [Troubleshooting](#15-troubleshooting)
+15. [Contributing](#16-contributing)
+16. [Licence and references](#17-licence-and-references)
 
 ---
 
@@ -58,12 +59,14 @@ compute, and you certainly cannot teach from them.
 
 Earthing System joins them up in one place, shows every intermediate quantity with the clause
 it came from, explains each verdict in words a student or a reviewer can follow, and is
-small enough to read end to end. The calculation engine is about 3000 lines of dependency-
-light Python.
+small enough to read. The calculation engine is about 13 000 lines of dependency-light
+Python, every module documented with the equations it implements.
 
 ## 2. Install
 
-**Requirements:** Python 3.9 or newer. `numpy` is needed only for the numerical solver.
+**Requirements:** Python 3.9 or newer. `numpy` is needed only for the numerical solver
+(module 5, including the transferred potential and the lightning response), the three- and
+four-layer soil fits and the earth-pit card.
 `pywebview` is optional and gives a native desktop window. Everything else — the HTTP
 server, the whole engine, the report generator — is Python standard library. Plotly is
 bundled, so the application works offline.
@@ -108,12 +111,13 @@ Then load one of the example projects with the **Import** button:
 Ten pages down the left, in the order a real design goes:
 
 ```
-Inputs           1  Soil model          field data → two-layer earth
+Inputs           1  Soil model          field data → two-, three- or four-layer earth
                  2  Fault current       IEC 60909 → I_G
                  3  Conductor sizing    thermal sizing, PE and bonding
 
 Design modules   4  Substation grid     the full IEEE 80 procedure
-                 5  Numerical solver    boundary-element method
+                 5  Numerical solver    boundary-element method, fences, transferred
+                                        potential, lightning response
                  6  Buildings & homes   IEC 60364, TN / TT / IT
                  7  Lightning earth     IEC 62305-3, earth termination
                  8  Air termination     IEC 62305-3, rolling sphere zone
@@ -150,12 +154,12 @@ complied.
 
 | # | Module | Standard | What it computes |
 |---|---|---|---|
-| 1 | Soil model | IEEE Std 81-2025 §7.3, §7.6 | Wenner / Schlumberger reduction, two-layer inversion (ρ₁, ρ₂, h, K) by Nelder–Mead, equivalent uniform ρ |
+| 1 | Soil model | IEEE Std 81-2025 §7.3, §7.6 | Wenner / Schlumberger reduction, two-layer inversion (ρ₁, ρ₂, h, K) by Nelder–Mead, three- and four-layer inversion by Levenberg–Marquardt with an F test of each added layer and the middle layers' equivalence, equivalent uniform ρ and equivalent two-layer model for any number of layers |
 | 2 | Fault current | IEC 60909-0, IEEE 80 §15 | Iₖ₁″, Iₖ″, iₚ, I_th, decrement factor D_f, split factor S_f, maximum grid current I_G |
 | 3 | Conductor sizing | IEEE 80 Eq. (37), IEC 60364-5-54 | Minimum area by both methods, joint temperature limits, PE and bonding sizes, minimum buried sizes |
 | 4 | Substation grid | IEEE Std 80-2013 | Tolerable touch/step voltages, R_g by Sverak **and** Schwarz, GPR, E_m, E_s, and an auto-refinement search |
-| 5 | Numerical solver | Boundary-element method | Arbitrary geometry, uniform or two-layer soil, surface potential field, touch/step maps, per-segment leakage current |
-| 6 | Buildings & homes | IEC 60364-4-41 / -5-54, BS 7430 | Electrode resistances, R_A, Z_s, disconnection time, RCD selection, TN / TT / IT; earth pits (backfilled electrodes) |
+| 5 | Numerical solver | Boundary-element method; IEEE 80 §17.3; electromagnetic model | Arbitrary geometry in uniform or layered soil (up to four layers); surface potential field, touch/step maps, per-segment leakage current; fences and other separate metal (bonded or floating) with their own touch voltages; concrete piers and strip footings; transferred potential along pipes, rails, screens and bare wires; harmonic impedance and lightning potential rise, with layered soil, soil ionisation and frequency-dependent soil |
+| 6 | Buildings & homes | IEC 60364-4-41 / -5-54, BS 7430 | Electrode resistances, R_A, Z_s, disconnection time, RCD selection, TN / TT / IT; earth pits (backfilled electrodes, solved numerically) |
 | 7 | Lightning earth | IEC 62305-3 | LPS class data, l₁, Type A / Type B termination, down-conductors, separation distance s, and the behaviour under the impulse: effective length L_eff = k(ρT)^0.5, effective area of a meshed system by three published expressions, centre versus corner injection, and the impulse coefficient A = Z/R that says by how much a measured resistance understates the potential rise |
 | 8 | Air termination | IEC 62305-3 Annex A | Rolling sphere rolled numerically over the structure, protected radius r_p, sphere penetration between terminations, maximum span, roof-field and roof-edge checks, plan coverage, protective angle and mesh methods |
 | 9 | System grounding | IEEE 142, IEEE C62.92 | Method selection, NER sizing, charging current, effectively-grounded test |
@@ -206,6 +210,27 @@ Two implementation details make it trustworthy:
 Outputs: 2-D and 3-D surface potential, touch and step voltage maps, an arbitrary traverse
 profile, per-segment leakage current, and a 3-D view of the electrode geometry.
 
+What else the numerical page does:
+
+- **Layered soil, up to four layers.** The Green's function is built by tracing reflections
+  between the planes, with the far images taken from the spectral solution; every conductor
+  is split at every interface. Checked against an independent spectral computation
+  (3.5 × 10⁻¹⁰) and an axisymmetric finite-volume solution for rods crossing both
+  interfaces (0.13 %).
+- **Separate metal.** A fence, bonded or isolated, or any other floating metal is held at its
+  own potential; the solver returns the mutual-resistance matrix, the fence potential, its
+  touch voltages inside and outside, and the grid-to-fence transfer voltage. IEEE 80 Annex H
+  Grids 4 and 5 are reproduced within 1.5 % and 2.5 % of the reference programs.
+- **Concrete foundations.** *Pier / pile* and *Strip footing* elements: the bar cage in a
+  concrete shell of the given resistivity (Fagan and Lee's table within 3 %).
+- **Transferred potential.** A pipe, rail, cable screen or bare wire leaving the station is
+  solved as a lossy line driven by the station's soil potential, with the GPR corrected for
+  the current it draws away.
+- **Lightning response.** The same electrodes solved as thin wires in the frequency domain:
+  harmonic impedance, potential rise under first and subsequent strokes (CIGRE TB 781 or
+  Heidler currents), impulse impedance and coefficient; constant or frequency-dependent soil,
+  uniform or layered (exact Sommerfeld solution), with optional soil ionisation.
+
 ## 8. Reports
 
 One HTML document, printable to PDF from any browser, containing the inputs, every
@@ -228,6 +253,13 @@ m = soil.invert_two_layer([1, 2, 4, 6, 10, 16],
                           [320, 245, 182, 162, 168, 182], "wenner")
 print(m["rho1"], m["rho2"], m["h"], m["rms_pct"])
 
+# fit three layers and test whether the third is supported
+from earthsys import layered
+a = [1, 3, 6, 8, 10, 15, 20, 40, 60]
+r = [138, 79, 71, 67, 80, 88, 99, 151, 170]
+sel = layered.select_three(a, r, soil.invert_two_layer(a, r, "wenner"))
+print(sel["chosen"], sel["three"]["rho"], sel["three"]["h"], sel["p_value"])
+
 # design a grid and ask why it failed
 g = ieee80.GridGeometry(Lx=70, Ly=70, D=7, h=0.5, d=0.01)
 r = reasoning.explain_ieee80(
@@ -242,6 +274,15 @@ opt = ieee80.optimise(400, g, 1.908, 2500, 0.102, 0.5)
 print(opt["best"]["strategy"], opt["best"]["D"])
 ```
 
+```python
+# lightning response of a 10 m rod in two-layer soil, with ionisation
+from earthsys import hf
+d = hf.analyse([{"kind": "rod", "x": 0, "y": 0, "top_depth": 0, "length": 10, "radius": 0.008}],
+               rho0=300, layers={"rho": [60], "h": [2.0]}, E0=400,
+               waveforms=("first_heidler", "subsequent_heidler"))
+print(d["R"], d["responses"]["first_heidler"]["Z_impulse_ion"])
+```
+
 Every JSON endpoint is also a plain function:
 
 ```python
@@ -250,33 +291,45 @@ dispatch("/api/ieee80/design", {"rho": 400, "Lx": 70, "Ly": 70, "D": 7,
                                 "IG_kA": 1.908, "rho_s": 2500, "hs": 0.102})
 ```
 
-## 10. What it writes
-
-```
-projects/   *.json   saved projects (also Export/Import from the toolbar)
-outputs/    *.html   generated reports
-```
-
-Both are git-ignored. Projects are plain JSON: inputs, tables and results, so they diff
-cleanly and can be generated by script.
-
-## 11. Theory and teaching material
+## 10. Theory and teaching material
 
 | Document | For |
 |---|---|
+| [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 21 figures, and a suggested teaching sequence |
+| `docs/EarthSystem_Theory_and_Practice.docx` | The same material as a formatted Word document with title page, contents, numbered figures and page numbers (built by `docs/build_docx.sh`) |
+| [`docs/METHODS.md`](docs/METHODS.md) | The condensed equation reference, every formula with its clause number or source |
+| *Earthing System — Theory and Practice*, version 3.5 | The full book (256 pages) that accompanies release 1.6.1: every method at length, with the verification tables and exercises. Built from `Claude outputs/Earthing_System_Tutorial_Source` |
+
+Every figure in `docs/figures` is generated from the engine itself by `docs/make_figures.py`, so
+the plots in the tutorial and the numbers in the software cannot drift apart. Rebuild the whole
+set — the figures, the Word document and its table of contents — with:
+
+```bash
+bash docs/build_docx.sh
+```
 
 `THEORY.md` is also rendered inside the application, on the **Theory & reference** page,
 with a contents sidebar — so the software teaches while it is being used. It derives the
 tolerable-voltage formulas from the foot-resistance model, the decrement factor from the
 rms of the DC offset, the adiabatic conductor equation from the heat balance, and the
 boundary-element self term from first principles, then checks each against the standard's
-own published form.
+own published form; since 1.6.0 it also covers three- and four-layer soil, fences,
+transferred potential, earth pits, concrete foundations and the computed lightning response.
 
-## 12. Validation and tests
+## 11. Validation and tests
 
 ```bash
-python -m unittest discover -s tests -v      # 183 checks
+python -m unittest discover -s tests -v      # 344 tests (or: python -m pytest tests)
+python audit.py                              # 54 independent re-derivations of the formulas
 ```
+
+The suite reproduces published results wherever they exist. Besides IEEE 80 Annex B below:
+IEEE 80 Annex H Grids 1–6 (against CDEGS, ETAP and WinIGS), BS 7430 and EREC S34 worked
+examples, IEC 62305-3 figures read from the vector drawings, three- and four-layer soil
+traverses of Gonos and Stathopulos, Zhang et al. and Slaoui and Erchiqui, CIGRE TB 781 (a
+measured rod and Table 4.1), Grcev (2009) with and without ionisation, Alipio and Visacro
+(2014), the exact two-layer results of Arnautovski-Toseva et al. (2007), and Fagan and Lee's
+concrete-encased rods (1970).
 
 Against the worked example of **IEEE Std 80-2013 Annex B** (70 × 70 m grid, ρ = 400 Ω·m,
 ρ_s = 2500 Ω·m, h_s = 0.102 m, t_s = 0.5 s, I_G = 1908 A):
@@ -305,27 +358,128 @@ grid the numerical corner-mesh touch voltage is **931 V** against the closed-for
 > where the half-length belongs, which inflates the result by about 12 % for a 30 m tape.
 > `docs/THEORY.md` §9.4 has the details.
 
-### Changes in 1.2.0
+### Changes in 1.6.1
 
-(*Earthing System Design — Theory and Practice*, Appendix D) are fixed; each has a
-regression test in `tests/test_v12_fixes.py` that fails on 1.1.
+1. **Forced models are warned.** *Three layers* or *Four layers* still shows the requested
+   model, but when the F test rejects the extra layers a warning heads the results and names
+   the supported model with its values. Before, the verdict was a note below the residual
+   table, and it said "the simpler model is kept" while the page showed the other one. Forced
+   onto the built-in example traverse (longest spacing 40 m), three layers put 2 Ω·m below
+   141 m; both that layer and four layers' 66 Ω·m below 70 m are rejected at p ≈ 0.8.
+2. **Four layers reported the wrong count.** A requested four-layer model set the
+   "supported" count to four, so no caution appeared at all. The count is now the one the
+   tests support; a fourth layer is tested against two layers directly when the third fails.
+3. **Unresolved and unreachable layers are flagged** in the table, the KPIs and the report,
+   and drawn veiled in the section: a layer whose ρ or top has a one-standard-deviation factor
+   above 20 (or sits on the search bound), or whose top lies below twice the median depth of
+   investigation of the longest spread.
+4. **Depth of investigation.** The section's dotted line was drawn at a_max; it is now the
+   median depth of investigation, 0.52 a (Wenner) or 0.38 s (Schlumberger), after Edwards
+   (1977), as in the tutorial's §2.4.
+5. **Hidden equivalence note.** For four layers the statement that h₂ is not resolved was
+   filtered out; it is shown now.
+6. **Confirmation before use.** *Pull inputs* (grid page) and *Use the fitted soil model*
+   (numerical page) ask once before using a warned model, as they already did for a poor
+   fit; a spurious conductive layer makes the computed resistance and GPR too low.
+7. **Drawing.** The scale bar's last block overlapped its label, and the captions of two
+   thin top layers overlapped; both are fixed.
 
-1. **Equivalent resistivity for grids.** The automatic rule weighted the layers by burial
-   depth and ignored the grid size (Annex B grid in 2 m of 400 Ω·m: −66 % over 1600 Ω·m).
-   It now treats the grid as a disc on the two-layer earth; **Pull inputs** recomputes it
-   for the grid entered. Conservative in all 48 cases checked against the numerical solver.
-2. **Two-layer boundary elements.** Rod segments below the interface used the upper-layer
-   Green's function (−2 % on R_g). All four two-layer functions are now used and conductors
-   are split at the interface.
-3. **Automatic resistance formula.** The switch from Sverak to Schwarz made rods appear to
-   raise R_g. Automatic now applies Schwarz's rod factor to Sverak's grid value.
-4. **Hollow-square rod factor.** λ now follows BS 7430 (4.51 for eight rods, not 3.45) and
-   is computed from the layout for other counts and for the filled square.
-5. **Bonded electrodes.** Module 6 now includes the mutual resistance between electrodes
-   (optional separation field) instead of adding them like resistors in parallel.
-6. **Soil fit quality.** Fits are graded, three-layer (H/K-type) curves are flagged, a poor
-   fit asks for confirmation before it is pulled into the grid design, and the built-in
-   example traverse is now a genuine two-layer site.
+### Changes in 1.6.0
+
+**Layered soil, soil ionisation and concrete foundations in the lightning model** (module
+`earthsys/hf.py`, foundation elements in `earthsys/bem.py`; tests in
+`tests/test_v160_layers_ion_concrete.py`; tutorial Sections 11.9, 13.11 and 13.12).
+
+1. **Layered soil under lightning.** The lightning response now takes the soil card's
+   two to four layers, each constant or frequency dependent. The Green's functions are the
+   exact (Sommerfeld) solution for the stratified half-space — the transmission-line Green's
+   functions of the mixed-potential formulation C — split into the direct term and the images
+   near the electrode, integrated exactly, and a smooth correction tabulated per frequency.
+   Against the exact model of Arnautovski-Toseva, Grcev and El Khamlichi Drissi (2007) for
+   10 m and 50 m wires in four two-layer soils: the 10 m wire within 1 % up to 100 kHz and
+   3.5 % at 1 MHz, the 50 m wire within 4.5 % up to 1 MHz; at 10 MHz the layered result
+   follows the uniform one (which is 6.6 % above theirs) within 2 %. At low frequency it agrees with the boundary-element solver within 0.2 %, for
+   rods that cross interfaces and for three layers.
+2. **Soil ionisation.** Optional, with the critical field E0 (400 kV/m CIGRE, 300 kV/m
+   IEEE): the resistive part of the response follows R/√(1 + i/I_g), I_g = E0ρ/(2πR²), and
+   the reactive part is kept (Grcev 2009, Eq. 20). Reproduces Grcev's Table I (10 m rod,
+   100 Ω·m): 8.3 Ω for the first stroke, 13.9 Ω against 13.4 Ω for the subsequent one.
+3. **Concrete foundations.** New *Pier / pile* and *Strip footing* elements on the numerical
+   page: the bar cage becomes one bar of the cage's geometric-mean radius inside a concrete
+   cylinder whose resistivity (and, in the lightning model, permittivity) is in series with
+   the soil. Fagan and Lee's (1970) Table VII is reproduced within 3 %, Wiener's (1970)
+   measured footings fall in the measured range. Both the power-frequency solver and the
+   lightning model take them.
+
+### Changes in 1.5.0
+
+**Four-layer soil, fences and transferred potential** (new module `earthsys/transfer.py`,
+endpoint `/api/transfer`; tests in `tests/test_v150_fence_transfer.py`; tutorial Sections 2.7,
+8.10 and 8.11).
+
+1. **Four layers.** *Number of layers* gains *Four layers*; *Automatic* tries a fourth when
+   three layers still miss the readings by more than 3 % RMS with nine or more readings, and keeps it on the F test with
+   N − 7 degrees of freedom. On the Zhang et al. traverse it finds the fourth layer
+   (RMS 11.7 % → 3.8 %, p = 0.001) and fixes the thin layer's conductance within ×1.18; on
+   Slaoui and Erchiqui's sounding it keeps three. The solver, grid rule and soil pull take
+   four layers.
+2. **Separate metal networks.** The solver holds each piece of metal at its own potential and
+   returns the mutual-resistance matrix. A new **Fence** element places posts (and an optional
+   buried wire) along a rectangle, bonded to the grid or isolated. Results add each network's
+   potential and own resistance, the grid-to-fence transfer voltage and the fence touch
+   voltage inside and outside. IEEE 80 Annex H Grid 4 (isolated fence) is reproduced within
+   1.5 % of CDEGS or WinIGS for every quantity but one step voltage (4 %), and Grid 5 (bonded
+   fence, L-shape) within 2.5 %.
+3. **Transferred potential.** A pipe, rail, cable screen or bare wire leaving the station is
+   solved as a lossy line (Carson series impedance, steel skin effect, coating or soil
+   leakage) driven by the bond and by the solver's soil potential along the route, with the
+   GPR corrected for the current it draws away. The numerical page has a new card; the report
+   prints the result.
+4. **Lightning response** (new module `earthsys/hf.py`, endpoint `/api/hf`, tests in
+   `tests/test_v150_lightning.py`; tutorial Section 13.11). The electrodes of the numerical
+   page are solved as thin wires in a lossy half-space, in the frequency domain, with the
+   Sommerfeld corrections for horizontal currents and charges; soil constant or
+   frequency-dependent (Alipio–Visacro, CIGRE TB 781). Harmonic impedance, potential rise under
+   the TB 781 and Heidler first and subsequent strokes, impulse impedance and coefficient.
+   Reproduces Grcev's (2009) Sommerfeld results within about 5 % from 100 Ω·m up, the HEM
+   results of TB 781 for a 3 m rod within 4 % and the rod's measured potential rise within 9 %,
+   and TB 781 Table 4.1 within 0.02.
+5. **Faster surface maps.** Surface potentials are evaluated for all segments at once, with
+   the ±z images merged on the surface; points on top of fence posts are excluded from the
+   step scan.
+6. **Robustness.** Angles are reduced before numpy's cos and sin in the Bessel functions;
+   on some machines the vectorised large-argument path raised a hardware floating-point
+   exception that killed the process during an inversion.
+
+### Changes in 1.4.0
+
+**Three-layer soil**, from the field traverse to the numerical solver (new module
+`earthsys/layered.py`, numpy only; tests in `tests/test_v140_three_layer.py`; tutorial
+Sections 2.7, 6.5 and 8.6).
+
+1. **Forward model.** Wenner and Schlumberger (finite MN) apparent resistivity of an N-layer
+   earth from the recurrent kernel and its Hankel transform; the top interface is summed as
+   images, the rest by Gauss–Legendre quadrature. Matches the two-layer formulas to 1e-6
+   and the complete three-layer image series to 1e-8, in under a millisecond per traverse.
+2. **Inversion.** Five parameters by Levenberg–Marquardt in log space from 64 starts plus
+   seeds from the two-layer fit (global minimum in 30 of 30 random test earths). The soil
+   page's *Number of layers* (Automatic / Two / Three) keeps the third layer only when an F
+   test gives p < 0.05 and the RMS falls by a fifth (no false positives in 15 noisy
+   two-layer sites, 14 of 15 three-layer sites found). Reports the linearised ranges and the
+   combination h₂·ρ₂^β of the middle layer that the readings fix (S- or T-equivalence).
+   On the published traverses of Gonos & Stathopulos (2005) it matches or beats the
+   published GA, DE and SA fits.
+3. **Grid rule.** The disc factor F is now one kernel integral, valid for any number of
+   layers (equal to the old two-layer series to 1e-13). **Pull inputs** takes three-layer
+   models and also reports the equivalent two-layer model for the grid. Conservative in all
+   24 three-layer test cases against the three-layer solver.
+4. **Solver.** Three-layer Green's function by tracing reflected and transmitted waves (exact
+   image series, checked against an independent spectral integration to 3.5e-10), with the
+   deep images taken from the spectral solution as Taylor tables. Conductors are split at
+   both interfaces. Agrees with an independent finite-volume solution within 0.13 % for
+   rods crossing both interfaces. The numerical page has ρ₃, the second-layer thickness and
+   **Use the fitted soil model**.
+5. **Report** prints the three-layer model, the two-layer RMS and the F test.
 
 ### Changes in 1.3.6
 
@@ -352,9 +506,6 @@ backfill (`earthsys/earthpit.py`, endpoint `/api/earthpit`, tests in
    "Earth electrodes and earth pits" area in the standards registry.
 
 ### Changes in 1.3.5
-
-IEC 60364-5-54:2011+A1:2021 and BS EN 50522:2022; each has a regression test in
-`tests/test_v135_book_consistency.py`.
 
 1. **Buried-conductor minimum.** A bare conductor buried in soil is now treated as *not*
    protected against corrosion. Its floor is the larger of BS 7671 Table 54.1 (25 mm²
@@ -462,9 +613,6 @@ Checked against the full texts of **IEEE Std 80-2013 (+ Cor 1-2015)**, **BS 7430
   implies that the resistivity at 1/(4T) can stand in for ρ: at 1000 Ω·m it is 63 % of ρ, while the
   first-stroke impulse impedance falls only to 89 %.
 
-Confirmed without change: EN 50522 Table B.3 (and R_F1 = 1000 Ω, R_F2 = 1.5ρ_s), IEC 62305-1
-lightning-current parameters, IEEE 80 Annex B results.
-
 ### Changes in 1.3.2
 
 Three corrections; each has a
@@ -482,8 +630,7 @@ regression test in `tests/test_v132_fixes.py`.
   conditions" 30 → 200 °C values of Table A.54.5); the k values, and so every area, are unchanged.
   Steel with PVC covering is now 52 (was 51), as tabulated.
 
-Four corrections in the lightning modules against the text of **IEC 62305-3:2010**
-(Edition 2.0):
+Four corrections in the lightning modules against the **IEC 62305-3:2010** :
 
 - **l₁ (Figure 3), class II**: the line is l₁ = max(5, 0.02ρ − 11) m — 49 m at 3000 Ω·m, not 45 m.
   Class I (max(5, 0.03ρ − 10)) was already right. Both are now taken from the vector drawing.
@@ -497,14 +644,6 @@ One addition: module 1 now reports the **uncertainty of the fitted soil model** 
 deviation ranges of ρ₁, ρ₂ and h and the correlation of ρ₁ with h, from the linearised covariance
 s²(JᵀJ)⁻¹ of the least-squares fit (tutorial §2.6). The help text for the external loop
 impedance Z_e now says what to enter for a TT supply.
-
-### Changes in 1.3.1
-
-The software's name is written correctly everywhere a user sees it — the window title, the
-application header, the loading screen, the design report, the server banner and the
-documentation — as **Earthing System** (two words), matching the repository name. File
-names, the `earthsys` package and the `"app": "EarthSystem"` tag inside saved project files
-are unchanged, so existing projects and shortcuts keep working.
 
 ### Changes in 1.3.0
 
@@ -526,45 +665,59 @@ are unchanged, so existing projects and shortcuts keep working.
 5. **API** gains `/api/standards`; `/api/meta` returns the registry.
 6. Tests: `tests/test_v13_standards.py` (18 tests).
 
-## 13. Running it online
+### Changes in 1.2.0
+
+1. **Equivalent resistivity for grids.** The automatic rule weighted the layers by burial
+   depth and ignored the grid size (Annex B grid in 2 m of 400 Ω·m: −66 % over 1600 Ω·m).
+   It now treats the grid as a disc on the two-layer earth; **Pull inputs** recomputes it
+   for the grid entered. Conservative in all 48 cases checked against the numerical solver.
+2. **Two-layer boundary elements.** Rod segments below the interface used the upper-layer
+   Green's function (−2 % on R_g). All four two-layer functions are now used and conductors
+   are split at the interface.
+3. **Automatic resistance formula.** The switch from Sverak to Schwarz made rods appear to
+   raise R_g. Automatic now applies Schwarz's rod factor to Sverak's grid value.
+4. **Hollow-square rod factor.** λ now follows BS 7430 (4.51 for eight rods, not 3.45) and
+   is computed from the layout for other counts and for the filled square.
+5. **Bonded electrodes.** Module 6 now includes the mutual resistance between electrodes
+   (optional separation field) instead of adding them like resistors in parallel.
+6. **Soil fit quality.** Fits are graded, three-layer (H/K-type) curves are flagged, a poor
+   fit asks for confirmation before it is pulled into the grid design, and the built-in
+   example traverse is now a genuine two-layer site.
+
+## 12. Running it online
 
 The same interface runs with no server. `web/boot.js` probes for `/api/health`; if there is
 no server it loads Pyodide, fetches the `earthsys` package sources, and patches `fetch` so
 that every `/api/...` call goes to the identical Python code inside the browser. `app.js`
 never learns which mode it is in, and the numbers are bit-for-bit the same.
 
-To publish your own copy, follow [`PUBLISH.md`](PUBLISH.md) — it has the exact commands.
-In short: push the repository, and the workflow in `.github/workflows/pages.yml` deploys it
-on every push to `main` (Settings → Pages → Source: **GitHub Actions**). The root
-`index.html` forwards to `web/`.
-
-> With *Source: GitHub Actions* selected, GitHub deploys nothing until a workflow exists —
-> that file is what does it. *Deploy from a branch* → `main` → `/ (root)` also works;
-> `.nojekyll` is included for that case.
-
-First load fetches about 20 MB (Pyodide plus numpy) and is then cached. Save/Open to disk
-are hidden in browser mode; Export/Import JSON still work.
-
-## 14. Limitations
+## 13. Limitations
 
 - The closed-form IEEE 80 equations assume uniform soil, a rectangular grid and uniform
   current leakage. The shape selector is recorded with the design but does not change the
   arithmetic: an L or T grid is computed as the rectangle that bounds it, which is the
   conservative direction for Rg and the optimistic one for the mesh voltage. For a
   genuinely irregular outline, use the numerical solver, which takes the real geometry.
-- The numerical solver assumes a horizontally layered earth, power-frequency behaviour and
-  perfectly bonded metal. It does **not** model soil ionisation or solve the electrode as a
-  transmission line. The effective length and effective area of module 7 do address the
-  impulse behaviour, but by published closed-form estimates, not by a transient solution.
-- Two-layer soil only. Three-layer sites are fitted as two layers; the fit-quality grade
-  and the residual column tell you when that is not good enough.
-- Transferred potentials, fence bonding and cable-sheath currents are not modelled — they
-  are handled by the standards' rules rather than by a formula.
+- At most four soil layers. A fifth is left to the residuals, and the middle layers' ρ and h
+  are often fixed only in combination (the result says which); layered solver runs take up
+  to twice as long as uniform ones.
+- The power-frequency solver assumes perfectly conducting metal within each network. Fences
+  are entered as rectangles in the page's table (the engine takes any polyline); gates and
+  insulated fence sections are not modelled.
+- Transferred potential: straight routes only, in the station's soil model; inductive
+  coupling from a parallel faulted line is not modelled.
+- Lightning response: thin wires; foundations are concrete cylinders (rafts and blocks are not
+  modelled, nor is breakdown of the concrete); all layers share one frequency dependence and
+  permittivity; ionisation follows the CIGRE/IEEE formula, recommended for electrodes up to
+  about 30 m, with an uncertain critical field E₀; in 10 Ω·m soil between 1 and 5 MHz the
+  impedance is 5–16 % above Grcev's (conservative).
+- Cable-sheath circulating currents are handled by the standards' rules (EREC S34, CIGRE
+  TB 347) rather than modelled.
 - Fuse operating currents are indicative values; use the manufacturer's curves for a real
   design.
 - See [`DISCLAIMER.md`](DISCLAIMER.md).
 
-## 15. Troubleshooting
+## 14. Troubleshooting
 
 **A launcher window flashes and disappears.** Run `Diagnose.bat` — it prints and saves
 `diagnostic.txt` listing every Python it can find. The launchers also write
@@ -576,30 +729,34 @@ locations.
 
 **Security software blocks the .bat files.** Use `python START_EarthSystem.py` instead.
 
-**"numpy missing — numerical solver off".** `pip install numpy`. Everything except module 5
-works without it.
+**"numpy missing — numerical solver off".** `pip install numpy`. Everything except module 5,
+the three- and four-layer soil fits and the earth-pit card works without it.
 
 **The numerical solver is slow.** Cost grows as N². Increase the segment length or reduce
 the surface-grid resolution; 3 m segments and 61 × 61 points solve a 70 × 70 m grid in
-under a second.
+under a second. The lightning response solves the electrodes at 40 frequencies: a 30 m wire
+takes seconds, a grid of several hundred segments a minute or two, and layered soil up to
+twice that. Lower the highest frequency or the number of segments to speed it up.
 
-**The soil fit has a large RMS error.** The site is probably not two layers, or there is
-buried metal crossing the traverse. Run a perpendicular traverse and compare.
+**The soil fit has a large RMS error.** The site is probably not two layers: with six or
+more readings, *Automatic* also tries three, and with nine or more four; *Three layers* and
+*Four layers* force them. If even four layers fit badly, look for buried metal crossing the
+traverse and run a perpendicular one.
 
-## 16. Contributing
+## 15. Contributing
 
 Issues and pull requests are welcome. Useful directions:
 
-- three-layer soil inversion
-- transferred potential and fence-bonding checks
-- frequency-domain electrode response for lightning
+- measured field data: soil traverses, fall-of-potential tests and impulse tests of real sites
+- transferred potential along non-straight routes and inductive coupling from faulted lines
+- foundation rafts and pad footings in the lightning model; breakdown of concrete
 - more languages for the report generator
 - worked examples from other standards for the validation suite
 
 Keep the engine dependency-light — numpy is the only hard requirement, and it should stay
 that way.
 
-## 17. Licence and references
+## 16. Licence and references
 
 GNU General Public License, version 3 or later — see [`LICENSE`](LICENSE).
 
