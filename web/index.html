@@ -57,9 +57,9 @@
   <!-- ==================== 1. SOIL ==================== -->
   <section class="page active" id="page-soil">
     <div class="pagehead"><h2>Soil investigation and model</h2>
-      <p>Reduce four-pin field measurements to apparent resistivity, fit a two-layer earth model
-         (IEEE Std 81-2025 §7.3, §7.6), and derive the equivalent uniform resistivity used by the
-         closed-form IEEE 80 equations.</p></div>
+      <p>Reduce four-pin field measurements to apparent resistivity, fit a two-, three- or four-layer
+         earth model (IEEE Std 81-2025 §7.3, §7.6), and derive the equivalent uniform resistivity
+         used by the closed-form IEEE 80 equations.</p></div>
     <div class="cols c2">
       <div>
         <div class="card"><h3>Survey data</h3><div class="body">
@@ -75,9 +75,9 @@
           <div id="soilArrayFig" class="drawing sm"></div>
 
           <div class="hint" id="soilTableHint">One row per pin spacing you measured, smallest
-            first. At least three rows are needed to fit a two-layer model, and a
-            roughly logarithmic ladder of spacings — 1, 1.5, 2, 3, 4, 6, 9, 12, 16, 20 m —
-            resolves the layers best.</div>
+            first. At least three rows are needed to fit a two-layer model and six (better eight
+            or more) for three layers; a roughly logarithmic ladder of spacings — 1, 1.5, 2, 3,
+            4, 6, 9, 12, 16, 20, 30 m — resolves the layers best.</div>
           <table class="data" id="soilTable"><thead><tr>
             <th class="rn">#</th>
             <th id="soilCol1">Pin spacing a (m)<span class="qm" tabindex="0" role="button" aria-label="Explain this column">?</span></th>
@@ -93,15 +93,20 @@
           </div>
         </div></div>
         <div class="card"><h3>Model options</h3><div class="body">
+          <div class="field wide"><label>Number of layers<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="soilLayers"><option value="auto">Automatic (two, or three if the readings support it)</option>
+              <option value="2">Two layers</option>
+              <option value="3">Three layers</option>
+              <option value="4">Four layers</option></select><div class="fh">Automatic fits two layers and, when that fit is worse than 3 % RMS or the curve falls and rises again (H-type) or rises and falls (K-type), also fits three; with nine or more readings and a three-layer fit still worse than 3 %, it also tries four. The third layer is kept only if it lowers the misfit by at least a fifth and passes an F test of its two extra parameters at the 5 % level, so noise is not mistaken for a layer. Three layers need at least six readings and four at least nine; the middle layer's resistivity and thickness are often traded against each other (equivalence), and the result says which combination of them the readings actually fix.</div></div>
           <div class="field"><label>Grid burial depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="soilDepth" type="number" value="0.5" step="0.1"><span class="u">m</span><div class="fh">Depth of cover over the buried earthing conductors, measured from finished ground level to the top of the conductor. Typically 0.5–0.8 m.</div></div>
           <div class="field"><label>Rod penetration below the grid<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="soilRod" type="number" value="0" step="0.5"><span class="u">m</span><div class="fh">How far the ground rods reach below the buried grid, not their total length. Leave 0 if there are no rods. It only affects which layer the model is averaged over.</div></div>
           <div class="field wide"><label>Equivalent uniform ρ<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
             <select id="soilEquiv"><option value="auto">Automatic</option>
-              <option value="grid">Grid size (disc on two-layer soil)</option>
+              <option value="grid">Grid size (disc on the layered soil)</option>
               <option value="top">Upper layer only</option>
               <option value="weighted">Depth-weighted average</option></select><div class="fh">How the two fitted layers are collapsed into the single ρ that the IEEE 80 closed-form equations need. A grid's current goes about one grid radius deep, however shallow the grid is buried, so the grid-size rule treats the grid as a disc of the same area on the layered soil. Automatic uses it whenever the grid area is known; the grid page's Pull inputs recomputes it for the actual grid. The depth-weighted average suits small electrodes only. Upper layer only is not conservative when ρ₂ is higher than ρ₁.</div></div>
           <div class="field"><label>Grid plan area<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="soilArea" type="number" value="" step="10" placeholder="optional"><span class="u">m²</span><div class="fh">Area enclosed by the earthing grid. It sets how deep the grid's current reaches and therefore which layer dominates. Leave empty if not yet known — Pull inputs on the grid page recomputes the equivalent resistivity with the grid's own area and length.</div></div>
-          <div class="rowbtns"><button class="primary" id="soilRun">Fit two-layer model</button></div>
+          <div class="rowbtns"><button class="primary" id="soilRun">Fit soil model</button></div>
         </div></div>
       </div>
       <div>
@@ -313,7 +318,7 @@
   <!-- ==================== 5. NUMERICAL ==================== -->
   <section class="page" id="page-numerical">
     <div class="pagehead"><h2>Numerical analysis — boundary-element solver</h2>
-      <p>Arbitrary electrode geometry in uniform or two-layer soil. The buried metal is
+      <p>Arbitrary electrode geometry in uniform or layered soil (up to four layers). The buried metal is
          discretised into segments held at a common potential; solving for the leakage-current
          distribution gives the true earth resistance, the surface potential field and the
          touch and step voltages everywhere — without the shape restrictions of the
@@ -323,7 +328,12 @@
         <div class="card"><h3>Soil and current</h3><div class="body">
           <div class="field"><label>Upper layer ρ₁<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho1" type="number" value="400"><span class="u">Ω·m</span><div class="fh">Resistivity of the upper soil layer. For a uniform earth, put the single value here and leave the lower layer blank.</div></div>
           <div class="field"><label>Lower layer ρ₂ <span class="muted">(blank = uniform)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho2" type="number" placeholder="uniform"><span class="u">Ω·m</span><div class="fh">Resistivity of the lower layer. Leave blank to solve a uniform earth.</div></div>
-          <div class="field"><label>Upper layer thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nHl" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Depth from ground level to the boundary between the two layers.</div></div>
+          <div class="field"><label>Upper layer thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nHl" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Depth from ground level to the boundary between the first and second layers.</div></div>
+          <div class="field"><label>Third layer ρ₃ <span class="muted">(blank = two layers)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho3" type="number" placeholder="—"><span class="u">Ω·m</span><div class="fh">Resistivity of a third layer below the second, extending to any depth. Leave blank for a two-layer earth. The solver then uses the exact image expansion of the three-layer earth, and every conductor that crosses an interface is split there.</div></div>
+          <div class="field"><label>Second layer thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nH2" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Thickness of the second layer, so the third layer starts at the top-layer thickness plus this value. Needed only with ρ₃.</div></div>
+          <div class="field"><label>Fourth layer ρ₄ <span class="muted">(blank = three layers)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRho4" type="number" placeholder="—"><span class="u">Ω·m</span><div class="fh">Resistivity of a fourth layer below the third, extending to any depth. Leave blank for three layers or fewer.</div></div>
+          <div class="field"><label>Third layer thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nH3" type="number" placeholder="—" step="0.5"><span class="u">m</span><div class="fh">Thickness of the third layer, so the fourth starts at the sum of the three thicknesses above it. Needed only with ρ₄.</div></div>
+          <div class="rowbtns"><button id="nSoilPull" class="ghost">Use the fitted soil model</button></div>
           <div class="field"><label>Injected current I<sub>G</sub><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nIG" type="number" value="1908"><span class="u">A</span><div class="fh">Current injected into the electrode system, in amperes — note that the grid page asks for the same quantity in kA, so 1.908 kA is 1908 A here.</div></div>
           <div class="field"><label>Segment length<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nSeg" type="number" value="3" step="0.5"><span class="u">m</span><div class="fh">Length each conductor is chopped into before solving. Shorter segments give a more accurate answer and a slower solve; 2–3 m suits a substation grid.</div></div>
           <div class="field"><label>Surface grid resolution<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="nRes" type="number" value="61" step="10"><span class="u">pts</span><div class="fh">Number of points across the scanned area in each direction, so 61 means the surface potential is evaluated on a 61 × 61 grid. Raise it for a smoother map, at the cost of solve time.</div></div>
@@ -337,13 +347,86 @@
             <button data-add="ring">+ Ring</button>
             <button data-add="rectangle">+ Rectangle</button>
             <button data-add="conductor">+ Conductor</button>
+            <button data-add="fence">+ Fence</button>
+            <button data-add="pier">+ Pier / pile</button>
+            <button data-add="footing">+ Strip footing</button>
           </div>
           <div class="rowbtns">
             <button id="nFromGrid" class="ghost">↺ Build from the IEEE 80 grid</button>
             <button class="primary" id="nRun">Solve</button>
           </div>
           <div class="hint">Touch voltage is reported inside the electrode footprint plus 1 m of
-            arm reach; step voltage is reported over the whole scanned area.</div>
+            arm reach; step voltage is reported over the whole scanned area. A fence is
+            checked on its own: its touch voltage is the fence potential minus the surface
+            potential within 1 m on either side. Set <i>bonded</i> to 1 to connect it to the
+            grid, 0 to leave it isolated (it then floats at the potential the soil imposes).
+            A pier or strip footing is a reinforced-concrete foundation used as an electrode: its
+            bar cage becomes one equivalent bar inside a concrete cylinder, whose resistivity
+            ρ<sub>c</sub> (30–100 Ω·m moist, a few hundred dry) adds to the soil's.</div>
+        </div></div>
+        <div class="card"><h3>Transferred potential</h3><div class="body">
+          <p class="small muted" style="margin-top:0">A pipe, rail, cable screen or bare earth wire that leaves
+            the station carries part of its potential rise out (IEEE Std 80 clause 17.3). The
+            conductor is solved as a lossy line — series impedance with earth return, leakage into the
+            soil — driven by the bond at the station and by the soil potential the station imposes
+            along the route. It uses the soil, current and electrodes above.</p>
+          <div class="field wide"><label>Conductor<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="tKind"><option value="coated">Coated pipe</option><option value="bare">Bare conductor (earth wire, bare pipe)</option>
+              <option value="insulated">Insulated (cable screen, sheathed conductor)</option><option value="rail">Rail</option></select>
+            <div class="fh">Coated: leakage set by the coating resistance. Bare: leakage into the soil along its length. Insulated: no leakage, so the whole station potential reaches the far end. Rail: leakage given as rail-to-earth resistance.</div></div>
+          <div class="field"><label>Start x, y<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tStart" value="70,35"><span class="u">m</span><div class="fh">Where the conductor leaves the station, in the same co-ordinates as the electrodes.</div></div>
+          <div class="field"><label>Direction (bearing from +x)<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tDir" type="number" value="0" step="15"><span class="u">°</span><div class="fh">The route is a straight line in this direction: 0° along +x, 90° along +y.</div></div>
+          <div class="field"><label>Route length<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tLen" type="number" value="2000" step="100"><span class="u">m</span><div class="fh">Length from the station to the far end.</div></div>
+          <div class="field"><label>Burial depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tDepth" type="number" value="1.2" step="0.1"><span class="u">m</span><div class="fh">Depth of the conductor; the soil potential along the route is taken at this depth.</div></div>
+          <div class="field"><label>Outer radius<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tRad" type="number" value="0.1" step="0.01"><span class="u">m</span><div class="fh">Outer radius of the pipe, rail-equivalent or screen.</div></div>
+          <div class="field wide"><label>Metal<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="tMetal"><option value="steel">Steel (magnetic, μr ≈ 300)</option><option value="copper">Copper</option><option value="aluminium">Aluminium</option><option value="lead">Lead</option></select>
+            <div class="fh">Sets the internal impedance. Steel at 50 Hz carries the current in a skin about 2 mm deep, which makes it several times more resistive than at d.c.</div></div>
+          <div class="field"><label>Wall thickness<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tWall" type="number" value="0.006" step="0.001"><span class="u">m</span><div class="fh">Wall of a pipe or thickness of a screen; blank for a solid conductor.</div></div>
+          <div class="field"><label>d.c. resistance <span class="muted">(optional)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tRdc" type="number" placeholder="—" step="0.01"><span class="u">Ω/km</span><div class="fh">From the cable data sheet, for a screen or wire. Overrides the value worked out from the metal and wall.</div></div>
+          <div class="field"><label>Coating resistance<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tCoat" type="number" value="10000" step="1000"><span class="u">Ω·m²</span><div class="fh">Specific coating resistance of a coated pipe: about 10³ for a poor or old coating, 10⁴ typical, 10⁵–10⁶ for a new polyethylene coating.</div></div>
+          <div class="field"><label>Leakage resistance <span class="muted">(rail)</span><span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tLeak" type="number" value="5" step="1"><span class="u">Ω·km</span><div class="fh">Rail-to-earth resistance of one kilometre of track: 2–20 Ω·km is typical for ballasted track.</div></div>
+          <div class="field wide"><label>At the station<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="tNear"><option value="bonded">Bonded to the grid</option><option value="insulated">Insulating joint at the boundary</option></select>
+            <div class="fh">Bonded: the metal takes the GPR at the station end. Insulating joint: it is lifted only by the soil it passes through.</div></div>
+          <div class="field wide"><label>At the far end<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="tFar"><option value="open">Open (not earthed)</option><option value="earthed">Earthed locally</option><option value="remote">Earthed to remote earth</option></select>
+            <div class="fh">Earthed locally ties the far end to the soil there through the resistance below; remote ties it to 0 V, as a cable screen bonded to another substation's earth does.</div></div>
+          <div class="field"><label>Far-end earth resistance<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tRfar" type="number" value="10" step="1"><span class="u">Ω</span><div class="fh">Used when the far end is earthed.</div></div>
+          <div class="field"><label>Access points<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="tAccess" value="100, 500"><span class="u">m</span><div class="fh">Distances from the station where a person can touch the metal — valve pits, crossings, cabinets. The far end is always checked.</div></div>
+          <div class="rowbtns"><button class="primary" id="tRun">Compute transferred potential</button></div>
+          <div id="tOut"></div>
+        </div></div>
+        <div class="card"><h3>Lightning response</h3><div class="body">
+          <p class="small muted" style="margin-top:0">The electrodes above under a lightning current, solved in the
+            frequency domain as thin wires in a lossy half-space (the electromagnetic model of the tutorial,
+            §13.11). It gives the harmonic impedance, the potential rise for a first and a subsequent stroke,
+            and the impulse coefficient, in uniform or layered soil, with or without soil ionisation.
+            Concrete foundations are included with their concrete.</p>
+          <div class="field wide"><label>Soil layers<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="hLayers"><option value="layered">The layers of the soil card above</option>
+              <option value="uniform">Uniform, ρ₀ below</option></select>
+            <div class="fh">Layered: the exact (Sommerfeld) solution of the stratified soil, with ρ₁ … ρ₄ and the thicknesses above; each layer gets the same frequency dependence and ε_r. Uniform: one resistivity, ρ₀ below.</div></div>
+          <div class="field"><label>Soil resistivity ρ₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hRho" type="number" placeholder="ρ₁ above" step="10"><span class="u">Ω·m</span><div class="fh">With a uniform soil: the low-frequency resistivity of the soil around the electrode. Blank uses ρ₁ of the soil card.</div></div>
+          <div class="field"><label>Relative permittivity ε_r<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hEps" type="number" value="10" step="1"><div class="fh">Used when the soil is taken as constant with frequency; 10 is the usual assumption.</div></div>
+          <div class="field wide"><label>Soil with frequency<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="hModel"><option value="alipio_visacro|mean">Frequency dependent — Alipio–Visacro, mean (CIGRE TB 781)</option>
+              <option value="alipio_visacro|relatively_conservative">Frequency dependent — relatively conservative</option>
+              <option value="alipio_visacro|conservative">Frequency dependent — conservative</option>
+              <option value="constant|mean">Constant ρ₀ and ε_r</option></select>
+            <div class="fh">Soil resistivity and permittivity fall with frequency, strongly above about 300 Ω·m. CIGRE TB 781 recommends taking it into account above 300 Ω·m and requires it above 700 Ω·m; constant parameters are conservative.</div></div>
+          <div class="field"><label>Injection point x, y, depth<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hFeed" placeholder="start of the first element"><span class="u">m</span><div class="fh">Where the down-conductor meets the electrode. The nearest node of the model is used.</div></div>
+          <div class="field wide"><label>Lightning currents<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label>
+            <select id="hWave"><option value="tb781">CIGRE TB 781 representative currents (double-peaked first stroke)</option>
+              <option value="heidler">Heidler functions used by Grcev (2009)</option></select>
+            <div class="fh">The TB 781 first stroke has the concave front and second peak of measured first strokes; the Heidler one rises smoothly in 8.4 µs. Both subsequent strokes peak in about 0.8 µs.</div></div>
+          <div class="field"><label>First-stroke peak<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hI1" type="number" value="31.1" step="1"><span class="u">kA</span><div class="fh">31.1 kA is the median of Mount San Salvatore. The response is linear, so the potential scales with it.</div></div>
+          <div class="field"><label>Subsequent-stroke peak<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hI2" type="number" value="11.8" step="1"><span class="u">kA</span><div class="fh">11.8 kA is the median of Mount San Salvatore.</div></div>
+          <div class="field"><label>Highest frequency<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hFmax" type="number" value="10" step="1"><span class="u">MHz</span><div class="fh">The model is checked to 10 MHz. Lowering it makes the segments longer and the solution faster.</div></div>
+          <div class="field wide"><label><input id="hIon" type="checkbox"> Soil ionisation<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><div class="fh">Large currents break the soil down around the electrode, which then behaves as a larger one. The CIGRE and IEEE resistance R/√(1 + i/I_g), I_g = E₀ρ/(2πR²), replaces R in the resistive part of the response (Grcev 2009). It lowers the first-stroke peak most; recommended for electrodes up to about 30 m.</div></div>
+          <div class="field"><label>Critical field E₀<span class="qm" tabindex="0" role="button" aria-label="Explain this field">?</span></label><input id="hE0" type="number" value="400" step="50"><span class="u">kV/m</span><div class="fh">Field at which the soil breaks down: 400 kV/m in CIGRE TB 63, 300 kV/m in IEEE Std 1243. Values from 300 to 1500 kV/m are published; a higher value is the cautious choice.</div></div>
+          <div class="rowbtns"><button class="primary" id="hRun">Compute lightning response</button></div>
+          <div id="hOut"></div>
         </div></div>
       </div>
       <div>
