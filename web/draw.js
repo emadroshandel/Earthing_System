@@ -310,6 +310,9 @@ window.DRAW = (function () {
     const fillCol = o.colour || this.p.soilA;
     const fill = o.pattern === false ? fillCol : this.pattern(o.pattern || 'soil', fillCol);
     this.bandPx(yTop, yBot, { fill, stroke: o.stroke || 'none' }, 'back');
+    /* a layer the data do not fix is drawn veiled, so it does not read as
+       measured ground */
+    if (o.veil) this.bandPx(yTop, yBot, { fill: this.p.panel, opacity: 0.6 }, 'back');
     if (o.line !== false)
       this.linePx(this.P.l, this.Y(yTop), this.W - this.P.r, this.Y(yTop),
         { stroke: this.p.ink2, 'stroke-width': 1.1, 'stroke-dasharray': o.dash || '' }, 'back');
@@ -320,12 +323,14 @@ window.DRAW = (function () {
       /* A thin stratum has no room for a caption inside it, so the caption is
          floated just above the band — where a draughtsman would put it. */
       if (bandPx < 34) {
-        const Y = this.Y(yTop) - 7;
+        /* floatBelow: under the band instead, when the band above has
+           already put its own caption over this one's top */
+        const Y = o.floatBelow ? this.Y(yBot) + (o.sub ? 26 : 15) : this.Y(yTop) - 7;
         if (o.sub) {
           this.textPx(this.X(x), Y - 13, o.label,
             { anchor, size: 11.5, weight: 600, fill: this.p.ink, halo: true });
           this.textPx(this.X(x), Y, o.sub,
-            { anchor, size: 10.5, fill: this.p.ink2, halo: true });
+            { anchor, size: 10.5, fill: o.veil ? this.p.warn : this.p.ink2, weight: o.veil ? 600 : 400, halo: true });
         } else {
           this.textPx(this.X(x), Y, o.label,
             { anchor, size: 11.5, weight: 600, fill: this.p.ink, halo: true });
@@ -336,7 +341,8 @@ window.DRAW = (function () {
           anchor, size: 12, weight: 600, fill: this.p.ink, halo: true, dy: 0
         });
         if (o.sub) this.textW(x, yc, o.sub, {
-          anchor, size: 10.5, fill: this.p.ink2, halo: true, dy: 14
+          anchor, size: 10.5, fill: o.veil ? this.p.warn : this.p.ink2,
+          weight: o.veil ? 600 : 400, halo: true, dy: 14
         });
       }
     }
@@ -427,7 +433,7 @@ window.DRAW = (function () {
     for (let i = 0; i <= 4; i++) {
       const xx = x + px * i / 4;
       s += `<line x1="${round(xx)}" y1="${round(y - 4)}" x2="${round(xx)}" y2="${round(y + 4)}" stroke="${c}" stroke-width="1"/>`;
-      if (i % 2 === 0) s += `<rect x="${round(x + px * i / 4)}" y="${round(y - 3.5)}" width="${round(px / 4)}" height="3.5" fill="${c}" opacity=".55"/>`;
+      if (i % 2 === 0 && i < 4) s += `<rect x="${round(x + px * i / 4)}" y="${round(y - 3.5)}" width="${round(px / 4)}" height="3.5" fill="${c}" opacity=".55"/>`;
     }
     s += `<text x="${round(x + px + 7)}" y="${round(y + 4)}" font-size="10.5" fill="${c}"
       font-family="Segoe UI,Inter,sans-serif">${esc(m(L))}</text></g>`;
