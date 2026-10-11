@@ -295,10 +295,8 @@ dispatch("/api/ieee80/design", {"rho": 400, "Lx": 70, "Ly": 70, "D": 7,
 
 | Document | For |
 |---|---|
-| [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 21 figures, and a suggested teaching sequence |
-| `docs/EarthSystem_Theory_and_Practice.docx` | The same material as a formatted Word document with title page, contents, numbered figures and page numbers (built by `docs/build_docx.sh`) |
+| [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 21 figures, and a suggested teaching sequence | |
 | [`docs/METHODS.md`](docs/METHODS.md) | The condensed equation reference, every formula with its clause number or source |
-| *Earthing System — Theory and Practice*, version 3.5 | The full book (256 pages) that accompanies release 1.6.1: every method at length, with the verification tables and exercises. Built from `Claude outputs/Earthing_System_Tutorial_Source` |
 
 Every figure in `docs/figures` is generated from the engine itself by `docs/make_figures.py`, so
 the plots in the tutorial and the numbers in the software cannot drift apart. Rebuild the whole
