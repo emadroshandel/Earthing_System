@@ -977,3 +977,115 @@ def explain_airterm(result: dict) -> dict:
         + " The protective angle and mesh results are shown alongside for "
           "comparison, but the rolling sphere is the method that governs.")
     return result
+
+
+def explain_transfer(r: dict) -> dict:
+    """Plain-language reading of a transferred-potential result."""
+    lim = r.get("E_touch")
+    far = r.get("transfer_far")
+    parts = [
+        f"The conductor's far end reaches {_fmt(r.get('V_far'))} V, "
+        f"{_fmt(r.get('V_far_pct'), 1)} % of the station GPR of "
+        f"{_fmt(r.get('GPR'))} V, while the soil there is at "
+        f"{_fmt(r.get('V_far_soil'))} V, so a person at the far end touching "
+        f"the metal sees {_fmt(far)} V."]
+    if lim:
+        bad = [a for a in r.get("access", []) if a.get("passed") is False]
+        if bad:
+            parts.append(
+                f"That is above the tolerable touch voltage of {_fmt(lim)} V at "
+                f"{len(bad)} of the {len(r.get('access', []))} access points "
+                f"checked.")
+        else:
+            parts.append(f"Every access point checked is within the tolerable "
+                         f"{_fmt(lim)} V.")
+    r["narrative"] = " ".join(parts)
+    rem = []
+    if lim and r.get("passed") is False:
+        if r.get("near") == "bonded":
+            rem.append("Insert an insulating joint (pipes) or an isolating "
+                       "transformer / screen break (communication cables) at the "
+                       "station boundary, so the station potential is not "
+                       "carried out.")
+        rem.append("Earth the conductor at the far end and at access points, "
+                   "with a local gradient-control loop so the person stands on "
+                   "soil lifted with the metal.")
+        rem.append("Fit an insulating cover, barrier or surface layer at the "
+                   "access points so the tolerable voltage rises.")
+    r["remedy"] = rem
+    return r
+
+
+def explain_hf(r: dict) -> dict:
+    """Plain-language reading of the harmonic impedance and lightning
+    response of an electrode."""
+    R = r.get("R")
+    parts = [f"At low frequency the electrode is {_fmt(R, 2)} Ω."]
+    fs = r.get("f_switch")
+    if fs:
+        parts.append(f"Its impedance departs from that value by more than "
+                     f"10 % above about {_fmt(fs / 1e3, 0)} kHz and is "
+                     f"{r.get('high_frequency')} at the top of the range.")
+    else:
+        parts.append("Its impedance stays within 10 % of that value over the "
+                     "whole range: it behaves as a resistance under lightning.")
+    for key, lab in (("first_tb781", "a first stroke"),
+                     ("subsequent_tb781", "a subsequent stroke"),
+                     ("first_heidler", "a first stroke"),
+                     ("subsequent_heidler", "a subsequent stroke")):
+        x = (r.get("responses") or {}).get(key)
+        if not x:
+            continue
+        ic = x.get("IC")
+        verb = ("higher than" if ic > 1.02 else "lower than" if ic < 0.98
+                else "about the same as")
+        parts.append(f"Under {lab} of {_fmt(x.get('I_peak_kA'), 1)} kA the "
+                     f"potential rise peaks at {_fmt(x.get('V_peak_kV'), 0)} kV: "
+                     f"an impulse impedance of {_fmt(x.get('Z_impulse'), 2)} Ω, "
+                     f"{verb} the resistance (impulse coefficient "
+                     f"{_fmt(ic, 2)}).")
+        if x.get("Z_impulse_ion") is not None:
+            parts.append(f"With soil ionisation it peaks at "
+                         f"{_fmt(x.get('V_peak_ion_kV'), 0)} kV (impulse impedance "
+                         f"{_fmt(x.get('Z_impulse_ion'), 2)} Ω, coefficient "
+                         f"{_fmt(x.get('IC_ion'), 2)}); the resistance falls to "
+                         f"{_fmt(x.get('R_min'), 2)} Ω at the current peak.")
+    r["narrative"] = " ".join(parts)
+    notes = []
+    any_long = any((x.get("IC") or 0) > 1.05 for x in (r.get("responses") or {}).values())
+    if any_long:
+        notes.append("An impulse coefficient above 1 means the electrode is "
+                     "longer than its effective length: the far part is not "
+                     "reached before the current peaks. Adding length there "
+                     "does not lower the impulse impedance; more conductors "
+                     "close to the injection point do.")
+    ion = r.get("ionisation")
+    if ion:
+        notes.append(f"Ionisation: the CIGRE/IEEE nonlinear resistance "
+                     f"R/√(1 + i/I_g) with E0 = {_fmt(ion['E0'], 0)} kV/m and "
+                     f"ρ = {_fmt(ion['rho'], 0)} Ω·m gives I_g = "
+                     f"{_fmt(ion['Ig_kA'], 1)} kA; it acts on the resistive part "
+                     f"of the response only (Grcev 2009). E0 is uncertain "
+                     f"(300–1500 kV/m have been used), so treat the ionised "
+                     f"result as an estimate and the one without it as the bound.")
+        if ion.get("outside_range"):
+            notes.append(f"The electrode spans {_fmt(ion['extent'], 0)} m; the "
+                         f"ionisation formula was recommended for electrodes up to "
+                         f"about 30 m.")
+    else:
+        notes.append("Soil ionisation, which lowers the impedance under large "
+                     "currents, is not included; the result is conservative for "
+                     "first strokes in high-resistivity soil.")
+    if (r.get("layers") or 1) > 1:
+        notes.append("Layered soil: the Green's functions are the exact "
+                     "(Sommerfeld) solution for the stratified half-space; the "
+                     "low-frequency resistance agrees with the boundary-element "
+                     "solver.")
+    if r.get("encased"):
+        notes.append("Concrete-encased segments: the concrete is a coaxial shell "
+                     "around an equivalent bar (Fagan and Lee); its resistance and "
+                     "capacitance are in series with the soil's. Breakdown of the "
+                     "concrete under large currents, which lowers the resistance "
+                     "further, is not modelled.")
+    r["notes"] = notes
+    return r
