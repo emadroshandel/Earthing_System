@@ -29,9 +29,57 @@ points are tried to avoid local minima. The reported RMS error is that residual 
 a fit is graded good (RMS ≤ 3 %), acceptable (≤ 5 %) or poor, and a non-monotonic curve
 (H- or K-type) is flagged as three-layer.
 
+**Three and four layers** (1.4.0, 1.5.0; `earthsys/layered.py`) — kernel recurrence from the
+deepest interface, K_{i,i+1} = (ρ_{i+1} − ρ_i)/(ρ_{i+1} + ρ_i):
+
+    R_{N−1} = K_{N−1,N},   R_i(λ) = (K_{i,i+1} + R_{i+1}e^{−2λh_{i+1}})/(1 + K_{i,i+1}R_{i+1}e^{−2λh_{i+1}})
+    θ(λ) = R₁e^{−2λh₁}/(1 − R₁e^{−2λh₁}),   ψ(r) = ∫₀^∞ θ(λ)J₀(λr)dλ
+    Wenner          ρₐ = ρ₁[1 + 4a(ψ(a) − ψ(2a))]
+    Schlumberger    ρₐ = ρ₁[1 + 2(s² − d²/4)/d · (ψ(s − d/2) − ψ(s + d/2))]
+
+The top interface's images are summed exactly and the rest of the kernel integrated by
+Gauss–Legendre quadrature (two layers to 10⁻⁶, the three-layer image series to 10⁻⁸).
+
+**Inversion with three or four layers** — Levenberg–Marquardt in log parameters from 64
+shape-based starts plus starts built from the fit with one layer fewer; thinnest layers
+h₁ ≥ 0.05 a_min, h₂, h₃ ≥ 0.1 a_min. A further layer is kept only if
+
+    F = [(Φ_n − Φ_{n+1})/2] / [Φ_{n+1}/(N − k)],   p = ((N − k)/(N − k + 2F))^{(N−k)/2} < 0.05
+    (k = 5 for the third layer, 7 for the fourth) and the RMS falls by at least a fifth.
+
+*Automatic* tries three layers when there are six or more readings and the two-layer fit
+misses by more than 3 % RMS or the curve is non-monotonic; it tries four when three layers are
+kept, there are nine or more readings and the three-layer RMS still exceeds 3 %. **Equivalence**: from the 5 × 5 (or 7 × 7)
+covariance, the best-determined combination of a middle layer is h ρ^β with
+β = −C_ρh/C_ρρ, σ = √(C_hh(1 − r²)); β ≈ −1 names the conductance S = h/ρ, β ≈ +1 the
+transverse resistance T = ρh. A parameter whose own spread exceeds ×20 is reported as not
+resolved.
+
+**Forced models and what the readings reach** (1.6.1) — *Three layers* or *Four layers*
+shows the requested model even when the test above rejects it, but the result then carries a
+warning naming the supported model and its values. A fourth layer is tested against three;
+when three were not supported, against two directly (k = 3 → 7, four extra parameters, upper
+tail of F for an even numerator in closed form). Each layer is flagged *not resolved* when its
+ρ or the depth of its top has a spread above ×20 or reached the search bound, and *below the
+reach of the traverse* when its top lies deeper than twice the median depth of investigation
+of the longest spread (Edwards, 1977):
+
+    z_median = 0.52 a_max (Wenner),   0.38 s_max = 0.19 AB (Schlumberger)
+
+The section draws flagged layers veiled and marks z_median; *Pull inputs* and *Use the fitted
+soil model* ask for confirmation before using a warned model, and the report prints the
+warning. A spurious conductive layer lowers the computed resistance and GPR, which is unsafe.
+
 **Equivalent uniform resistivity** — for a grid, the disc rule
-ρ_eq = ρ₁(F/4r + 1/L_T)/(1/4r + 1/L_T), r = √(A/π), with F(K, h/r) the two-layer disc
-factor (THEORY §2.7). Without the grid area: depth-weighted average over the electrode
+ρ_eq = ρ₁(F/4r + 1/L_T)/(1/4r + 1/L_T), r = √(A/π), with F the disc factor of the layered
+earth, since 1.4.0 written for any number of layers as one integral of the surface kernel
+B(μ):
+
+    F = 1 + (4/πr) ∫₀^∞ B(μ)(1 − cos 2μr)/(2μ²) dμ        (equal to the two-layer series to 10⁻¹³)
+
+A three- or four-layer model can also be collapsed to an **equivalent two-layer** model for
+one grid: the top layer is kept and the layers below are replaced by the half-space that gives
+the same F at r = √(A/π). Without the grid area: depth-weighted average over the electrode
 penetration when the electrodes cross the interface, otherwise ρ₁.
 
 ---
@@ -192,9 +240,51 @@ R = ρ/(2πL)[ln(4L/a) − 1] analytically, because
 
     direct + image = ρ/(2πL)[ln(2L/a) − 1] + ρ·ln2/(2πL) = ρ/(2πL)[ln(4L/a) − 1]
 
-Input validation: ρ₁ > 0, and ρ₂ > 0 with a layer thickness > 0 whenever a second layer is
-given. "Build from the IEEE 80 grid" places the rods as the grid page does — on the perimeter,
+Input validation: ρ₁ > 0, and every further layer's ρ > 0 with the thickness of the layer
+above it > 0; a third layer needs the second, a fourth the third. "Build from the IEEE 80 grid" places the rods as the grid page does — on the perimeter,
 or spread over the area (1.3.4).
+
+**Three and four layers** (1.4.0, 1.5.0) — images by wave tracing: a wave in layer L meeting
+the plane to layer M is reflected with R = (ρ_M − ρ_L)/(ρ_M + ρ_L) (source mirrored in the
+plane) and transmitted with 1 + R (source unmoved); the surface reflects with +1:
+
+    G_ij = ρ_i/(4π) Σ_k a_k / √(r_h² + (z − s_k z′ − D_k)²)
+
+Images within 3Z of the electrode region (Z the deepest conductor) are kept one by one, those
+within 8Z merged in 5 % bins, all others taken from the spectral solution tabulated in r_h
+with Taylor coefficients in z − s z′ to the seventh order. Every conductor is split at every
+interface; each segment uses its own layer's ρ in the self term.
+
+**Separate networks** (1.5.0) — fences and other floating metal. With E the segment–network
+incidence matrix and J the injected currents (I_G for the grid, 0 for a floating network):
+
+    ⎡ P   −E ⎤ ⎡ I ⎤   ⎡ 0 ⎤
+    ⎣ Eᵀ   0 ⎦ ⎣ V ⎦ = ⎣ J ⎦        V = Z J,  Z the mutual-resistance matrix
+
+Fence element: posts at the given spacing and at every vertex, an optional buried wire at an
+offset, bonded (part of network 1) or isolated. Fence touch voltage = V_fence − V_surface
+within 1 m of the fence line on either side; step across the fence line; grid-to-fence
+transfer voltage. Scan points within 0.25 m of metal that reaches the surface are excluded
+from the step scan.
+
+**Concrete-encased conductors** (1.6.0) — *Pier / pile* and *Strip footing* elements. The cage
+of n bars of radius a on a circle of radius b becomes one bar of radius
+a_eq = (n a b^{n−1})^{1/n} (b = r_c − cover − a); the section a cylinder of radius r_c
+(D/2 for a pier, (w + h)/4 + 0.09 min(w, h) for a w × h section). Each segment's self
+coefficient gains the shell ρ_c ln(r_c/a_eq)/(2πL); the soil sees radius r_c; near pairs use
+the kernel with r_h floored at r_c; segments are at least 1.5 r_c long (Fagan and Lee 1970).
+
+**Transferred potential** (1.5.0; `earthsys/transfer.py`) — a straight conductor leaving the
+station as a lossy line in soil at the solver's potential V_s(x):
+
+    dV/dx = −z I,   dI/dx = −g (V − V_s(x))
+    z = z_int + π² f 10⁻⁷ + j(ωμ₀/2π) ln(D_e/a),   D_e = 658.5 √(ρ/f)        (Carson)
+    g_bare = π / (ρ[ln(2ℓ/√(2ad)) − 1]),   1/g_coated = 1/g_bare + r_c/(2πa),   g_screen = 0
+    GPR = R_g I_G / (1 + R_g (a − c))        (reciprocity correction)
+
+Steel: z_int is the surface impedance (1 + j)ρ_m/(2πaδ) when the wall exceeds 2δ (μ_r = 300).
+Solved as a ladder (Thomas algorithm) on a mesh refined near the station; ends bonded or
+insulated at the station, open, locally earthed or remotely earthed at the far end.
 
 **Post-processing.** Surface potential on a rectangular grid; touch voltage = GPR − V,
 reported only inside the electrode footprint plus 1 m of arm reach; step voltage from the
@@ -213,8 +303,22 @@ its density; profiles along an arbitrary traverse.
                                         − s²/(16ℓ²) + s⁴/(512ℓ⁴)],  ℓ = L/2, s = 2h
     Ring (diameter D)     R = ρ/(2π²D)·[ln(8D/a) + ln(4D/s)]
     Buried plate          R = ρ/(8a) + ρ/(4πs)·[1 − 7a²/12s² + 33a⁴/40s⁴]
-    Foundation            R ≈ 0.2ρ/∛V
+    Foundation            R ≈ 0.2ρ/∛V                       (compact foundations)
     Mesh                  Sverak, as above
+
+**Earth pits** (1.3.6; `earthsys/earthpit.py`) — axisymmetric finite-volume solution of
+∇·(σ∇V) = 0 for a rod (or a plate as a disc) in a column of backfill, checked against
+
+    BS 7430 9.5.7   R = ρ/(2πL)[ln(8L/D) − 1] + ρ_c/(2πL) ln(D/d)     (full-length column)
+    group           R_n = (R₁ + λρ/(2πs))/n                            (BS 7430 9.5.4)
+    current density J_max = 10³ √(57.7/(ρ t)) A/m² (short time), 40 A/m² (continuous)   (BS 7430 9.8)
+
+**Piles, piers, strip footings** (1.6.0, numerical page) — rod in a concrete shell
+(Fagan and Lee 1970):
+
+    R = ρ_c/(2πL) ln(r_c/a) + ρ/(2πL)(ln(4L/r_c) − 1) = R_bare + (ρ_c − ρ) ln(r_c/a)/(2πL)
+
+so encasement lowers R exactly when ρ_c < ρ. Default ρ_c = 50 Ω·m (buried concrete 30–100 Ω·m).
 
 λ: rods in a line, BS 7430:2011 9.5.4, λ = 2(1/2 + … + 1/n), which is exactly the
 neighbour sum below; hollow square, BS 7430:2011 Table 2 (4–76 rods); otherwise
@@ -319,6 +423,46 @@ An estimate, not a measurement, and it ignores soil ionisation (which reduces th
 impedance). A resistance measured at d.c. or 50 Hz understates the potential rise of an
 extended earthing system under a stroke; bonding and SPD coordination are sized on the
 impulse value.
+
+### 7.2 Computed lightning response (numerical page)
+
+`earthsys/hf.py` (1.5.0; layered soil, ionisation and concrete in 1.6.0). Thin-wire segments
+with longitudinal current I_L and leakage I_T; at each frequency
+
+    (V_a + V_b)/2 = Σ Z^T_kj I_T,j,     V_a − V_b = Σ Z^L_kj I_L,j + Z_i,k I_L,k,     KCL at nodes
+    Z^T_kj = 1/(4πκ ℓ_kℓ_j) ∫∫[e^{−γR}/R + K e^{−γR′}/R′],   Z^L_kj = jωμ₀/4π ∫∫[t_k·t_j e^{−γR}/R + K t_k·t′_j e^{−γR′}/R′]
+    κ = σ + jωε,  γ = √(jωμ₀κ),  K = (κ − jωε₀)/(κ + jωε₀);  t′ keeps the mirrored vertical part
+
+plus the Sommerfeld corrections S_A (horizontal currents, TE) and S_φ (charges) of the
+half-space (Michalski and Zheng, formulation C). Soil: constant ρ₀, ε_r or Alipio–Visacro
+(CIGRE TB 781, mean / relatively conservative / conservative).
+
+**Layered soil** — the exact transmission-line Green's functions of the stack (air, layers
+1 … N): u_i = √(λ² + γ_i²), Z^e_i = u_i/κ_i, Z^h_i = jωμ₀/u_i,
+
+    G = ∫₀^∞ g̃ J₀(λρ) λ dλ,   g̃_φ = 2κ′(V^e − V^h)/λ²,   g̃_A,h = 2V^h/(jωμ₀),   g̃_A,v = 2I^e/κ′
+
+The direct term and the images (complex reflection coefficients (κ_L − κ_M)/(κ_L + κ_M),
+surface K) within D = max(1 m, 3 × segment length) of the electrode are integrated exactly
+(Galerkin); the remainder of g̃ is tabulated per frequency in (ρ, z, z′) and interpolated.
+
+**Concrete** — the shell adds ln(r_c/a_eq)/(2πκ_c ℓ_k), κ_c = 1/ρ_c + jωε_c, to Z^T_kk.
+
+**Time response and ionisation**
+
+    v(t) = R i(t) + F⁻¹{[Z(jω) − R] I(jω)},    Z_p = max v / max i,    IC = Z_p / R
+    v_i(t) = R(t) i(t) + x(t),   R(t) = R/√(1 + i(t)/I_g),   I_g = E₀ρ/(2πR²)        (Grcev 2009)
+    A_i = 1/√(1 + I_m/I_g) + A − 1                                                   (Grcev 2009 Eq. 25)
+
+E₀ default 400 kV/m (CIGRE); ρ in I_g is the length-weighted resistivity of the layers holding
+the electrode; a note is given beyond 30 m. Currents: CIGRE TB 781 Fig. 4.1 first and
+subsequent strokes, or the Heidler functions of Rachidi et al. used by Grcev.
+
+**Checks** — Grcev 2009 Sommerfeld curves within about 5 % from 100 Ω·m up; TB 781 rod: HEM
+within 4 %, measurement within 9 %; Arnautovski-Toseva et al. 2007 two-layer wires within
+3.5 % to 1 MHz (10 m) and 4.5 % (50 m); Grcev Table I with ionisation 8.3 Ω (8.3) and 13.9 Ω
+(13.4); Fagan and Lee Table VII within 3 %; low-frequency limit equal to the solver of §5
+within 0.2 %.
 
 ---
 
