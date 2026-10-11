@@ -232,10 +232,14 @@ window.SEC = (function () {
   function soil(hostId, d) {
     d = d || {};
     const twoLayer = isFinite(d.h1) && d.h1 > 0 && isFinite(d.rho2);
+    const threeLayer = twoLayer && d.rho3 != null && isFinite(d.rho3) && isFinite(d.h2) && d.h2 > 0;
     const h1 = twoLayer ? d.h1 : 0;
+    const fourLayer = threeLayer && d.rho4 != null && isFinite(d.rho4) && isFinite(d.h3) && d.h3 > 0;
+    const d2 = threeLayer ? d.h1 + d.h2 : 0;
+    const d3 = fourLayer ? d2 + d.h3 : 0;
     const burial = isFinite(d.depth) ? d.depth : 0.5;
     const rodLen = isFinite(d.rodLen) ? d.rodLen : 0;
-    const bottom = Math.max(h1 * 1.75, burial + rodLen + 1.5, 4);
+    const bottom = Math.max(h1 * 1.75, d2 * 1.3, d3 * 1.25, burial + rodLen + 1.5, 4);
     const Zb = Math.ceil(bottom * 2) / 2;
     const top = Zb * 0.16;
     const Wm = (Zb + top) * 2.15;
@@ -245,10 +249,51 @@ window.SEC = (function () {
       xmin: 0, xmax: Wm, ymin: -Zb, ymax: top
     }, s => {
       const p = s.p;
-      s.title('Soil model — section', twoLayer ? 'two-layer earth (IEEE Std 81 §7.6)' : 'uniform earth');
+      s.title('Soil model — section', fourLayer ? 'four-layer earth (IEEE Std 81 §7.6)' : threeLayer ? 'three-layer earth (IEEE Std 81 §7.6)'
+        : twoLayer ? 'two-layer earth (IEEE Std 81 §7.6)' : 'uniform earth');
       s.bandPx(top, 0, { fill: p.sky });
 
-      if (twoLayer) {
+      /* layers the readings do not fix, or that start below the reach of
+         the traverse, are veiled and say so */
+      const ST = d.status || [];
+      const veil = i => { const t = ST[i - 1]; return !!t && (t.below_reach || !t.resolved); };
+      const why = (i, base) => {
+        const t = ST[i - 1];
+        const w = !t ? '' : t.below_reach ? 'below the reach of the traverse — not measured'
+      : !t.resolved ? (!t.rho_resolved && !t.top_resolved ? 'not resolved by the readings'
+        : !t.rho_resolved ? 'resistivity not resolved by the readings'
+        : 'depth of its top not resolved by the readings') : '';
+        return [w, base].filter(Boolean).join(' · ');
+      };
+      if (threeLayer) {
+        const pat = (r, ref) => r > ref ? 'rock' : 'clay';
+        s.stratum(0, -h1, {
+          pattern: 'soil', colour: p.soilA,
+          label: `Layer 1   ρ₁ = ${num(d.rho1, 0)} Ω·m   ·   h₁ = ${m(h1)}`
+        });
+        s.stratum(-h1, -d2, {
+          pattern: pat(d.rho2, d.rho1), colour: p.soilB, dash: '6 4',
+          label: `Layer 2   ρ₂ = ${num(d.rho2, 0)} Ω·m   ·   h₂ = ${m(d.h2)}`,
+          sub: why(2, ''), veil: veil(2),
+          floatBelow: Math.abs(s.dY(h1)) < 34 && Math.abs(s.dY(d.h2)) < 34
+        });
+        s.stratum(-d2, fourLayer ? -d3 : -Zb, {
+          pattern: pat(d.rho3, d.rho2), colour: p.soilC, dash: '6 4',
+          label: fourLayer ? `Layer 3   ρ₃ = ${num(d.rho3, 0)} Ω·m   ·   h₃ = ${m(d.h3)}` : `Layer 3   ρ₃ = ${num(d.rho3, 0)} Ω·m`,
+          sub: why(3, fourLayer ? '' : 'extends to any depth'), veil: veil(3)
+        });
+        if (fourLayer) {
+          s.stratum(-d3, -Zb, {
+            pattern: pat(d.rho4, d.rho3), colour: p.soilB, dash: '6 4',
+            label: `Layer 4   ρ₄ = ${num(d.rho4, 0)} Ω·m`, sub: why(4, 'extends to any depth'), veil: veil(4)
+          });
+          s.dimV(-d2, -d3, Wm * 0.985, m(d.h3), { off: 26 });
+        }
+        s.dimV(0, -h1, Wm * 0.985, m(h1), { off: 26 });
+        /* two thin layers: stagger the second dimension so the labels clear */
+        s.dimV(-h1, -d2, Wm * 0.985, m(d.h2),
+          { off: Math.abs(s.dY(h1)) < 34 && Math.abs(s.dY(d.h2)) < 34 ? 50 : 26 });
+      } else if (twoLayer) {
         s.stratum(0, -h1, {
           pattern: 'soil', colour: p.soilA,
           label: `Upper layer   ρ₁ = ${num(d.rho1, 0)} Ω·m   ·   h = ${m(h1)}`
@@ -256,8 +301,8 @@ window.SEC = (function () {
         s.stratum(-h1, -Zb, {
           pattern: d.rho2 > d.rho1 ? 'rock' : 'clay', colour: p.soilB, dash: '6 4',
           label: `Lower layer   ρ₂ = ${num(d.rho2, 0)} Ω·m`,
-          sub: d.rho2 > d.rho1 ? 'more resistive — current is confined to the upper layer'
-            : 'less resistive — current spreads into the lower layer'
+          sub: why(2, d.rho2 > d.rho1 ? 'more resistive — current is confined to the upper layer'
+            : 'less resistive — current spreads into the lower layer'), veil: veil(2)
         });
         s.dimV(0, -h1, Wm * 0.985, m(h1), { off: 26 });
       } else {
@@ -270,10 +315,10 @@ window.SEC = (function () {
 
       /* the earthing system, drawn where it actually sits */
       const xc = Wm * 0.66;
-      tape(s, Wm * 0.34, Wm * 0.96, -burial, {});
-      [0.40, 0.53, 0.66, 0.79, 0.92].forEach(f => conductorDot(s, Wm * f, -burial, 0.012));
-      s.dimV(0, -burial, Wm * 0.34, `h = ${m(burial)}`, { off: -14 });
-      s.leader(Wm * 0.53, -burial, 20, 40,
+      tape(s, Wm * 0.46, Wm * 0.96, -burial, {});
+      [0.50, 0.615, 0.73, 0.845, 0.94].forEach(f => conductorDot(s, Wm * f, -burial, 0.012));
+      s.dimV(0, -burial, Wm * 0.46, `h = ${m(burial)}`, { off: -14 });
+      s.leader(Wm * 0.615, -burial, 20, 40,
         ['Buried earthing conductor']);
 
       if (rodLen > 0) {
@@ -283,15 +328,20 @@ window.SEC = (function () {
           ['Ground rod', `${m(rodLen)} below the grid`]);
       }
 
-      if (isFinite(d.aMax) && d.aMax > 0 && d.aMax < Zb) {
-        s.lineW(0, -d.aMax, Wm, -d.aMax,
+      /* Median depth of investigation of the longest spread (Edwards 1977):
+         0.52·a for Wenner, 0.38·s for Schlumberger */
+      const doi = isFinite(d.doi) && d.doi > 0 ? d.doi
+        : (isFinite(d.aMax) && d.aMax > 0 ? 0.52 * d.aMax : NaN);
+      if (isFinite(doi) && doi < Zb) {
+        s.lineW(0, -doi, Wm, -doi,
           { stroke: p.accent, 'stroke-width': 1.1, 'stroke-dasharray': '3 4', opacity: .85 }, 'mid');
-        s.textW(Wm * 0.02, -d.aMax, `depth of investigation of the traverse ≈ a_max = ${m(d.aMax)}`,
-          { dy: -5, size: 10.5, fill: p.accent, halo: true });
+        s.textW(Wm * 0.02, -doi, `median depth of investigation ≈ ${d.doiK || 0.52}·${d.schl ? 's' : 'a'}_max = ${m(doi)}`,
+          { dy: 13, size: 10.5, fill: p.accent, halo: true });
       }
 
       const K = twoLayer ? (d.rho2 - d.rho1) / (d.rho2 + d.rho1) : null;
-      if (K !== null) s.note(`Reflection factor K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁) = ${num(K, 3)}`);
+      if (threeLayer) s.note(`Reflection factors K₁₂ = ${num(K, 3)}, K₂₃ = ${num((d.rho3 - d.rho2) / (d.rho3 + d.rho2), 3)}` + (fourLayer ? `, K₃₄ = ${num((d.rho4 - d.rho3) / (d.rho4 + d.rho3), 3)}` : ''));
+      else if (K !== null) s.note(`Reflection factor K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁) = ${num(K, 3)}`);
       if (isFinite(d.rhoEq))
         s.note(`Equivalent uniform resistivity used by the closed-form equations: ρ = ${num(d.rhoEq, 0)} Ω·m`);
       s.scalebar();
@@ -564,6 +614,16 @@ window.SEC = (function () {
         horiz.push({ x0: cx - rr, x1: cx + rr, z, n: 2, dashed: true });
         xlo = Math.min(xlo, cx - rr - 1); xhi = Math.max(xhi, cx + rr + 1);
         deep = Math.max(deep, -z);
+      } else if (k === 'fence') {
+        const x0 = F(it, 'x0', 0), w = F(it, 'Lx', 10), pd = F(it, 'post_depth', 0.76);
+        rods.push({ x: x0, ztop: 0, L: pd }); rods.push({ x: x0 + w, ztop: 0, L: pd });
+        if (F(it, 'wire', 0)) {
+          const o = F(it, 'wire_offset', 1), z = -F(it, 'wire_depth', 0.5);
+          horiz.push({ x0: x0 - o, x1: x0 + w + o, z, n: 2, dashed: true });
+          xlo = Math.min(xlo, x0 - Math.abs(o) - 1); xhi = Math.max(xhi, x0 + w + Math.abs(o) + 1);
+        }
+        xlo = Math.min(xlo, x0 - 1); xhi = Math.max(xhi, x0 + w + 1);
+        deep = Math.max(deep, pd);
       } else if (k === 'conductor') {
         const p1 = it.p1 || [0, 0, 0.6], p2 = it.p2 || [20, 0, 0.6];
         const z = -((parseFloat(p1[2]) + parseFloat(p2[2])) / 2 || 0.6);
