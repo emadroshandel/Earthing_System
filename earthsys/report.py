@@ -216,12 +216,43 @@ LABELS_FA = {
     "Total electrode length": "طول کل الکترود",
     "Upper-layer resistivity": "مقاومت ویژه لایه بالا",
     "Upper-layer thickness": "ضخامت لایه بالا",
+    "Layer 1 resistivity": "مقاومت ویژه لایه اول",
+    "Layer 2 resistivity": "مقاومت ویژه لایه دوم",
+    "Layer 3 resistivity": "مقاومت ویژه لایه سوم",
+    "Layer 1 thickness": "ضخامت لایه اول",
+    "Layer 2 thickness": "ضخامت لایه دوم",
+    "Layer 3 thickness": "ضخامت لایه سوم",
+    "Layer 4 resistivity": "مقاومت ویژه لایه چهارم",
+    "RMS fit error, two-layer model": "خطای برازش (RMS) مدل دولایه",
+    "Best-determined combination": "ترکیب با بهترین تعیین",
+    "Fence potential": "پتانسیل حصار",
+    "Low-frequency resistance (lightning model)": "مقاومت فرکانس پایین (مدل صاعقه)",
+    "Impulse impedance, first stroke": "امپدانس ضربه، ضربه اول",
+    "Impulse impedance, subsequent stroke": "امپدانس ضربه، ضربه بعدی",
+    "Impulse coefficient, first stroke": "ضریب ضربه، ضربه اول",
+    "Impulse coefficient, subsequent stroke": "ضریب ضربه، ضربه بعدی",
+    "Peak potential rise, first stroke": "حداکثر افزایش پتانسیل، ضربه اول",
+    "Peak potential rise, subsequent stroke": "حداکثر افزایش پتانسیل، ضربه بعدی",
+    "Impulse impedance with ionisation, first stroke": "امپدانس ضربه با یونیزاسیون خاک، ضربه اول",
+    "Impulse impedance with ionisation, subsequent stroke": "امپدانس ضربه با یونیزاسیون خاک، ضربه بعدی",
+    "Peak potential rise with ionisation, first stroke": "حداکثر افزایش پتانسیل با یونیزاسیون خاک، ضربه اول",
+    "Peak potential rise with ionisation, subsequent stroke": "حداکثر افزایش پتانسیل با یونیزاسیون خاک، ضربه بعدی",
+    "Fence touch voltage, inside": "ولتاژ تماس حصار، داخل",
+    "Fence touch voltage, outside": "ولتاژ تماس حصار، بیرون",
+    "Grid-to-fence transfer voltage": "ولتاژ انتقالی شبکه به حصار",
+    "Fence own resistance": "مقاومت زمین حصار",
+    "Transferred potential at the far end": "پتانسیل انتقالی در انتهای دور",
+    "Far-end metal potential": "پتانسیل فلز در انتهای دور",
+    "GPR with the conductor": "افزایش پتانسیل زمین با هادی",
+    "Attenuation length": "طول میرایی",
+    "Current drawn away from the grid": "جریان منحرف‌شده از شبکه",
     # compliance criteria
     "GPR vs tolerable touch voltage": "مقایسه GPR با ولتاژ تماس مجاز",
     "Mesh (touch) voltage E_m": "ولتاژ چشمه (تماس) E_m",
     "Step voltage E_s": "ولتاژ گام E_s",
     "Maximum touch voltage": "حداکثر ولتاژ تماس",
     "Maximum step voltage": "حداکثر ولتاژ گام",
+    "Fence touch voltage (fence)": "ولتاژ تماس حصار",
     "Earth-fault loop impedance Z_s": "امپدانس حلقه خطا Z_s",
     "TT electrode: R_A × I_a \u2264 50 V": "الکترود TT: R_A × I_a ≤ 50 V",
     "TT loop impedance: Z_s × I_a \u2264 U₀": "امپدانس حلقه TT: Z_s × I_a ≤ U₀",
@@ -412,15 +443,53 @@ def _figures(t, figures):
 # Section builders
 # ---------------------------------------------------------------------------
 
+def _lflag(d, i):
+    """Caution for a layer the readings do not fix (soil page layer_status)."""
+    st = d.get("layer_status") or []
+    if len(st) < i:
+        return ""
+    x = st[i - 1]
+    return ("below the reach of the traverse, not measured" if x.get("below_reach")
+            else "" if x.get("resolved", True) else
+            "resistivity not resolved by the readings"
+            if x.get("top_resolved", True) and not x.get("rho_resolved", True) else
+            "depth of its top not resolved by the readings"
+            if x.get("rho_resolved", True) else "not resolved by the readings")
+
+
 def _sec_soil(t, d):
     if not d:
         return ""
     rows = []
-    if d.get("rho1") is not None:
+    if d.get("rho1") is not None and (d.get("n_layers") or 2) >= 3:
+        four = d.get("n_layers") == 4
+        rows += [
+            _row(t, "Layer 1 resistivity", "ρ₁", d.get("rho1"), "Ω·m",
+                 ("Four" if four else "Three") + "-layer inversion of the field traverse"),
+            _row(t, "Layer 2 resistivity", "ρ₂", d.get("rho2"), "Ω·m", _lflag(d, 2)),
+            _row(t, "Layer 3 resistivity", "ρ₃", d.get("rho3"), "Ω·m", _lflag(d, 3)),
+        ] + ([_row(t, "Layer 4 resistivity", "ρ₄", d.get("rho4"), "Ω·m", _lflag(d, 4))] if four else []) + [
+            _row(t, "Layer 1 thickness", "h₁", d.get("h"), "m", ""),
+            _row(t, "Layer 2 thickness", "h₂", d.get("h2"), "m", ""),
+        ] + ([_row(t, "Layer 3 thickness", "h₃", d.get("h3"), "m", "")] if four else []) + [
+            _row(t, "RMS fit error", "ε", d.get("rms_pct"), "%", ""),
+        ]
+        ms = d.get("model_selection") or {}
+        if ms.get("rms_two") is not None:
+            rows.append(_row(t, "RMS fit error, two-layer model", "ε₂",
+                             ms.get("rms_two"), "%",
+                             f"F test p = {_fmt(ms.get('p_value'))}"))
+        eq = ((d.get("uncertainty") or {}).get("equivalence") or {})
+        if eq.get("beta") is not None and eq.get("determined") not in (None, "both"):
+            rows.append(_row(t, "Best-determined combination", "h₂·ρ₂^β",
+                             eq.get("combination"), "",
+                             f"β = {_fmt(eq.get('beta'))}, within "
+                             f"×{_fmt(eq.get('combination_factor'))}"))
+    elif d.get("rho1") is not None:
         rows += [
             _row(t, "Upper-layer resistivity", "ρ₁", d.get("rho1"), "Ω·m",
                  "Two-layer inversion of the field traverse"),
-            _row(t, "Lower-layer resistivity", "ρ₂", d.get("rho2"), "Ω·m", ""),
+            _row(t, "Lower-layer resistivity", "ρ₂", d.get("rho2"), "Ω·m", _lflag(d, 2)),
             _row(t, "Upper-layer thickness", "h", d.get("h"), "m", ""),
             _row(t, "Reflection factor", "K", d.get("K"), "-",
                  "K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁)"),
@@ -442,6 +511,9 @@ def _sec_soil(t, d):
                          f"<td class='num'>{_fmt(d['fitted'][i])}</td>"
                          f"<td class='num'>{_fmt(d['residual_pct'][i])}</td></tr>")
         body += f"<table>{''.join(mrows)}</table>"
+    if d.get("model_warning"):
+        body = (f"<div class='note'><bdi>{html.escape(str(d['model_warning']))}"
+                f"</bdi></div>") + body
     return f"<h2>{t['soil']}</h2>{body}"
 
 
@@ -584,6 +656,65 @@ def _sec_bem(t, d):
         _row(t, "Maximum step voltage", "U_S,max", d.get("step_max"), "V",
              "1 m potential difference at the soil surface"),
     ]
+    nets = {n.get("index"): n for n in (d.get("networks") or [])}
+    for f in d.get("fences") or []:
+        nm = f.get("name", "fence")
+        how = "bonded to the grid" if f.get("bonded") else "isolated"
+        rows += [
+            _row(t, "Fence potential", "V_F", f.get("V_fence"), "V",
+                 f"{nm}, {how}: {_fmt(f.get('V_pct_GPR'))} % of GPR"),
+            _row(t, "Fence touch voltage, inside", "U_T,in",
+                 abs((f.get("touch_inside") or {}).get("touch_max", 0)), "V",
+                 "V_F − V_surface within 1 m inside the fence"),
+            _row(t, "Fence touch voltage, outside", "U_T,out",
+                 abs((f.get("touch_outside") or {}).get("touch_max", 0)), "V",
+                 "V_F − V_surface within 1 m outside the fence"),
+        ]
+        if not f.get("bonded"):
+            n = nets.get(f.get("net")) or {}
+            rows += [
+                _row(t, "Grid-to-fence transfer voltage", "ΔV", f.get("transfer_from_main"),
+                     "V", "GPR − V_F"),
+                _row(t, "Fence own resistance", "R_F", n.get("R_self"), "Ω",
+                     "fence energised alone, grid present and floating"),
+            ]
+    tr = d.get("transfer")
+    if tr:
+        rows += [
+            _row(t, "GPR with the conductor", "GPR", tr.get("GPR"), "V",
+                 f"{tr.get('kind')} conductor, {_fmt(tr.get('length'))} m, {tr.get('near')} at the station"),
+            _row(t, "Current drawn away from the grid", "I", tr.get("I_diverted"), "A", ""),
+            _row(t, "Attenuation length", "1/α", tr.get("attenuation_length"), "m", "lossy-line model"),
+            _row(t, "Far-end metal potential", "V_far", tr.get("V_far"), "V",
+                 f"{_fmt(tr.get('V_far_pct'))} % of GPR"),
+            _row(t, "Transferred potential at the far end", "U_T", tr.get("transfer_far"), "V",
+                 "metal − local soil (IEEE Std 80 §17.3)"),
+        ]
+    h = d.get("hf")
+    if h:
+        rows.append(_row(t, "Low-frequency resistance (lightning model)", "R_LF", h.get("R"), "Ω",
+                         h.get("soil", "")))
+        for key, lab in (("first_tb781", "first"), ("subsequent_tb781", "subsequent"),
+                         ("first_heidler", "first"), ("subsequent_heidler", "subsequent")):
+            x = (h.get("responses") or {}).get(key)
+            if not x:
+                continue
+            rows += [
+                _row(t, f"Impulse impedance, {lab} stroke", "Z_p", x.get("Z_impulse"), "Ω",
+                     f"{_fmt(x.get('I_peak_kA'))} kA, {x.get('label', '')}"),
+                _row(t, f"Impulse coefficient, {lab} stroke", "IC", x.get("IC"), "–",
+                     "Z_p / R_LF"),
+                _row(t, f"Peak potential rise, {lab} stroke", "V_p", x.get("V_peak_kV"), "kV", ""),
+            ]
+            if x.get("Z_impulse_ion") is not None:
+                ion = h.get("ionisation") or {}
+                rows += [
+                    _row(t, f"Impulse impedance with ionisation, {lab} stroke", "Z_p,i",
+                         x.get("Z_impulse_ion"), "Ω",
+                         f"E0 = {_fmt(ion.get('E0'))} kV/m, I_g = {_fmt(ion.get('Ig_kA'))} kA"),
+                    _row(t, f"Peak potential rise with ionisation, {lab} stroke", "V_p,i",
+                         x.get("V_peak_ion_kV"), "kV", "Grcev (2009) Eq. 20"),
+                ]
     return (f"<h2>{t['numerical']}</h2>{_table(t, rows)}"
             f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}")
 
