@@ -29,10 +29,10 @@ import json
 import math
 import os
 
-from . import (airterm, bem, conductor, earthpit, faultcurrent, iec60364, iec62305,
+from . import (airterm, bem, hf, layered, transfer, conductor, earthpit, faultcurrent, iec60364, iec62305,
                ieee80, ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.3.6"
+APP_VERSION = "1.6.1"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -195,7 +195,72 @@ def api_soil_invert(p):
         rh = p["rho"]
         if array == "schlumberger" and p.get("mn"):
             mn = p["mn"]
+    layers = _require_choice(str(p.get("layers", "auto")).lower(),
+                             {"auto", "2", "3", "4"}, "Number of soil layers")
     res = soil.invert_two_layer(sp, rh, array, mn)
+    res["n_layers"] = 2
+    run3 = layers in ("3", "4") or (layers == "auto" and len(sp) >= 6 and (
+        res["rms_pct"] > 3.0 or res.get("three_layer_suspected")))
+    if layers == "3" and len(sp) < 6:
+        raise ValueError(f"A three-layer fit has five parameters and needs at "
+                         f"least six readings; {len(sp)} were given.")
+    if layers == "4" and len(sp) < 9:
+        raise ValueError(f"A four-layer fit has seven parameters and needs at "
+                         f"least nine readings; {len(sp)} were given.")
+    if run3:
+        sel = layered.select_three(sp, rh, res, array, mn)
+        res["model_selection"] = dict(
+            requested=layers, chosen=sel["chosen"], F=sel["F"],
+            p_value=sel["p_value"], reason=sel["reason"],
+            rms_two=sel.get("rms_two"), rms_three=sel.get("rms_three"))
+        three = sel["three"]
+        use3 = three is not None and (sel["chosen"] == 3 or layers in ("3", "4"))
+        sel4 = None
+        if use3 and (layers == "4" or (layers == "auto" and len(sp) >= 9
+                                       and three["rms_pct"] > 3.0)):
+            sel4 = layered.select_four(sp, rh, three, array, mn)
+            res["model_selection"].update(
+                four_reason=sel4["reason"], F4=sel4["F"], p_value4=sel4["p_value"],
+                rms_four=sel4.get("rms_four"))
+        # The number of layers the readings actually support (F tests at the
+        # 5 % level), whatever was requested.  A fourth layer is tested
+        # against three; if three were not supported it is tested against
+        # the two-layer fit directly (four extra parameters).
+        supported = sel["chosen"]
+        if sel4 is not None and sel4["four"] is not None and sel4["chosen"] == 4:
+            if supported == 3:
+                supported = 4
+            else:
+                n = len(sp)
+                ss2 = (float(sel["rms_two"]) / 100.0) ** 2 * n
+                F24, p24 = layered.f_test_nested(ss2, sel4["four"]["ss"], n, 3, 7)
+                ok = (p24 is not None and p24 < 0.05
+                      and sel4["four"]["rms_pct"] < 0.8 * float(sel["rms_two"]))
+                if ok:
+                    supported = 4
+                res["model_selection"]["four_reason"] = (
+                    sel4["reason"] + f" Against the two-layer fit the F test of "
+                    f"the four extra parameters gives p = {p24:.2g}, so the four-"
+                    f"layer model is {'supported' if ok else 'not supported'}.")
+        res["model_selection"]["chosen"] = supported
+        if sel4 is not None and sel4["four"] is not None and (
+                sel4["chosen"] == 4 or layers == "4"):
+            res = _three_layer_result(res, sel4["four"], layers)
+            res["three_layer"] = dict(rho=three["rho"], h=three["h"],
+                                      rms_pct=three["rms_pct"],
+                                      curve_x=three["curve_x"], curve_y=three["curve_y"])
+        elif use3:
+            res = _three_layer_result(res, three, layers)
+            if sel4 is not None and sel4["four"] is not None:
+                f4 = sel4["four"]
+                res["four_layer_alternative"] = dict(
+                    rho=f4["rho"], h=f4["h"], rms_pct=f4["rms_pct"],
+                    curve_x=f4["curve_x"], curve_y=f4["curve_y"])
+        elif three is not None:
+            res["three_layer_alternative"] = dict(
+                rho=three["rho"], h=three["h"], rms_pct=three["rms_pct"],
+                curve_x=three["curve_x"], curve_y=three["curve_y"])
+    _flag_unsupported(res, sp, array)
     res["uniform_average"] = sum(rh) / len(rh)
     if array == "wenner" and min(sp) < 1.0:
         # The forward model treats the pins as points on the surface.  At short
@@ -209,6 +274,29 @@ def api_soil_invert(p):
             "refitting without them.")
     area = p.get("grid_area")
     area = float(area) if area not in (None, "", 0, "0") else None
+    if res["n_layers"] >= 3:
+        rr = [res["rho1"], res["rho2"], res["rho3"]] + ([res["rho4"]] if res.get("rho4") else [])
+        hh = [res["h"], res["h2"]] + ([res["h3"]] if res.get("h3") else [])
+        earth = layered.LayeredEarth(rr, hh)
+        method = p.get("equivalent_method", "auto")
+        depth = float(p.get("grid_depth", 0.5)) + float(p.get("rod_length", 0.0))
+        if area and method in ("auto", "grid"):
+            eq = layered.equivalent_uniform(earth, area)
+            eq["note"] = (f"Grid-size rule on the {earth.N}-layer model: a disc of "
+                          f"the grid's area (r = {eq['r_equiv']:.1f} m) has "
+                          f"F = {eq['F']:.3f} times its resistance on uniform "
+                          f"ρ₁, so ρ = ρ₁F (far field only). Preliminary: the "
+                          f"grid page's Pull inputs recomputes it with the "
+                          f"grid's buried length, and that value is the one to "
+                          f"design with. Use the numerical solver, which takes "
+                          f"the layers directly, for the final design.")
+            eq["penetration"] = depth
+        elif method == "grid":
+            raise ValueError("The grid-size rule needs the grid area (m²).")
+        else:
+            eq = layered.equivalent_simple(earth, depth, method)
+        res["equivalent"] = eq
+        return res
     res["equivalent"] = soil.equivalent_uniform(
         res["rho1"], res["rho2"], res["h"],
         float(p.get("grid_depth", 0.5)), float(p.get("rod_length", 0.0)),
@@ -219,6 +307,161 @@ def api_soil_invert(p):
             "Pull inputs recomputes it with the actual grid, including its "
             "buried conductor length, and that value is the one to design with.").strip()
     return res
+
+
+def depth_of_investigation(spacings, array: str = "wenner") -> dict:
+    """Median depth of investigation of the longest spread (Edwards, 1977):
+    0.52·a for Wenner, 0.19·AB = 0.38·s for Schlumberger.  The readings
+    carry little information about anything deeper than about twice that,
+    so a layer whose top lies below ``reach`` is an extrapolation."""
+    smax = max(spacings)
+    k = 0.38 if array == "schlumberger" else 0.52
+    doi = k * smax
+    return dict(doi=doi, reach=2.0 * doi, factor=k, spacing_max=smax)
+
+
+def _flag_unsupported(res: dict, sp, array: str) -> None:
+    """Mark what the readings do not support: layers beyond the number the
+    F tests accept, layers whose resistivity or top is unresolved, and layers
+    that start below the reach of the traverse.  Adds ``layer_status``,
+    ``depth_of_investigation`` and, when needed, ``model_warning``."""
+    n = int(res.get("n_layers") or 2)
+    di = depth_of_investigation(sp, array)
+    res["depth_of_investigation"] = di
+    U = res.get("uncertainty") or {}
+    bound = list(res.get("at_bound") or [])
+    def fac(k):
+        u = U.get(k) or {}
+        if u.get("factor") is not None:
+            return float(u["factor"])
+        lo, hi = u.get("low_68"), u.get("high_68")
+        return math.sqrt(hi / lo) if lo and hi and lo > 0 else 1.0
+    rho_k = ["rho1", "rho2", "rho3", "rho4"][:n]
+    h_k = (["h", "h2", "h3"])[:n - 1]
+    names = rho_k + h_k
+    hit = lambda k: bool(bound) and bound[names.index(k)]
+    depths = list(res.get("depths") or ([res["h"]] if res.get("h") else []))
+    r1 = not (fac("rho1") >= 20 or hit("rho1"))
+    status = [dict(layer=1, top=0.0, resolved=r1, rho_resolved=r1,
+                   top_resolved=True, below_reach=False)]
+    for i in range(2, n + 1):
+        top = float(depths[i - 2]) if len(depths) >= i - 1 else None
+        rk, hk = rho_k[i - 1], h_k[i - 2]
+        r_ok = not (fac(rk) >= 20 or hit(rk))
+        t_ok = not (fac(hk) >= 20 or hit(hk))
+        status.append(dict(layer=i, top=top, resolved=r_ok and t_ok,
+                           rho_resolved=r_ok, top_resolved=t_ok,
+                           below_reach=bool(top is not None and top > di["reach"])))
+    res["layer_status"] = status
+    ms = res.get("model_selection")
+    sup = ms.get("chosen") if ms else n
+    bad = [s for s in status if not s["resolved"] or s["below_reach"]]
+    parts = []
+    if ms and sup is not None and n > sup:
+        if sup == 2:
+            t = res.get("two_layer") or res
+            alt = (f"ρ₁ ≈ {t['rho1']:.0f} Ω·m to {t['h']:.2f} m over "
+                   f"ρ₂ ≈ {t['rho2']:.0f} Ω·m")
+        else:
+            t = res.get("three_layer") or {}
+            r_, h_ = t.get("rho") or [], t.get("h") or []
+            alt = (f"ρ = {' / '.join(f'{v:.0f}' for v in r_)} Ω·m with "
+                   f"thicknesses {' / '.join(f'{v:.2f}' for v in h_)} m"
+                   if r_ else "")
+        names_n = {2: "two", 3: "three", 4: "four"}
+        pv = [("third", ms.get("p_value")), ("fourth", ms.get("p_value4"))][:n - 2]
+        pv = ", ".join(f"p = {v:.2g} for the {w} layer" for w, v in pv if v is not None)
+        parts.append(
+            f"The readings do not support a {names_n[n]}-layer model: the "
+            f"extra layers do not improve the fit significantly (F test at "
+            f"the 5 % level{': ' + pv if pv else ''}), so the "
+            f"supported model is {names_n[sup]} layers"
+            + (f" ({alt})" if alt else "") + ". The model below is shown "
+            f"because {names_n[n]} layers were requested; its extra layers "
+            f"are one of many that fit equally well.")
+    if bad:
+        desc = []
+        for s_ in bad:
+            if s_["below_reach"]:
+                desc.append(f"layer {s_['layer']} starts at {s_['top']:.0f} m, "
+                            f"below the reach of the traverse (about "
+                            f"{di['reach']:.0f} m for a longest spacing of "
+                            f"{di['spacing_max']:g} m)")
+            else:
+                what = ("neither its resistivity nor the depth of its top"
+                        if not s_["rho_resolved"] and not s_["top_resolved"] else
+                        "its resistivity" if not s_["rho_resolved"] else
+                        "the depth of its top")
+                desc.append(f"layer {s_['layer']} is not resolved: the "
+                            f"readings do not fix {what}")
+        parts.append("In this model " + "; ".join(desc) + ".")
+    if parts:
+        parts.append("Design with the supported model, or confirm the deeper "
+                     "layers independently (a longer traverse, a borehole "
+                     "log) first: a layer that is not really there changes "
+                     "the computed grid resistance and GPR, and a spurious "
+                     "conductive one makes them too low, which is unsafe.")
+        res["model_warning"] = " ".join(parts)
+    else:
+        res["model_warning"] = ""
+
+
+def _three_layer_result(two: dict, three: dict, requested: str) -> dict:
+    """Recast a three-layer fit in the soil page's result layout, keeping the
+    two-layer fit alongside for comparison."""
+    rho, h = three["rho"], three["h"]
+    unc = three.get("uncertainty") or {}
+    par = unc.get("params", {})
+    rename = {"rho1": "rho1", "rho2": "rho2", "rho3": "rho3", "rho4": "rho4",
+              "h1": "h", "h2": "h2", "h3": "h3"}
+    u = {rename[k]: v for k, v in par.items()} if par else None
+    if u is not None:
+        u.update(dof=unc.get("dof"), corr=unc.get("corr"), names=unc.get("names"),
+                 equivalence=unc.get("equivalence"),
+                 equivalences=unc.get("equivalences"))
+    worst = max(abs(r) for r in three["residual_pct"])
+    rms = three["rms_pct"]
+    q = ("good" if (rms <= 3.0 and worst <= 6.0) else
+         "acceptable" if (rms <= 5.0 and worst <= 10.0) else "poor")
+    warn = note = ""
+    if q == "poor":
+        nl = len(rho)
+        warn = (f"Even the {'three' if nl == 3 else 'four'}-layer model leaves an "
+                f"RMS misfit of {rms:.1f} % (largest residual {worst:.0f} %). "
+                f"Check the readings for outliers or lateral changes along the "
+                f"traverse; a second traverse at right angles may be needed.")
+    eqs = (u or {}).get("equivalences") or [(u or {}).get("equivalence") or {}]
+    def _poor(e):
+        # every statement except "resolved separately" carries a caution
+        return e and e.get("statement") and (
+            e.get("determined") != "both" or e.get("unresolved")
+            or e.get("rho2_factor", 1) >= 3 or e.get("h2_factor", 1) >= 3)
+    note = " ".join(e["statement"] for e in eqs if _poor(e))
+    out = dict(two)
+    out.update(
+        n_layers=len(rho), rho1=rho[0], rho2=rho[1], rho3=rho[2], h=h[0], h2=h[1],
+        depths=three["depths"], K=three["K"][0], K23=three["K"][1],
+        rho4=rho[3] if len(rho) > 3 else None, h3=h[2] if len(h) > 2 else None,
+        K34=three["K"][2] if len(rho) > 3 else None,
+        rms_pct=rms, fitted=three["fitted"], residual_pct=three["residual_pct"],
+        curve_x=three["curve_x"], curve_y=three["curve_y"],
+        uncertainty=u, fit_quality=q, max_residual_pct=worst,
+        three_layer_suspected=False, fit_warning=warn, fit_note=note,
+        at_bound=three.get("at_bound"),
+        two_layer=dict(rho1=two["rho1"], rho2=two["rho2"], h=two["h"], K=two["K"],
+                       rms_pct=two["rms_pct"], fitted=two["fitted"],
+                       residual_pct=two["residual_pct"],
+                       curve_x=two["curve_x"], curve_y=two["curve_y"],
+                       fit_quality=two.get("fit_quality")))
+    if any(three.get("at_bound") or []):
+        nl = len(rho)
+        names = ["ρ₁", "ρ₂", "ρ₃", "ρ₄"][:nl] + ["h₁", "h₂", "h₃"][:nl - 1]
+        hit = [names[i] for i, b in enumerate(three["at_bound"]) if b]
+        out["fit_note"] = (out["fit_note"] + " " if out["fit_note"] else "") + (
+            f"{', '.join(hit)} reached the edge of the search range: the "
+            f"readings do not constrain {'it' if len(hit) == 1 else 'them'} — "
+            f"extend the traverse (longer or shorter spacings) to resolve it.")
+    return out
 
 
 def api_soil_equivalent(p):
@@ -238,6 +481,32 @@ def api_soil_equivalent(p):
     method = p.get("equivalent_method", "auto")
     if method == "auto":
         method = "grid"
+    if p.get("rho3") not in (None, "") or p.get("h2") not in (None, ""):
+        _require_positive(p, {"rho3": "Third-layer resistivity rho3 (ohm.m)",
+                              "h2": "Second-layer thickness h2 (m)"})
+        rr = [float(p["rho1"]), float(p["rho2"]), float(p["rho3"])]
+        hh = [float(p["h"]), float(p["h2"])]
+        if p.get("rho4") not in (None, "") and p.get("h3") not in (None, ""):
+            _require_positive(p, {"rho4": "Fourth-layer resistivity rho4 (ohm.m)",
+                                  "h3": "Third-layer thickness h3 (m)"})
+            rr.append(float(p["rho4"]))
+            hh.append(float(p["h3"]))
+        earth = layered.LayeredEarth(rr, hh)
+        if method != "grid":
+            return layered.equivalent_simple(earth, g.h, method)
+        eq = layered.equivalent_uniform(earth, g.A, g.LT)
+        two = layered.equivalent_two_layer(earth, g.A, g.h)
+        eq["equivalent_two_layer"] = two
+        eq["note"] = (
+            f"Grid-size rule on the {earth.N}-layer model: the grid is treated as a "
+            f"disc of radius r = √(A/π) = {eq['r_equiv']:.1f} m, F = "
+            f"{eq['F']:.3f}, and the conductor term ρ₁/L_T stays in the top "
+            f"layer, so ρ = ρ₁ (F/4r + 1/L_T)/(1/4r + 1/L_T) = ρ₁ × "
+            f"{eq['ratio']:.3f}. For this grid the {earth.N} layers act like two: "
+            f"ρ₁ = {two['rho1']:.4g} Ω·m to {two['h']:.3g} m over "
+            f"{two['rho2']:.4g} Ω·m. Use the numerical solver, which takes the "
+            f"layers directly, for the final design.")
+        return eq
     return soil.equivalent_uniform(
         float(p["rho1"]), float(p["rho2"]), float(p["h"]),
         g.h, 0.0, method, g.A, g.LT)
@@ -545,6 +814,160 @@ def api_ieee80_optimise(p):
     return res
 
 
+def _clean_fences(p):
+    """Validate fence items and turn the table's 0/1 and blank entries into
+    the booleans and None the solver expects."""
+    for i, it in enumerate(p.get("items") or [], 1):
+        if it.get("kind") != "fence":
+            continue
+        if "path" not in it:
+            for k in ("Lx", "Ly"):
+                if not _finite_pos(it.get(k)):
+                    raise ValueError(f"Fence {i}: {k} must be a positive length (m).")
+        for k, lab in (("post_spacing", "post spacing"), ("post_depth", "post depth"),
+                       ("post_radius", "post radius")):
+            if k in it and not _finite_pos(it.get(k)):
+                raise ValueError(f"Fence {i}: the {lab} must be positive.")
+        it["bonded"] = _truthy(it.get("bonded", 0))
+        wo = it.get("wire_offset")
+        wire = _truthy(it.get("wire", 1 if wo not in (None, "") else 0))
+        try:
+            wo = float(wo)
+        except (TypeError, ValueError):
+            wo = None
+        if wire and (wo is None or not math.isfinite(wo)):
+            raise ValueError(f"Fence {i}: give the offset of the fence wire "
+                             f"from the fence line (m, positive outwards).")
+        it["wire_offset"] = wo if wire else None
+        it["wire"] = bool(wire)
+
+
+def _finite_pos(v):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(v) and v > 0
+
+
+def _truthy(v):
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "y", "on")
+    try:
+        return bool(v) and not (isinstance(v, float) and math.isnan(v))
+    except Exception:
+        return False
+
+
+def api_transfer(p):
+    """Transferred potential along a pipe, rail, cable screen or earth wire
+    that leaves the station (IEEE Std 80 clause 17.3)."""
+    _require_rows(p.get("items"), "electrode")
+    route = p.get("route") or {}
+    for k, lab in (("length", "Route length (m)"), ("radius", "Conductor radius (m)")):
+        if not _finite_pos(route.get(k)):
+            raise ValueError(f"{lab} must be positive.")
+    if not bem.HAVE_NUMPY:
+        raise RuntimeError("The transferred-potential solver needs numpy.")
+    _clean_fences(p)
+    net = bem.build_network(p)
+    net.discretise(float(p.get("segment_length", 2.5)),
+                   int(p.get("max_segments", 2500)))
+    sol = net.solve()
+    L = float(route["length"])
+    start = route.get("start") or [0.0, 0.0]
+    if route.get("end"):
+        e = route["end"]
+        direction = [float(e[0]) - float(start[0]), float(e[1]) - float(start[1])]
+    else:
+        direction = route.get("direction") or [1.0, 0.0]
+    if math.hypot(*direction[:2]) == 0:
+        raise ValueError("The route needs a direction.")
+    depth = float(route.get("depth", 1.0))
+    prof = transfer.soil_profile_from_network(net, start, direction, L, depth)
+    lim = p.get("limits") or {}
+    res = transfer.transferred_potential(
+        GPR=sol["GPR"], Rg=sol["Rg"], IG=sol["IG"], soil_profile=prof,
+        length=L, kind=route.get("kind", "bare"),
+        rho_soil=float(route.get("rho_soil") or p.get("rho1", 100.0)),
+        radius=float(route["radius"]), depth=depth,
+        f=float(route.get("f", 50.0)), metal=route.get("metal", "steel"),
+        wall=route.get("wall"), r_dc_per_km=route.get("r_dc_per_km"),
+        coating_res=route.get("coating_res"), leak_ohm_km=route.get("leak_ohm_km"),
+        z_per_km=route.get("z_per_km"),
+        near=route.get("near", "bonded"), R_bond=float(route.get("R_bond") or 0.0),
+        far=route.get("far", "open"),
+        R_far=(float(route["R_far"]) if route.get("R_far") not in (None, "") else None),
+        E_touch=lim.get("E_touch"), access_points=route.get("access_points"))
+    res["station"] = dict(Rg=sol["Rg"], GPR=sol["GPR"], IG=sol["IG"],
+                          soil=sol["soil"], segments=sol["segments"])
+    if sol.get("networks"):
+        res["station"]["networks"] = sol["networks"]
+    res["route"] = dict(start=list(map(float, start[:2])),
+                        direction=list(map(float, direction[:2])), depth=depth)
+    return reasoning.explain_transfer(res)
+
+
+def api_hf(p):
+    """Harmonic impedance and lightning response of the electrodes of the
+    numerical page: uniform or layered soil (each layer constant or
+    frequency dependent), optional soil ionisation, concrete-encased
+    foundation elements."""
+    _require_rows(p.get("items"), "electrode")
+    if any(it.get("kind") == "fence" for it in p.get("items") or []):
+        raise ValueError("Remove the fence: the lightning response is computed "
+                         "for the electrode alone.")
+    _require_positive(p, {"rho0": "Soil resistivity rho0 (ohm.m)"})
+    eps = float(p.get("eps_r", 10.0))
+    if not (1.0 <= eps <= 200.0):
+        raise ValueError("Relative permittivity must lie between 1 and 200.")
+    model = p.get("soil_model", "constant")
+    _require_choice(model, {"constant", "alipio_visacro"}, "Soil model")
+    level = p.get("level", "mean")
+    _require_choice(level, {"mean", "relatively_conservative", "conservative"},
+                    "Alipio-Visacro parameter set")
+    f_max = float(p.get("f_max", 10e6))
+    if not (1e5 <= f_max <= 2e7):
+        raise ValueError("The highest frequency must lie between 100 kHz and 20 MHz.")
+    if not hf.HAVE_NUMPY:
+        raise RuntimeError("The frequency-response solver needs numpy.")
+    feed = p.get("feed")
+    if feed is not None:
+        feed = [float(v) for v in feed][:3]
+        if len(feed) == 2:
+            feed.append(0.0)
+    peaks = {k: float(v) for k, v in (p.get("peaks") or {}).items() if v not in (None, "")}
+    wfs = p.get("waveforms") or ["first_tb781", "subsequent_tb781"]
+    for w in wfs:
+        _require_choice(w, set(hf.WAVEFORMS), "Lightning current")
+    layers = None
+    lay = p.get("layers") or {}
+    if lay.get("rho"):
+        rl = [float(v) for v in lay["rho"]]
+        hl = [float(v) for v in lay.get("h") or []]
+        if len(hl) != len(rl):
+            raise ValueError("Every layer below the top one needs the thickness "
+                             "of the layer above it.")
+        if min(rl) <= 0 or min(hl) <= 0:
+            raise ValueError("Layer resistivities and thicknesses must be positive.")
+        if len(rl) > 3:
+            raise ValueError("The lightning model takes at most four layers.")
+        layers = dict(rho=rl, h=hl)
+    E0 = p.get("E0")
+    if E0 not in (None, "", 0, False):
+        E0 = float(E0)
+        if not (50.0 <= E0 <= 3000.0):
+            raise ValueError("The critical field E0 must lie between 50 and 3000 kV/m "
+                             "(300 kV/m IEEE, 400 kV/m CIGRE).")
+    else:
+        E0 = None
+    out = hf.analyse(p["items"], float(p["rho0"]), eps, model, level, feed,
+                     f_max, int(p.get("n_f", 40)), peaks,
+                     int(p.get("max_segments", 800)), waveforms=tuple(wfs),
+                     layers=layers, E0=E0)
+    return reasoning.explain_hf(out)
+
+
 def api_bem(p):
     _require_rows(p.get("items"), "electrode")
     _require_positive(p, {"segment_length": "Segment length (m)",
@@ -556,10 +979,23 @@ def api_bem(p):
     if p.get("rho2") not in (None, "") or p.get("h_layer") not in (None, ""):
         _require_positive(p, {"rho2": "Lower-layer resistivity rho2 (ohm.m)",
                               "h_layer": "Upper-layer thickness (m)"})
+    if p.get("rho3") not in (None, "") or p.get("h_layer2") not in (None, ""):
+        if p.get("rho2") in (None, "") or p.get("h_layer") in (None, ""):
+            raise ValueError("A third layer needs the second layer first: give "
+                             "ρ₂ and the top-layer thickness as well.")
+        _require_positive(p, {"rho3": "Third-layer resistivity rho3 (ohm.m)",
+                              "h_layer2": "Second-layer thickness (m)"})
+    if p.get("rho4") not in (None, "") or p.get("h_layer3") not in (None, ""):
+        if p.get("rho3") in (None, "") or p.get("h_layer2") in (None, ""):
+            raise ValueError("A fourth layer needs the third layer first: give "
+                             "ρ₃ and the second-layer thickness as well.")
+        _require_positive(p, {"rho4": "Fourth-layer resistivity rho4 (ohm.m)",
+                              "h_layer3": "Third-layer thickness (m)"})
 
     if not bem.HAVE_NUMPY:
         raise RuntimeError("The numerical solver needs numpy. "
                            "Install it with:  pip install numpy")
+    _clean_fences(p)
     net = bem.build_network(p)
     seg = net.discretise(float(p.get("segment_length", 2.5)),
                          int(p.get("max_segments", 2500)))
@@ -610,6 +1046,8 @@ def api_bem(p):
                step_max=ws["step_max"], step_at=ws["step_at"],
                profile=prof, geometry=net.geometry_json(),
                current=net.current_distribution(), xlim=xlim, ylim=ylim)
+    if ws.get("fences"):
+        out["fences"] = ws["fences"]
 
     lim = p.get("limits") or {}
     if lim.get("E_touch") or lim.get("E_step"):
@@ -621,6 +1059,13 @@ def api_bem(p):
                  limit=lim.get("E_step"), unit="V",
                  passed=(lim.get("E_step") or 1e18) >= ws["step_max"]),
         ]
+        for f in ws.get("fences") or []:
+            v = abs(f["touch_max"])
+            out["checks"].append(dict(
+                name=f"Fence touch voltage ({f['name']})", value=v,
+                limit=lim.get("E_touch"), unit="V",
+                passed=(lim.get("E_touch") or 1e18) >= v,
+                fence=f))
     return reasoning.explain_bem(out)
 
 
@@ -938,6 +1383,8 @@ ROUTES = {
     "/api/ieee80/design": api_ieee80,
     "/api/ieee80/optimise": api_ieee80_optimise,
     "/api/bem": api_bem,
+    "/api/transfer": api_transfer,
+    "/api/hf": api_hf,
     "/api/building": api_building,
     "/api/electrode": api_electrode,
     "/api/rods-required": api_rods_required,
