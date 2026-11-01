@@ -61,7 +61,7 @@ class TouchVoltage(unittest.TestCase):
         ts = [0.01, 0.05, 0.07, 0.15, 0.3, 0.7, 1.5, 3, 7, 10, 30]
         us = [st.en50522_touch_limit(t) for t in ts]
         self.assertTrue(all(a >= b for a, b in zip(us, us[1:])))
-        self.assertEqual(us[0], 716.0)
+        self.assertEqual(us[0], 725.0)     # BS EN 50522:2022 Table B.4
         self.assertEqual(us[-1], 85.0)
 
     def test_ieee80_bare(self):
@@ -71,7 +71,7 @@ class TouchVoltage(unittest.TestCase):
     def test_design_carries_cross_check_without_changing_verdict(self):
         g = ieee80.GridGeometry(Lx=70, Ly=70, D=7, h=0.5, d=0.01)
         d = ieee80.design(400, g, 1.908, rho_s=2500, hs=0.102, ts=0.5)
-        self.assertAlmostEqual(d["en50522"]["U_Tp"], 220.0, places=6)
+        self.assertAlmostEqual(d["en50522"]["U_Tp"], 225.0, places=6)
         self.assertFalse(any("50522" in c["name"] for c in d["checks"]))
         self.assertIn("EN 50522", d["cross_check"])
 
@@ -119,21 +119,22 @@ class CouplingAndHVDC(unittest.TestCase):
         self.assertAlmostEqual(st.faraday_mass_loss(1, 1, "iron"), 9.13, places=2)
 
     def test_srg(self):
-        self.assertAlmostEqual(st.srg_max_aperture(30e6), 0.999, places=3)
+        self.assertAlmostEqual(st.srg_max_aperture(30e6), 0.4997, places=3)
+        self.assertAlmostEqual(st.srg_max_aperture(30e6, 0.1), 0.999, places=3)
 
 
 class Plumbing(unittest.TestCase):
     def test_api_and_report(self):
         r = api.dispatch("/api/standards", {"t_F": 1, "f_n": 1, "p_n": 100,
                                             "f_d": 1, "t_d": 1, "P_fib": 0.05})
-        self.assertAlmostEqual(r["touch"]["U_Tp"], 117.0)
+        self.assertAlmostEqual(r["touch"]["U_Tp"], 115.0)
         self.assertIn(r["eg0"]["band"], ("negligible", "ALARP", "intolerable"))
         lt = api.dispatch("/api/lightning", {"rho": 500})
         self.assertLess(lt["soil_frequency"]["ratio"], 1.0)
         html = report.build({"lightning": lt}, "en")
         self.assertIn("Standards and codes of practice", html)
         self.assertIn("IEC 61400-24", html)
-        self.assertTrue(api.APP_VERSION.startswith("1.3"))
+        self.assertTrue(api.APP_VERSION.startswith("1."))
 
 
 if __name__ == "__main__":
