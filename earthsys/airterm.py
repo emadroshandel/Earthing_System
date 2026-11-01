@@ -14,7 +14,8 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Air-termination design and lightning protection zones to IEC 62305-3:2010.
+Air-termination design and lightning protection zones to IEC 62305-3:2024
+(the class parameters and Figure 1 are those of the 2010 edition).
 
 The earth termination is handled in :mod:`earthsys.iec62305`; this module
 covers what happens above ground — where the flash is intercepted and which
@@ -82,7 +83,7 @@ MESH_SIZE = {"I": 5.0, "II": 10.0, "III": 15.0, "IV": 20.0}
 #: Typical distance between down-conductors, IEC 62305-3 Table 4.
 DOWN_SPACING = {"I": 10.0, "II": 10.0, "III": 15.0, "IV": 20.0}
 
-# The protective angle of IEC 62305-3:2010 Figure 1.  The standard gives it as
+# The protective angle of IEC 62305-3 Figure 1 (identical in 2010 and 2024).  The standard gives it as
 # a graph only.  The values below were read from the VECTOR drawing of the
 # figure (the curve paths themselves, calibrated against the axis grid), so
 # they are accurate to about 0.3 degrees.  Below h = 2 m the angle does not
@@ -110,7 +111,7 @@ PROTECTIVE_ANGLE = {
 }
 
 PROTECTIVE_ANGLE_SOURCE = (
-    "IEC 62305-3:2010 Figure 1, read from the vector drawing of the figure "
+    "IEC 62305-3:2024 Figure 1 (unchanged from 2010), read from the vector drawing "
     "(about ±0.3°); constant below h = 2 m, not applicable above h = R. "
     "The rolling sphere result is derived exactly and governs."
 )
