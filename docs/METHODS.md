@@ -226,6 +226,21 @@ P_ij is the average potential on segment i per ampere leaked from segment j:
     (≥ 2·61·h) being large against z and z′ (1.3.4; before, the series simply stopped at 60,
     −15 % on R_g for ρ₂/ρ₁ = 200).
 
+**Two regions with a vertical boundary** (1.8.7) — uniform ρ₁ on one side of a vertical plane,
+ρ′ on the other, K = (ρ′ − ρ₁)/(ρ′ + ρ₁), K_s = K for a source on the ρ₁ side and −K on the
+ρ′ side; r′ is the distance to the source mirrored in the plane, the suffix a the air image:
+
+    same side       G = ρ_s/(4π)·[ 1/r + 1/r_a + K_s (1/r′ + 1/r′_a) ]
+    across          G = ρ_s(1 + K_s)/(4π)·[ 1/r + 1/r_a ]
+
+Exact (the two mirrors are perpendicular, so the images close after four terms); continuous
+in potential and normal current density across the plane, and reciprocal. Conductors are
+split at the plane. A segment parallel to the plane at distance d takes its mirror term in
+closed form, K_s ρ_s/(4π)·(2/L²)[L asinh(L/D) − √(L² + D²) + D], D = 2d; a segment in the
+plane (2d < a) takes K_s times its direct self term, i.e. ρ₁(1 + K) = 2ρ₁ρ′/(ρ₁ + ρ′).
+Exact checks: an electrode in the plane, and any electrode symmetric about it, behave as in
+uniform soil of that harmonic mean (10⁻¹² and 3 × 10⁻⁶ in the tests).
+
 **Self term** (exact average potential on a thin cylinder of length L, radius a)
 
     P_ii,direct = ρ/(2πL)·[ ln(2L/a) − 1 ]
@@ -267,6 +282,37 @@ within 1 m of the fence line on either side; step across the fence line; grid-to
 transfer voltage. Scan points within 0.25 m of metal that reaches the surface are excluded
 from the step scan.
 
+**Solution of large models** (1.8.7; `earthsys/hmatrix.py`)
+
+    Symmetry      mirrors in x, y and the diagonals, rotations by 90° and 180° about the
+                  centre of the layout that map every segment (radius, soil zone, network,
+                  shell) and the soil onto themselves; orbits O_a with representatives r_a:
+                  P_red[a,b] = (|O_b|/|O_a|)·Σ_{i∈O_a} P[i, r_b],
+                  ⎡ P_red    −E_red ⎤ ⎡ I_red ⎤   ⎡ 0 ⎤
+                  ⎣ (|O|E_red)ᵀ   0 ⎦ ⎣   V   ⎦ = ⎣ J ⎦,   I = I_red[orbit]   (exact)
+    Dense         n_eff ≤ 4000 unknowns (after the reduction): LU of the augmented system
+    H-matrix      above that: binary cluster tree (≤ 64 segments per leaf); a block is
+                  compressed when its horizontal gap g ≥ 8 L_max and min(diam) ≤ 1.5 g, by
+                  adaptive cross approximation with partial pivoting to 10⁻⁸ of the block's
+                  Frobenius norm (Bebendorf 2000); other blocks dense, with the near-field
+                  quadrature written in; X = P⁻¹E by restarted GMRES(60) (Saad and Schultz
+                  1986) to a relative residual of 10⁻⁹, block-Jacobi preconditioner (diagonal
+                  blocks of ≤ 256 segments); Z = (EᵀX)⁻¹, I-shapes X·Z
+    Two layers    for field and source points at one depth the image series is tabulated
+                  in u = asinh(r_h/Δ_min) with its derivative (step 0.01, cubic Hermite,
+                  relative error < 10⁻¹⁰); the term at Δ = 0 is added exactly
+    Reuse         solutions kept by a hash of the segments, soil and solver (12 most recent);
+                  for uniform soil without concrete Z/ρ is kept, so one solution serves any ρ
+                  and any I_G; study cases kept by everything they depend on (48 most recent)
+    Maps          point tree × segment tree; near and small blocks summed directly, large far
+                  blocks through ACA (10⁻⁷) applied to the currents
+    Limit         20 000 segments (was 4000)
+
+Checks (`tests/test_v187_solver_vertical.py`): symmetric against full dense 10⁻¹² on the Annex H
+grids; H-matrix against dense 10⁻⁸ in R_g and 10⁻⁷ in touch and step on Annex B with rods and
+Annex H Grids 2 and 3; 13 520 segments (Annex B at 0.125 m) against the symmetric dense
+solution 4 × 10⁻¹¹ in R_g and 5 × 10⁻⁹ in touch.
+
 **Concrete-encased conductors** (1.6.0) — *Pier / pile* and *Strip footing* elements. The cage
 of n bars of radius a on a circle of radius b becomes one bar of radius
 a_eq = (n a b^{n−1})^{1/n} (b = r_c − cover − a); the section a cylinder of radius r_c
@@ -285,6 +331,24 @@ station as a lossy line in soil at the solver's potential V_s(x):
 Steel: z_int is the surface impedance (1 + j)ρ_m/(2πaδ) when the wall exceeds 2δ (μ_r = 300).
 Solved as a ladder (Thomas algorithm) on a mesh refined near the station; ends bonded or
 insulated at the station, open, locally earthed or remotely earthed at the far end.
+
+**Transferred potential solved with the station** (1.8.8) — bare and coated routes: segments
+from max(min(mean grid segment, 3 m), 12a) at the station growing by 1.15 to min(50 m, L/20);
+coating r_c/(2πa) added to the segment's own coefficient; all leakage in one static P:
+
+    I = P⁻¹ [E, B] [V_s; U]          B: ½ to each end node of a route segment
+    Eᵀ I = J − δ I_bond,   I_bond = J₀ + leak₀,   J_{j−1} = J_j + leak_j,   J_{m−1} = leak_m + I_far
+    J_j = (U_j − U_{j+1} + e_j Δs_j)/(z Δs_j),   bond: U₀ = V₀ (− R_bond I_bond)
+    touch(s) = |U(s) − V_surface(1 m beside the route, lower side)|
+
+Far end earthed locally: to the soil 2 m beside the route end. z from (Carson + internal) as
+before; the EMF of a faulted line is a second right-hand side. Checked against hf.py at 50 Hz
+(2 km bare wire on Annex H Grid 3: GPR +1.2 %, current −1.4 %, touch ≤ 3 %).
+
+**Automatic refinement** (1.8.8) — halve the segments within r = max(3 m, 2s + 1 m) of the
+worst touch point and both feet of the worst step (and their symmetry images), never below 10
+radii (1.5 shell radii); re-solve and re-search until |Δtouch|, |Δstep| < tol; geometric
+extrapolation of the last three levels when they contract.
 
 **Post-processing.** Surface potential on a rectangular grid; touch voltage = GPR − V,
 reported only inside the electrode footprint plus 1 m of arm reach; step voltage from the
@@ -356,7 +420,17 @@ Electrode inputs are validated: the strip and ring formulas contain ln(·/2h) an
 rejected at h = 0; the plate (shallow ENA form) and the mesh accept h = 0.
 
 I_a comes from the tripping multiplier of the device: type B 5·I_n, type C 10·I_n,
-type D 20·I_n, or the tabulated gG fuse currents for 0.4 s and 5 s.
+type D 20·I_n, or, for a fuse (1.8.6):
+
+| Fuse | I_a | Source |
+|---|---|---|
+| gG, BS 88-2 | 0.95·230/Z_s,max of the tables (0.4 s, 2–63 A; 5 s, 2–200 A); other ratings as gG, IEC 60269 | BS 7671:2018+A2:2022 Tables 41.2, 41.4 |
+| gG / gM, any make | upper limit of the gates: (I_f, t_conv), (I_max 5 s), (I_max 0.1 s), (√(I²t_max/0.01), 0.01 s), log–log, constant I²t below 0.01 s; gM at its characteristic current | IEC 60269-1 Tables 2, 3, 7; IEC 60269-2 Table 102; IEC 60269-3 Tables 103, 203, 406, 602 |
+| aM | (6.3·I_n, 60 s), (12.5·I_n, 0.5 s), (19·I_n, 0.1 s) | IEC 60269-1 Table 4 |
+| Manufacturer's curve | current–time points, log–log, current × (1 + tolerance) | data sheet |
+
+The operating time at the prospective fault current C_min·U₀/Z_s is read from the same
+curve.
 
 ---
 
@@ -568,3 +642,47 @@ into any design formula. Also available: `tb781_counterpoise_zp1st` (Eq. 4.1–4
 
 **Bonding networks** (IEEE 1100, BS EN 50310). The mesh opening is `a ≤ c/(10·f_max)`, and a
 bonding strap has `|Z| = 2πf·(1 µH/m)·ℓ`.
+
+
+## 11. Studies added in 1.8.0
+
+| Quantity | Formula / method | Source |
+|---|---|---|
+| Robust soil fit | residuals scaled by σ̂ = 1.4826·MAD; worst reading beyond max(3σ̂, 5 %) set aside, one at a time, at most n/5 | robust statistics (Huber 1981) |
+| Lateral variation | separate two-layer fit per traverse; flagged when ρ₁, ρ₂ or common-spacing readings differ by more than ×1.5 | IEEE Std 81-2025 §7 |
+| Shield-wire self / mutual impedance | z_s = r + π²·10⁻⁴f + j4π·10⁻⁴f·ln(D_e/GMR); z_m with d for GMR; D_e = 658.5√(ρ/f) | Carson (1926) |
+| Infinite ladder | Z∞ = Z_s/2 + √(Z_s·R_t + Z_s²/4) | Endrenyi (1963); IEEE 80 Annex C |
+| Grid current, fault anywhere on the line | nodal solution of the ladder with series EMF −z_m·I_phase per span; I_g = V₀/R_g | IEEE Std 80-2013 §15.9 |
+| Touch region | within 1 m of buried metal in plan, or enclosed by conductors on all four sides; or user touch zones | — |
+| Step voltage | max over position and direction of \|V(p) − V(p + s·u(θ))\|, refined to 0.02 m and 1° | IEEE Std 80 §16 |
+| End refinement | end segment halved three times towards each free conductor end (≥ 10 radii) | — |
+| Discretisation error | f∞ ≈ f(h/2) + [f(h/2) − f(h)]; design value max(f(h), f(h/2), f∞) | Richardson extrapolation |
+| Non-equipotential solution | thin-wire circuit–field model at 50/60 Hz (internal impedance, self and mutual inductance with earth return); surface potential from the static Green's function of the complex leakage currents | Grcev & Dawalibi (1990) |
+| Non-equipotential, reduced (1.8.7) | currents eliminated: Y = Dᵀ Z_L⁻¹ D + Mᵀ Z_T⁻¹ M (N_n × N_n), I_L = Z_L⁻¹ D V, I_T = Z_T⁻¹ M V; up to 3000 segments (was 1500) | — |
+| Non-equipotential, two scales (1.8.9) | above 3000 segments (counted after the cuts): coarse circuit-field model → V_n; V interpolated along each conductor to the fine mid-points; P I_f = V (real, imaginary), dense or H-matrix + GMRES; I_f scaled to I_G (ratio reported); surface, touch and step from I_f, metal at the fine segment ends; Z and V_n from the coarse model | 300 m grid: touch, step within 0.4 % of the full 5 m model (20 m alone: 6–20 %) |
+| Plate (1.9.0) | n strips along the long side, edges t_k = ½ − ½cos(πk/n) across the short side; strip = wire of radius w_k/2π (array ≡ plane); segments short side/n, not graded; n = 16, ≥ π·W/(2.4 d) for a horizontal plate, ≤ 64 | Panel solution and Read (1997): +0.08 to +0.22 % at n = 16 |
+| Shortest segment (1.9.1) | bare conductors: segment length ≥ 10 radii (bem, hf); plates exempt (validated strips); concrete-encased ≥ 1.5 r_c | below ~4 radii the matrix is indefinite (negative leakage) |
+| Shield-wire bundle (1.9.2) | two wires bonded at every tower: z = 1/(1ᵀZ⁻¹1) = (z_s + z_m(d))/2 per km | identity to 10⁻¹² |
+| Shield-wire corridor (1.9.2) | lines sharing the route: Y = BᵀZ⁻¹B/ℓ, J = −BᵀZ⁻¹z_p·I_ph per span; nodes per line and tower, shared station and remote nodes | wire-level branch solution 10⁻¹⁰; far-field −Z⁻¹z_p·I 10⁻⁶ |
+| Transferred potential, circuit-field check (1.9.2) | station + route in the hf model at 50 Hz (route internal impedance per wire, coating as resistive shell), bonded at the nearest grid node, fed at the grid node nearest the centroid; design touch = max of the two models | coupled solution: 0.1–4 % |
+| Lightning mesh, graded (1.9.3) | above 800 segments: s(d) = s₀ + α·d from the injection, s₀ = min(1 m, 0.2/|γ(f_max)|, extent/400); α by bisection to the limit; limit raised to n_min + 400 when the crossings alone need n_min | ≤ 0.1 % in |Z| (100 Hz–10 MHz) against meshes 3–8 times finer; old uniform mesh 0.7–68 % |
+| Soil uncertainty | log-normal samples from C = s²(JᵀJ)⁻¹, Latin hypercube in the standard normal space (1.8.3); percentiles and probability of compliance | McKay, Beckman & Conover (1979) |
+| Confidence of a probability | Wilson score interval, z = 1.96; samples for ±5 %: 1.96²p(1 − p)/0.05²; P(max > p95) = 1 − 0.95ⁿ | Wilson (1927) |
+| Fences, non-equipotential (1.8.3) | posts and wire leak; post tops and wire merged into one node (fabric without leakage); bonded: joined to the nearest grid node | — |
+| Seasonal soil | top layer × dry factor to a depth; optional frozen layer; at most four layers | IEEE Std 80 §13.4 |
+| Graded grid | x = L(u − g·sin(2πu)/2π) | — |
+| Fall-of-potential curve | R(x) = (V_E − V_P(x))/I with grid (+I) and current electrode (−I) solved together | IEEE Std 81-2025 §8 |
+| Induced EMF on a parallel conductor | z_m·I per metre over the parallel stretch, series source in the lossy line | Carson (1926); IEEE 80 §17.3 |
+| Induced EMF, any route (1.8.5) | e(s) = z_m(d(s))·I·(t·u), nearest point of the faulted line; 0 beyond its ends or d > D_e | Carson (1926); ITU-T K.26 sectioning |
+| Shield-wire ladder, real lines (1.8.5) | span-by-span Z_k, EMF −z_m·ℓ_k·I, R_t,k per tower; other lines as ladder input admittances at the station node | Endrenyi (1967); EREC S34 |
+| Cable-sheath return (1.8.5) | sheath ladder with core coupling, z_s, z_m by Carson; equals EREC S34 D.2.1/D.2.3 for one three-core section | EREC S34:2018 App. D |
+| Cross-bonded sheaths (1.9.4) | every sheath of every minor section a branch (Carson matrix with the faulted core), transpositions at the link boxes, earths at A, B and the major joints; link boxes open | equals the both-ends model with earths at the major joints for equal sections (10⁻¹²); independent path-by-path solution (10⁻¹⁰) |
+| Collection areas | A_D = LW + 6H(L + W) + 9πH²; A_M = 2r_M(L + W) + πr_M², r_M = 350/U_w; A_L = 40L_L (0.6√ρ·L_L buried, ρ > 400 Ω·m); A_I = 2r_I·L_L, r_I = 2000/U_w^1.8; N_SG = k·N_G | IEC 62305-2:2024 Annex A |
+| Risk R, frequency F | R = R_L1 + R_L2 per zone (Table 3, with P_P = t_z/8760, P_e = t_e/8760); F = F_C + F_M + F_W + F_Z (Table 4); R_T = 10⁻⁵, F_T set by the owner | IEC 62305-2:2024 §6–9, Annexes A–C, F |
+| Damage to the surroundings (1.9.5) | R_XE of Table E.1: Table 3 with P_P → t_zE/8760 (Table E.2) and L → L_F1E, L_O1E (Table E.3), L_F2E, L_O2E (Table E.4); added to R_L1, R_L2 of the zone | IEC 62305-2:2024 Annex E, (C.1)–(C.2) |
+| SPD current share | I_imp = 0.5·I/(n_s·m); conventional surge currents by source | IEC 62305-1:2024 Annex E |
+| SPD protection condition | U_p/f = U_p + ΔU, ΔU = 0.1·I_SPD kV/m; ≤ U_w, ≤ 0.8U_w (≤ 10 m), ≤ (U_w − U_i)/k (> 10 m, k = 1…2); U_p ≤ 0.5U_w critical; I_imp per mode Table C.3 | IEC 62305-4:2024 Annex C |
+| Quadrature tiers (1.8.4) | matrix: 6 × 10 Galerkin within 2.5 L, 3 × 4 to 8 L, 4-point collocation beyond; field: 12 points within 5 L, 2 points beyond | Gauss–Legendre |
+| DXF import (1.8.4) | ASCII DXF ENTITIES: LINE, LWPOLYLINE/POLYLINE (bulge = tan θ/4, chords ≤ 15°), ARC, CIRCLE, POINT, INSERT; unit from $INSUNITS | AutoCAD DXF reference |
+| Binary DXF (1.9.5) | sentinel "AutoCAD Binary DXF"; group codes of 1 byte (255 + 2 bytes) to R12, 2 bytes after; values by code range (double, int16/32/64, bool, chunk, zero-terminated string); strings UTF-8 from AC1021, else $DWGCODEPAGE | AutoCAD DXF reference, binary DXF |
+| Governing value (1.8.2) | X_gov = max(X_plain, X_conv, X_seasonal, X_MC,95 %, X_non-equipotential) over studies on the same model; zone and fence touch × X_gov/X_plain | — |
