@@ -88,6 +88,9 @@ METAL_RHO = {"copper": 1.72e-8, "steel": 1.8e-7, "aluminium": 2.83e-8,
              "galvanised steel": 1.8e-7}
 
 
+NEARBLK_BYTES = 1.0e9    # memory for the near-image blocks kept between frequencies
+
+
 def _gauss(n: int):
     x, w = np.polynomial.legendre.leggauss(n)
     return 0.5 * (x + 1.0), 0.5 * w
@@ -334,6 +337,8 @@ class Wires:
     def __init__(self):
         self.raw = []           # (p1, p2, radius, tag)
         self.encase = {}        # raw index -> concrete shell (see `encased`)
+        self.seg_fix = {}       # raw index -> its own segment length (1.9.2)
+        self.zint = {}          # raw index -> internal impedance, Ω/m (1.9.2)
         self.nodes = None
         self.segs = None
 
@@ -349,6 +354,10 @@ class Wires:
             if it.get("kind") == "fence":
                 raise ValueError("Fences are not part of the lightning model; "
                                  "remove them for the frequency response.")
+            if it.get("kind") == "plate":
+                raise ValueError("Plates are solved by the main numerical solver only; the "
+                                 "lightning and non-equipotential models take wire electrodes. "
+                                 "Remove the plate here.")
             spec["items"].append(it)
         net = bem.build_network(spec)
         w = cls()
@@ -366,7 +375,7 @@ class Wires:
             self.encase[len(self.raw) - 1] = dict(concrete)
         return self
 
-    def discretise(self, seg_len: float, tol: float = 1e-6, z_cuts=()):
+    def discretise(self, seg_len: float, tol: float = 1e-6, z_cuts=(), seg_fn=None):
         """Split every wire where another wire meets or crosses it, and where
         it crosses a soil interface (depths `z_cuts`), then into segments no
         longer than seg_len, and number the nodes."""
@@ -394,6 +403,9 @@ class Wires:
             return keys[k]
 
         shell = []
+        src = []                                       # raw wire of each segment
+        self.thick = None          # wires kept at ten radii (1.9.1, as bem.MIN_SEG_RADII)
+        thick = [0, 0.0, 0.0]
         for i, (a, b, rad, tag) in enumerate(raw):
             enc = self.encase.get(i)
             cs = sorted(set(min(max(c, 0.0), 1.0) for c in cuts[i]))
@@ -408,11 +420,38 @@ class Wires:
                 q1, q2 = a + (b - a) * t0, a + (b - a) * t1
                 Lq = float(np.linalg.norm(q2 - q1))
                 sl = max(seg_len, 1.5 * float(enc["radius"])) if enc else seg_len
+                if i in self.seg_fix:
+                    sl = max(float(self.seg_fix[i]), 1.5 * float(enc["radius"])) if enc \
+                        else max(float(self.seg_fix[i]), 10.0 * rad)
+                if not enc and sl < 10.0 * rad:
+                    # no segment shorter than ten radii, the thin-wire range
+                    if Lq > sl * (1 + 1e-9):
+                        thick[0] += 1
+                        thick[1] = max(thick[1], rad)
+                        thick[2] = max(thick[2], min(10.0 * rad, Lq))
+                    sl = 10.0 * rad
                 n = max(1, int(math.ceil(Lq / sl - 1e-9)))
+                fr = [k / n for k in range(n + 1)]
+                if seg_fn is not None and i not in self.seg_fix:
+                    # graded (1.9.3): march along the piece with the local
+                    # length seg_fn(point), never below sl, then stretch the
+                    # steps to end exactly at q2
+                    xs, x, u = [0.0], 0.0, (q2 - q1) / max(Lq, 1e-300)
+                    while x < Lq * (1 - 1e-9):
+                        st = max(sl, float(seg_fn(q1 + u * x)))
+                        st = max(sl, min(st, float(seg_fn(q1 + u * min(x + st, Lq)))))
+                        x += st
+                        xs.append(x)
+                    m = len(xs) - 1
+                    if m > 1 and (xs[-1] - Lq) > 0.5 * (xs[-1] - xs[-2]):
+                        xs.pop()
+                        m -= 1
+                    fr = [v / xs[-1] for v in xs]
+                    n = m
                 prev = node(q1)
                 for k in range(n):
-                    pa = q1 + (q2 - q1) * k / n
-                    pb = q1 + (q2 - q1) * (k + 1) / n
+                    pa = q1 + (q2 - q1) * fr[k]
+                    pb = q1 + (q2 - q1) * fr[k + 1]
                     nb = node(pb)
                     if enc:
                         rc = max(float(enc["radius"]), rad * 1.0001)
@@ -422,9 +461,14 @@ class Wires:
                     else:
                         segs.append((prev, nb, pa, pb, rad, tag))
                         shell.append((rad, 0.0, 1.0, 1.0))
+                    src.append(i)
                     prev = nb
+        if thick[0]:
+            self.thick = dict(pieces=thick[0], radius=float(thick[1]), length=float(thick[2]),
+                              requested=float(seg_len))
         self.nodes = np.array(nodes)
         self.segs = segs
+        self.raw_idx = np.array(src, int)
         self.na = np.array([s[0] for s in segs])
         self.nb = np.array([s[1] for s in segs])
         self.p1 = np.array([s[2] for s in segs])
@@ -437,8 +481,41 @@ class Wires:
         self.sh_eps = sh[:, 3]
         self.L = np.linalg.norm(self.p2 - self.p1, axis=1)
         self.t = (self.p2 - self.p1) / self.L[:, None]
+        # internal impedance given per wire (a hollow steel pipe beside a
+        # copper grid, 1.9.2); NaN where the model's own metal applies
+        self.zint_seg = np.array([complex(self.zint[r]) if r in self.zint else complex(np.nan)
+                                  for r in src], complex) if self.zint else None
         self.mid = 0.5 * (self.p1 + self.p2)
         return len(segs)
+
+    def merge_nodes(self, groups):
+        """Join each group of nodes into one node (a perfect connection that
+        carries no leakage current: the fabric of a fence above ground, or a
+        bond).  Call after discretise() and before building a Model.
+        Returns the new index of each group."""
+        n = len(self.nodes)
+        parent = list(range(n))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for g in groups:
+            g = [int(k) for k in g]
+            for k in g[1:]:
+                ra, rb = find(g[0]), find(k)
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+        roots = sorted({find(i) for i in range(n)})
+        new = {r: j for j, r in enumerate(roots)}
+        mapping = np.array([new[find(i)] for i in range(n)], int)
+        self.nodes = self.nodes[roots]
+        self.na = mapping[self.na]
+        self.nb = mapping[self.nb]
+        self.segs = [(int(mapping[s[0]]), int(mapping[s[1]])) + tuple(s[2:]) for s in self.segs]
+        return [int(mapping[int(g[0])]) for g in groups]
 
     def nearest_node(self, p):
         p = np.asarray(p, float)
@@ -521,10 +598,16 @@ class Model:
         mid = w.mid
         midi = mid * mirror
         LL = np.outer(w.L, w.L)
-        dm = mid[:, None, :] - mid[None, :, :]
-        self.Rm = np.sqrt(np.sum(dm * dm, axis=-1) + w.rad[None, :] ** 2)
-        dmi = mid[:, None, :] - midi[None, :, :]
-        self.Rmi = np.sqrt(np.sum(dmi * dmi, axis=-1) + w.rad[None, :] ** 2)
+        self.Rm = np.empty((N, N))
+        self.Rmi = np.empty((N, N))
+        step = max(1, int(1.0e6 // max(1, N)))      # rows at a time (1.8.9)
+        for r0 in range(0, N, step):
+            sl = slice(r0, r0 + step)
+            dm = mid[sl, None, :] - mid[None, :, :]
+            self.Rm[sl] = np.sqrt(np.sum(dm * dm, axis=-1) + w.rad[None, :] ** 2)
+            dmi = mid[sl, None, :] - midi[None, :, :]
+            self.Rmi[sl] = np.sqrt(np.sum(dmi * dmi, axis=-1) + w.rad[None, :] ** 2)
+        del dm, dmi
         self.LL = LL
         reach = 4.0 * np.maximum(w.L[:, None], w.L[None, :])
         near = (self.Rm < reach) | (self.Rmi < reach)
@@ -641,15 +724,21 @@ class Model:
         from .layered import j0
         rg = np.unique(np.concatenate([np.linspace(0, rmax, 300),
                                        np.geomspace(1e-3, rmax, 120)]))
-        J0 = j0(np.outer(rg, lam))
         zs = np.unique(np.round(np.concatenate([Z_m.ravel(), Z_q.ravel()]), 5))
         if len(zs) > 40:
             zs = np.unique(np.concatenate([np.geomspace(zmin, zmax, 36), [zmin, zmax]]))
         wA = gh * lam / u1 * wl
         wP = rphi * lam / u1 * wl
-        E = np.exp(-np.outer(zs, u1))
-        TA = J0 @ (wA[None, :] * E).T
-        TP = J0 @ (wP[None, :] * E).T
+        # summed over λ in blocks (1.8.8): the full J0(r λ) table of a layout
+        # several hundred metres across ran to gigabytes
+        TA = np.zeros((len(rg), len(zs)), complex)
+        TP = np.zeros((len(rg), len(zs)), complex)
+        for a in range(0, len(lam), 4096):
+            sl = slice(a, a + 4096)
+            J0 = j0(np.outer(rg, lam[sl]))
+            E = np.exp(-np.outer(zs, u1[sl]))
+            TA += J0 @ (wA[None, sl] * E).T
+            TP += J0 @ (wP[None, sl] * E).T
         I, J = self.near
         res = []
         for T in (TA, TP):
@@ -684,7 +773,11 @@ class Model:
         delta = math.sqrt(2 * rho_m / (2 * math.pi * f * MU0 * mu_r))
         zs = (1 + 1j) * rho_m / (2 * math.pi * a * delta)
         lin = rdc + 1j * 2 * math.pi * f * MU0 * mu_r / (8 * math.pi)
-        return np.where(a > 2 * delta, np.maximum(zs.real, rdc) + 1j * zs.imag, lin)
+        z = np.where(a > 2 * delta, np.maximum(zs.real, rdc) + 1j * zs.imag, lin)
+        zg = getattr(self.w, "zint_seg", None)
+        if zg is not None:
+            z = np.where(np.isnan(zg.real), z, zg)
+        return z
 
     # -- one frequency -----------------------------------------------------
     # -- layered soil ----------------------------------------------------------
@@ -791,7 +884,15 @@ class Model:
         LL = np.outer(w.L[rows], w.L[cols])
         Wq = (wq[:, None] * wq[None, :])[None, :, :] * LL[I, J][:, None, None]
         blk = dict(S=S, Rm=Rm, I=I, J=J, Rd=Rd, Wq=Wq, LL=LL)
-        self._nearblk[key] = blk
+        # kept for the next frequency of a sweep while the blocks stay
+        # within NEARBLK_BYTES (1.8.9): a layered model of a few thousand
+        # segments has a hundred near images, each an N×N block, and the
+        # cache alone filled the memory of a single-frequency solution
+        nb = sum(v.nbytes for v in blk.values() if hasattr(v, "nbytes"))
+        used = getattr(self, "_nearblk_bytes", 0)
+        if used + nb <= NEARBLK_BYTES:
+            self._nearblk[key] = blk
+            self._nearblk_bytes = used + nb
         return blk
 
     @staticmethod
@@ -990,9 +1091,11 @@ class Model:
         wl.append(((hi - lo)[:, None] * wg[None, :]).ravel())
         return np.concatenate(lam), np.concatenate(wl)
 
-    def _layered_correction(self, f, kap, K, near_imgs):
+    def _layered_correction(self, f, kap, K, near_imgs, out=None):
         """Tables of the three corrections (φ, A_h, A_v) per layer pair and
-        their values at every segment pair (× L_k L_j)."""
+        their values at every segment pair (× L_k L_j).  With out=(Φ, A_h,
+        A_v) the corrections are added to those matrices in place (1.8.9),
+        which spares three N×N complex arrays."""
         w = self.w
         om = 2 * math.pi * f
         k0 = om * math.sqrt(MU0 * EPS0)
@@ -1009,9 +1112,12 @@ class Model:
             else np.array([0.0, 1e-3])
         J0 = j0(np.outer(rg, lam)) * (wl * lam)[None, :]
         N = self.N
-        Cphi = np.zeros((N, N), complex)
-        Cah = np.zeros((N, N), complex)
-        Cav = np.zeros((N, N), complex)
+        if out is None:
+            Cphi = np.zeros((N, N), complex)
+            Cah = np.zeros((N, N), complex)
+            Cav = np.zeros((N, N), complex)
+        else:
+            Cphi, Cah, Cav = out
         I, J = self.near
         jwm = 1j * om * MU0
         for m in self.layers_present:
@@ -1039,18 +1145,29 @@ class Model:
                 tabs = []
                 for g in (gphi, gah, gav):
                     tabs.append((J0 @ g.reshape(len(lam), -1)).reshape(len(rg), nz, nzp))
-                blk = np.ix_(rows, cols)
-                LL = np.outer(w.L[rows], w.L[cols])
-                rr = self.rho_m[blk]
-                Zr = np.broadcast_to(zseg[rows][:, None], rr.shape)
-                Zc = np.broadcast_to(zseg[cols][None, :], rr.shape)
                 inb = np.isin(I, rows) & np.isin(J, cols)
-                for C, T in zip((Cphi, Cah, Cav), tabs):
-                    C[blk] = self._interp3(rg, z, zp, T, rr, Zr, Zc) * LL
-                    if inb.any():
-                        C[I[inb], J[inb]] = np.sum(
+                # in blocks of rows, so the interpolation's temporaries stay
+                # a fraction of an N×N array (1.8.9)
+                step = max(1, int(2.0e6 // max(1, len(cols))))
+                for r0 in range(0, len(rows), step):
+                    rw = rows[r0:r0 + step]
+                    blk = np.ix_(rw, cols)
+                    LL = np.outer(w.L[rw], w.L[cols])
+                    rr = self.rho_m[blk]
+                    Zr = np.broadcast_to(zseg[rw][:, None], rr.shape)
+                    Zc = np.broadcast_to(zseg[cols][None, :], rr.shape)
+                    for C, T in zip((Cphi, Cah, Cav), tabs):
+                        C[blk] += self._interp3(rg, z, zp, T, rr, Zr, Zc) * LL
+                if inb.any():
+                    # near pairs: the Gauss-point integral replaces the
+                    # mid-point value just added
+                    Ii, Jj = I[inb], J[inb]
+                    for C, T in zip((Cphi, Cah, Cav), tabs):
+                        C[Ii, Jj] += np.sum(
                             self._interp3(rg, z, zp, T, self.rho_q[inb], self.zq_f[inb],
-                                          self.zq_s[inb]) * self.Wq[inb], axis=(1, 2))
+                                          self.zq_s[inb]) * self.Wq[inb], axis=(1, 2)) \
+                            - self._interp3(rg, z, zp, T, self.rho_m[Ii, Jj], zseg[Ii],
+                                            zseg[Jj]) * w.L[Ii] * w.L[Jj]
         return Cphi, Cah, Cav
 
     def _matrices_layered(self, f: float):
@@ -1104,12 +1221,10 @@ class Model:
                         Av[blk] += a * sgn * fa * G
                         lst.append((sgn, float(h), a))
                 near_imgs[(n, m)] = lst
-        Ah = np.array(G0)
+        Ah = G0                                   # G0 is not used again
+        del G0
         if exact:
-            Cphi, Cah, Cav = self._layered_correction(f, kap, K, near_imgs)
-            Phi += Cphi
-            Ah += Cah
-            Av += Cav
+            self._layered_correction(f, kap, K, near_imgs, out=(Phi, Ah, Av))
         kap_src = kap[self.lay]
         ZT = Phi / (4 * math.pi * kap_src[None, :] * np.outer(w.L, w.L))
         ZT = 0.5 * (ZT + ZT.T)                    # Galerkin symmetry
@@ -1164,36 +1279,47 @@ class Model:
 
     def solve(self, f: float, feed, I: complex = 1.0):
         """Solve at frequency f with current I injected at node `feed`.
-        Returns (Z, V_nodes, IL, IT)."""
+        Returns (Z, V_nodes, IL, IT).
+
+        The unknowns are the node potentials V, the longitudinal currents IL
+        and the leakage currents IT of the segments:
+
+          (1) M V − Z_T I_T = 0     average potential of a segment = leakage
+          (2) D V − Z_L I_L = 0     longitudinal drop
+          (3) Dᵀ I_L + Mᵀ I_T = b   Kirchhoff's current law at the nodes
+
+        with D the node incidence (+1 at the start, −1 at the end of a
+        segment) and M its average (½ at both ends).  Up to 1.8.6 the whole
+        (N_n + 2N)² system was formed and solved; since 1.8.7 the currents
+        are eliminated, I_T = Z_T⁻¹ M V and I_L = Z_L⁻¹ D V, leaving the
+        node admittance matrix  Y = Dᵀ Z_L⁻¹ D + Mᵀ Z_T⁻¹ M  (N_n × N_n):
+        a third of the memory and about a ninth of the arithmetic, which is
+        what lets the non-equipotential solution take twice the segments.
+        The factorised form is kept for the last frequency, so several
+        injection points at one frequency cost one factorisation."""
         w = self.w
         N, Nn = self.N, self.Nn
-        ZT, ZL = self.matrices(f)
-        n = Nn + 2 * N
-        A = np.zeros((n, n), complex)
-        b = np.zeros(n, complex)
-        iV = np.arange(Nn)
-        iL = Nn + np.arange(N)
-        iT = Nn + N + np.arange(N)
-        r1 = np.arange(N)
-        # (1) average potential of segment = leakage potential
-        A[r1, w.na] += 0.5
-        A[r1, w.nb] += 0.5
-        A[np.ix_(r1, iT)] -= ZT
-        # (2) longitudinal drop
-        r2 = N + np.arange(N)
-        A[r2, w.na] += 1.0
-        A[r2, w.nb] -= 1.0
-        A[np.ix_(r2, iL)] -= ZL
-        # (3) KCL at nodes
-        r3 = 2 * N
-        A[r3 + w.na, iL] += 1.0
-        A[r3 + w.nb, iL] -= 1.0
-        A[r3 + w.na, iT] += 0.5
-        A[r3 + w.nb, iT] += 0.5
-        b[r3 + feed] = I
-        x = np.linalg.solve(A, b)
-        V = x[:Nn]
-        return V[feed] / I, V, x[iL], x[iT]
+        cache = getattr(self, "_ycache", None)
+        if cache is None or cache[0] != f:
+            ZT, ZL = self.matrices(f)
+            r = np.arange(N)
+            D = np.zeros((N, Nn))
+            Mv = np.zeros((N, Nn))
+            np.add.at(D, (r, w.na), 1.0)
+            np.add.at(D, (r, w.nb), -1.0)
+            np.add.at(Mv, (r, w.na), 0.5)
+            np.add.at(Mv, (r, w.nb), 0.5)
+            XL = np.linalg.solve(ZL, D.astype(complex))       # Z_L⁻¹ D
+            XT = np.linalg.solve(ZT, Mv.astype(complex))      # Z_T⁻¹ M
+            del ZT, ZL
+            Y = D.T @ XL + Mv.T @ XT
+            cache = (f, Y, XL, XT)
+            self._ycache = cache
+        _, Y, XL, XT = cache
+        b = np.zeros(Nn, complex)
+        b[feed] = I
+        V = np.linalg.solve(Y, b)
+        return V[feed] / I, V, XL @ V, XT @ V
 
 
 # ---------------------------------------------------------------------------
@@ -1284,9 +1410,44 @@ def harmonic_impedance(items=None, wires: Wires | None = None, soil: Soil | None
         wires = Wires.from_items(items)
     if seg_len is None:
         seg_len = default_seg_len(soil, f_max, _raw_extent(wires))
-    total = sum(float(np.linalg.norm(b - a)) for a, b, *_ in wires.raw)
-    seg_len = max(seg_len, total / float(kw.pop("max_segments", 800)))
-    wires.discretise(seg_len, z_cuts=getattr(soil, "depths", []))
+    cap = int(kw.pop("max_segments", 800))
+    graded = bool(kw.pop("graded", True))
+    zc = getattr(soil, "depths", [])
+    grading = None
+    n = wires.discretise(seg_len, z_cuts=zc)
+    if n > cap:
+        fpt = (np.array(wires.raw[0][0], float) if feed is None or
+               isinstance(feed, (int, np.integer)) else np.array(feed, float))
+        if graded:
+            # graded mesh (1.9.3): the segment grows with the distance d from
+            # the injection, s0 + α·d.  The current near the injection
+            # changes on the scale of the soil's skin depth at the highest
+            # frequency; further out it has either decayed (high
+            # frequencies) or varies slowly (low ones).  α is the smallest
+            # that keeps the model within the limit.
+            def count(al):
+                return wires.discretise(seg_len, z_cuts=zc, seg_fn=lambda q: seg_len + al * float(
+                    np.linalg.norm(q - fpt)))
+            # the conductors are cut where they cross, so a grid has a least
+            # number of segments however coarse the mesh; when that is near
+            # the limit, the limit gives way so that half of it is still
+            # left for the fine mesh at the injection
+            target = max(cap, count(50.0) + cap // 2)
+            lo, hi = 0.0, 0.05
+            while count(hi) > target and hi < 50.0:
+                lo, hi = hi, hi * 2
+            for _ in range(20):
+                mid = 0.5 * (lo + hi)
+                if count(mid) > target:
+                    lo = mid
+                else:
+                    hi = mid
+            n = count(hi)
+            grading = dict(s0=float(seg_len), alpha=float(hi), feed=fpt.tolist(),
+                           s_max=float(wires.L.max()))
+        else:
+            total = sum(float(np.linalg.norm(b - a)) for a, b, *_ in wires.raw)
+            n = wires.discretise(max(seg_len, total / float(cap)), z_cuts=zc)
     model = Model(wires, soil, metal=metal, **kw)
     if feed is None:
         feed = 0
@@ -1296,7 +1457,7 @@ def harmonic_impedance(items=None, wires: Wires | None = None, soil: Soil | None
     R = model.solve(0.0, feed)[0].real
     Z = sweep(model, feed, freqs)
     return dict(f=freqs, Z=Z, R=R, segments=model.N, nodes=model.Nn,
-                feed=feed, model=model)
+                feed=feed, model=model, grading=grading, seg_len=float(seg_len))
 
 
 def _raw_extent(w: Wires):
@@ -1439,7 +1600,7 @@ def alipio_ic(rho0, length, stroke="first"):
 def analyse(items, rho0, eps_r=10.0, soil_model="constant", level="mean",
             feed=None, f_max=10e6, n_f=40, peaks=None, max_segments=800,
             metal="copper", waveforms=("first_tb781", "subsequent_tb781"),
-            layers=None, E0=None):
+            layers=None, E0=None, graded=True):
     """Harmonic impedance and lightning response of an electrode.
 
     layers = dict(rho=[ρ2, ρ3, …], h=[h1, h2, …]) adds layers below the
@@ -1461,7 +1622,7 @@ def analyse(items, rho0, eps_r=10.0, soil_model="constant", level="mean",
         feed = [float(a[0]), float(a[1]), float(a[2])]
     r = harmonic_impedance(wires=wires, soil=soil, feed=feed, f_min=100.0,
                            f_max=f_max, n_f=n_f, metal=metal,
-                           max_segments=max_segments)
+                           max_segments=max_segments, graded=graded)
     Z = r["Z"]
     R = r["R"]
     peaks = peaks or {}
@@ -1508,7 +1669,11 @@ def analyse(items, rho0, eps_r=10.0, soil_model="constant", level="mean",
                feed=feed_node, soil=soil.describe(), f_switch=f_switch,
                high_frequency=("inductive" if inductive else "capacitive"),
                responses=responses, layers=getattr(soil, "N", 1),
-               encased=int(np.count_nonzero(w.sh_ln > 0)))
+               encased=int(np.count_nonzero(w.sh_ln > 0)),
+               seg_len=r.get("seg_len"), grading=r.get("grading"))
+    if getattr(w, "thick", None):
+        from .bem import thick_warning
+        out["warnings"] = [thick_warning(w.thick)]
     if ion:
         ext = _raw_extent(wires)
         out["ionisation"] = dict(E0=float(E0), rho=rho_ion, extent=ext,
