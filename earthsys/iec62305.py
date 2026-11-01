@@ -14,12 +14,19 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Lightning protection earth-termination design to IEC 62305-3:2010.
+Lightning protection earth-termination design to IEC 62305-3:2024 (Ed. 3).
+
+The 2024 edition keeps the class parameters, the minimum electrode length
+l1 (now Figure 5), k_i, k_c and k_m (Tables 11–13) of 2010; it adds k_m = 0.7
+for an insulating stand-off of FRP, PE or PVC at least 0.5 m long, asks for
+0.5 m more on every vertical electrode where the top of the soil dries out
+or freezes (5.4.3), and lets a Type A arrangement disregard l1 when its
+earthing resistance is below 10 Ω (5.4.2.2).
 
 Covers
 ------
 * LPS class parameters (rolling sphere, mesh size, down-conductor spacing)
-* Minimum electrode length l1 vs soil resistivity (Figure 3)
+* Minimum electrode length l1 vs soil resistivity (Figure 5)
 * Type A (radial / vertical electrodes) and Type B (ring / foundation)
   earth-termination sizing
 * Separation distance s = k_i · k_c · l / k_m (clause 6.3)
@@ -45,11 +52,13 @@ LPS_CLASS = {
                 ki=0.04, interception_prob=0.84, I_max_kA=100, I_min_kA=16),
 }
 
-KM_MATERIAL = {"air": 1.0, "concrete": 0.5, "brick": 0.5, "wood": 0.5}
+KM_MATERIAL = {"air": 1.0, "concrete": 0.5, "brick": 0.5, "wood": 0.5,
+               "standoff_frp": 0.7}          # Table 12 and its Note 1 (2024)
 
 
 def min_electrode_length(lps_class: str, rho: float) -> dict:
-    """l1 from IEC 62305-3 Figure 3, linearly interpolated in rho."""
+    """l1 from IEC 62305-3:2024 Figure 5 (Figure 3 of 2010, unchanged),
+    linearly interpolated in rho."""
     cls = lps_class.upper()
     table = LPS_L1.get(cls, LPS_L1["III"])
     xs, ys = LPS_L1_RHO, table
@@ -67,16 +76,21 @@ def min_electrode_length(lps_class: str, rho: float) -> dict:
                 l1 = ys[i] + f * (ys[i + 1] - ys[i])
                 break
     return dict(l1=l1, l1_vertical=l1 / 2.0, lps_class=cls, rho=rho,
-                reference="IEC 62305-3:2010 Figure 3 (read from the vector drawing)",
+                reference="IEC 62305-3:2024 Figure 5 (= 2010 Figure 3)",
                 beyond_figure=rho > xs[-1])
 
 
 def type_a(lps_class: str, rho: float, n_down: int,
            electrode: str = "vertical", L_each: float | None = None,
-           d: float = 0.016, h: float = 0.5, w: float = 0.03) -> dict:
-    """Type A arrangement: one radial/vertical electrode per down-conductor."""
+           d: float = 0.016, h: float = 0.5, w: float = 0.03,
+           frost: bool = False) -> dict:
+    """Type A arrangement: one radial/vertical electrode per down-conductor.
+    `frost` adds the 0.5 m that IEC 62305-3:2024 5.4.3 asks on every vertical
+    electrode where the top of the soil dries out or freezes."""
     ml = min_electrode_length(lps_class, rho)
     L_req = ml["l1_vertical"] if electrode == "vertical" else ml["l1"]
+    if frost and electrode == "vertical":
+        L_req += 0.5
     L = L_each if L_each else L_req
     n = max(2, int(n_down))
 
@@ -87,13 +101,21 @@ def type_a(lps_class: str, rho: float, n_down: int,
         each = lv.horizontal_strip(rho, L, w, h)
         combined = dict(R=each["R"] / n * 1.4, note="1.4 mutual-coupling allowance")
 
+    length_ok = L >= L_req - 1e-9
+    waived = (not length_ok) and combined["R"] < 10.0
     return dict(arrangement="Type A", lps_class=lps_class.upper(),
                 electrode=electrode, n_electrodes=n,
-                L_required=L_req, L_used=L, length_ok=L >= L_req - 1e-9,
+                L_required=L_req, L_used=L, length_ok=length_ok or waived,
+                length_waived_by_R=waived, frost=bool(frost),
                 each=each, R_total=combined["R"], combined=combined,
                 min_count_ok=n >= 2, l1=ml,
                 note="At least two electrodes are required; the length of each "
-                     "must be not less than l1 (horizontal) or 0.5·l1 (vertical).")
+                     "must be not less than l1 (horizontal) or 0.5·l1 (vertical)"
+                     + (", plus 0.5 m on each vertical electrode for dry or frozen topsoil"
+                        if frost and electrode == "vertical" else "")
+                     + ". IEC 62305-3:2024 5.4.2.2 lets the lengths be disregarded when the "
+                       "Type A earthing resistance is below 10 Ω"
+                     + (" — as it is here." if waived else "."))
 
 
 def type_b(lps_class: str, rho: float, area: float | None = None,
@@ -144,7 +166,7 @@ def separation_distance(lps_class: str, length_m: float, n_down: int,
     ki = cls["ki"]
     km = KM_MATERIAL.get(material, 1.0)
     if kc is None:
-        # IEC 62305-3:2010 Table 12 (simplified approach): 1 down-conductor
+        # IEC 62305-3:2024 Table 13 (2010 Table 12; simplified approach): 1 down-conductor
         # (isolated LPS only) 1; two 0.66; three and more 0.44.  Valid for
         # type B earthing, and for type A when the electrode resistances do
         # not differ by more than a factor of 2 (otherwise kc = 1).  Version
@@ -158,7 +180,7 @@ def separation_distance(lps_class: str, length_m: float, n_down: int,
     s = ki * kc * length_m / km
     return dict(s=s, ki=ki, kc=kc, km=km, length=length_m,
                 n_down=n_down, material=material,
-                formula="s = k_i·k_c·l/k_m  (IEC 62305-3 §6.3)")
+                formula="s = k_i·k_c·l/k_m  (IEC 62305-3:2024 6.3.2)")
 
 
 def down_conductors(lps_class: str, perimeter_m: float) -> dict:
@@ -168,7 +190,7 @@ def down_conductors(lps_class: str, perimeter_m: float) -> dict:
     return dict(n_down=n, typical_spacing=spacing,
                 actual_spacing=perimeter_m / n, perimeter=perimeter_m,
                 mesh_size=cls["mesh"], rolling_sphere=cls["rolling_sphere"],
-                reference="IEC 62305-3 Table 4 / Table 2")
+                reference="IEC 62305-3:2024 Table 5 / Table 2")
 
 
 # ---------------------------------------------------------------------------
