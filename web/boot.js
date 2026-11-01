@@ -22,7 +22,11 @@
  *   server mode   python server.py serves this page and answers /api/* over HTTP
  *   browser mode  the page is opened from GitHub Pages with no server at all;
  *                 Pyodide runs the identical earthsys package inside the browser
- *                 and window.fetch is patched so that /api/* calls it directly
+ *                 and window.fetch is patched so that /api/* calls it directly.
+ *                 Since 1.9.0 the engine runs in a background thread
+ *                 (engine.js, a Web Worker), so the page keeps responding
+ *                 while a large model is solved; where a browser refuses the
+ *                 worker it runs on the page's own thread as before.
  *
  * app.js never learns which one it is in.
  */
@@ -48,9 +52,92 @@ window.ES = (function () {
   const MODULES = [
     '__init__.py', 'materials.py', 'soil.py', 'conductor.py', 'faultcurrent.py',
     'ieee80.py', 'bem.py', 'iec60364.py', 'iec62305.py', 'ieee142.py',
-    'airterm.py', 'earthpit.py', 'layered.py', 'transfer.py', 'tb781_waves.py', 'hf.py', 'standards.py', 'reasoning.py', 'report.py', 'api.py',
+    'airterm.py', 'earthpit.py', 'layered.py', 'transfer.py', 'tb781_waves.py', 'hf.py', 'standards.py',
+    'studies.py', 'governing.py', 'parallel.py', 'dxfimport.py', 'powerfreq.py', 'earthtest.py', 'risk.py', 'spd.py', 'fuses.py', 'hmatrix.py', 'reasoning.py', 'report.py', 'cad.py', 'drawings.py', 'api.py',
   ];
   const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
+  // the worker sits next to this file, wherever the page is served from
+  const SELF = (document.currentScript && document.currentScript.src) || '';
+  const BOOTSTRAP = `
+import sys, json
+sys.path.insert(0, "/home/pyodide")
+import earthsys.api as _api
+
+def _call(path, payload_json):
+    try:
+        payload = json.loads(payload_json or "{}")
+        return json.dumps(_api.dispatch(path, payload), allow_nan=False)
+    except KeyError:
+        return json.dumps({"error": "Unknown endpoint " + path})
+    except Exception as exc:                     # surfaced in the interface
+        return json.dumps({"error": "%s: %s" % (type(exc).__name__, exc)})
+`;
+
+  // Patch fetch so app.js keeps talking to "/api/..." exactly as before;
+  // `call(path, body)` returns (a promise of) the engine's JSON text.
+  function patchFetch(call) {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const i = url.indexOf('/api/');
+      if (i === -1) return nativeFetch(input, init);
+      const path = url.slice(i).split('?')[0];
+      if (path === '/api/health') {
+        return new Response(JSON.stringify({ ok: true, browser: true }),
+                            { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const body = (init && init.body) || '{}';
+      const out = await call(path, body);
+      let parsed;
+      try { parsed = JSON.parse(out); } catch (e) { parsed = { error: 'Bad engine response.' }; }
+      return new Response(out, {
+        status: parsed && parsed.error ? 400 : 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+  }
+
+  function bootWorker() {
+    return new Promise((resolve, reject) => {
+      let w;
+      try {
+        if (!SELF || typeof Worker === 'undefined') throw new Error('no worker');
+        w = new Worker(new URL('engine.js', SELF).href);
+      } catch (e) { reject(e); return; }
+      splash('Starting the calculation engine in your browser…',
+             'This happens once; the files are then cached by the browser.', 5);
+      const pending = new Map();
+      let next = 1, started = false;
+      w.onmessage = ev => {
+        const m = ev.data || {};
+        if (m.type === 'progress') splash(m.msg, m.sub, m.pct);
+        else if (m.type === 'ready') {
+          started = true;
+          patchFetch((path, body) => new Promise(res => {
+            const id = next++;
+            pending.set(id, res);
+            w.postMessage({ type: 'call', id, path, body });
+          }));
+          window.ES.worker = true;
+          resolve();
+        } else if (m.type === 'failed') { w.terminate(); reject(new Error(m.error)); }
+        else if (m.type === 'result') {
+          const res = pending.get(m.id);
+          pending.delete(m.id);
+          if (res) res(m.out);
+        }
+      };
+      w.onerror = ev => {
+        const msg = (ev && ev.message) || 'The background engine stopped.';
+        if (!started) { w.terminate(); reject(new Error(msg)); return; }
+        // a crash after start: answer what is waiting rather than hang
+        for (const res of pending.values()) res(JSON.stringify({ error: msg }));
+        pending.clear();
+      };
+      const files = MODULES.map(m => [m, new URL(window.ES.asset('earthsys/' + m), location.href).href]);
+      w.postMessage({ type: 'init', pyodide: PYODIDE, files, bootstrap: BOOTSTRAP });
+    });
+  }
 
   function splash(msg, sub, pct) {
     let el = document.getElementById('boot');
@@ -114,42 +201,9 @@ window.ES = (function () {
     }
 
     splash('Starting up…', '', 90);
-    await py.runPythonAsync(`
-import sys, json
-sys.path.insert(0, "/home/pyodide")
-import earthsys.api as _api
-
-def _call(path, payload_json):
-    try:
-        payload = json.loads(payload_json or "{}")
-        return json.dumps(_api.dispatch(path, payload), allow_nan=False)
-    except KeyError:
-        return json.dumps({"error": "Unknown endpoint " + path})
-    except Exception as exc:                     # surfaced in the interface
-        return json.dumps({"error": "%s: %s" % (type(exc).__name__, exc)})
-`);
+    await py.runPythonAsync(BOOTSTRAP);
     const call = py.globals.get('_call');
-
-    // Patch fetch so app.js keeps talking to "/api/..." exactly as before.
-    const nativeFetch = window.fetch.bind(window);
-    window.fetch = async (input, init) => {
-      const url = typeof input === 'string' ? input : (input && input.url) || '';
-      const i = url.indexOf('/api/');
-      if (i === -1) return nativeFetch(input, init);
-      const path = url.slice(i).split('?')[0];
-      if (path === '/api/health') {
-        return new Response(JSON.stringify({ ok: true, browser: true }),
-                            { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      const body = (init && init.body) || '{}';
-      const out = call(path, body);
-      let parsed;
-      try { parsed = JSON.parse(out); } catch (e) { parsed = { error: 'Bad engine response.' }; }
-      return new Response(out, {
-        status: parsed && parsed.error ? 400 : 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    };
+    patchFetch((path, body) => call(path, body));
 
     window.ES.mode = 'browser';
     splash('Ready', '', 100);
@@ -162,7 +216,16 @@ def _call(path, payload_json):
       return;
     }
     try {
-      await bootPyodide();
+      try {
+        await bootWorker();
+        window.ES.mode = 'browser';
+        splash('Ready', '', 100);
+        setTimeout(done, 250);
+      } catch (werr) {
+        // no worker (or it could not start): the page's own thread
+        console.warn('Background engine unavailable, running on the page thread:', werr);
+        await bootPyodide();
+      }
     } catch (err) {
       splash('The calculation engine could not start.',
              (err && err.message) || String(err), 100);
