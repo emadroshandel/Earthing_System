@@ -55,6 +55,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 function toast(msg, kind = '') {
   const d = document.createElement('div');
   d.className = 'toast ' + kind;
+  if (kind === 'err') d.setAttribute('role', 'alert');   /* esA11y: errors interrupt, the rest wait */
   d.innerHTML = esc(msg);
   $('#toast').appendChild(d);
   setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 300); }, kind === 'err' ? 7000 : 3200);
@@ -74,6 +75,7 @@ async function api(path, payload) {
 function busy(btn, on) {
   if (!btn) return;
   btn.disabled = on;
+  btn.setAttribute('aria-busy', on ? 'true' : 'false');
   if (on) { btn.dataset.html = btn.innerHTML; btn.innerHTML = '<span class="spinner"></span> working…'; }
   else if (btn.dataset.html) btn.innerHTML = btn.dataset.html;
 }
@@ -89,6 +91,12 @@ async function run(btn, fn) {
 function kpis(el, items) {
   $('#' + el).innerHTML = items.map(k =>
     `<div class="kpi ${k.state || ''}"><div class="v">${k.value}</div><div class="l">${k.label}</div></div>`).join('');
+}
+/* 1.8.8: one line on the automatic refinement at the worst points */
+function refineText(r) {
+  const L = r.levels, a = L[0], b = L[L.length - 1];
+  return `${L.length - 1} level(s), ${a.segments} → ${b.segments} segments; touch ${fmt(a.touch)} → ${fmt(b.touch)} V, ` +
+    `step ${fmt(a.step)} → ${fmt(b.step)} V; ` + (r.converged ? `changes below ${fmt(100 * r.tol, 2)} %` : 'not converged within the levels or the segment limit');
 }
 function rows(list) {
   return `<table class="data"><thead><tr><th>Quantity</th><th>Symbol</th><th style="text-align:right">Value</th><th>Unit</th><th>Basis</th></tr></thead><tbody>` +
@@ -129,7 +137,7 @@ function checksHtml(list, narrative, crossCheck) {
           ${(c.remedy && c.remedy.length) ? `<div><b>How to fix it</b><ol>${c.remedy.map(r => `<li>${esc(r)}</li>`).join('')}</ol></div>` : ''}
         </div></td></tr>`;
     return `<tr class="crow${hasWhy ? ' has-why' : ''}">
-        <td>${hasWhy ? '<span class="twist">▸</span>' : ''}${esc(c.name)}${c.note ? `<div class="muted small">${esc(c.note)}</div>` : ''}</td>
+        <td>${hasWhy ? '<button type="button" class="twist" aria-expanded="false" aria-label="Why: ' + esc(c.name) + '">▸</button>' : ''}${esc(c.name)}${c.note ? `<div class="muted small">${esc(c.note)}</div>` : ''}</td>
         <td class="n">${typeof c.value === 'number' ? fmt(c.value) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${typeof c.limit === 'number' ? fmt(c.limit) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${m}</td>
@@ -152,7 +160,7 @@ document.addEventListener('click', e => {
   if (!why || !why.classList.contains('whyrow')) return;
   why.hidden = !why.hidden;
   const t = row.querySelector('.twist');
-  if (t) t.textContent = why.hidden ? '\u25b8' : '\u25be';
+  if (t) { t.textContent = why.hidden ? '\u25b8' : '\u25be'; t.setAttribute('aria-expanded', String(!why.hidden)); }
   row.classList.toggle('open', !why.hidden);
 });
 
@@ -176,7 +184,9 @@ function plot(id, traces, layout) {
   Plotly.react(id, traces, baseLayout(layout), cfg);
   PLOTS[id] = true;
 }
-const PAL = ['#0f6b8a', '#c0322b', '#0b7a45', '#a8630a', '#6d4aa8', '#2b7fa8'];
+/* Okabe–Ito based: distinguishable with red–green colour blindness, and every
+   colour clears 3:1 against both the light and the dark panel (WCAG 1.4.11). */
+const PAL = ['#0072b2', '#d55e00', '#009e73', '#b4579a', '#9a6700', '#7a5cc4'];
 
 /* ------------------------------------------------------------------ state */
 const S = { meta: null, soil: null, fault: null, conductor: null, grid: null, bem: null, building: null, lightning: null, sysgnd: null };
@@ -190,7 +200,8 @@ function snapshot() {
     name: V('projName'), inputs,
     tables: {
       soil: soilRows(), bem: BEM_ITEMS, building: BUILD_ITEMS,
-      airterm: (typeof window.esAirRows === 'function') ? window.esAirRows() : []
+      airterm: (typeof window.esAirRows === 'function') ? window.esAirRows() : [],
+      riskzones: (typeof window.esRiskZones === 'function') ? window.esRiskZones() : []
     },
     results: S
   };
@@ -200,11 +211,13 @@ function restore(p) {
   set('projName', p.name || '');
   Object.entries(p.inputs).forEach(([k, v]) => set(k, v));
   if (p.tables) {
-    if (p.tables.soil) { $('#soilTable tbody').innerHTML = ''; p.tables.soil.forEach(r => soilAdd(r.spacing, r.rho)); }
+    if (p.tables.soil) { $('#soilTable tbody').innerHTML = ''; p.tables.soil.forEach(r => soilAdd(r.spacing, r.rho, r.traverse || '')); }
     if (p.tables.bem) { BEM_ITEMS = p.tables.bem; renderBem(); }
     if (p.tables.building) { BUILD_ITEMS = p.tables.building; renderBuild(); }
     if (p.tables.airterm && typeof window.esAirRows === 'function')
       window.esAirRows(p.tables.airterm);
+    if (p.tables.riskzones && p.tables.riskzones.length && typeof window.esRiskZones === 'function')
+      window.esRiskZones(p.tables.riskzones);
   }
   Object.assign(S, p.results || {});
   refreshDependentUI();
@@ -223,6 +236,7 @@ function refreshDependentUI() {
     if (el && typeof el.onchange === 'function') { try { el.onchange(); } catch (e) { } }
   });
   try { reportSections(); } catch (e) { }
+  if (typeof window.esRefreshGoverning === 'function') { try { window.esRefreshGoverning(); } catch (e) { console.error(e); } }
   /* the section drawings live in airterm.js and redraw from the restored results */
   if (typeof window.esAfterRestore === 'function') {
     try { window.esAfterRestore(); } catch (e) { console.error(e); }
@@ -234,14 +248,20 @@ function markNav(page, ok) {
   if (!el) return;
   el.classList.remove('done', 'failed');
   el.classList.add(ok === false ? 'failed' : 'done');
+  const st = el.querySelector('.navstate');
+  if (st) st.textContent = ok === false ? ' (run, does not comply)' : ' (run, complies)';
 }
 
 /* ------------------------------------------------------------------- nav  */
 $$('.navitem').forEach(it => it.addEventListener('click', () => {
   $$('.navitem').forEach(x => x.classList.remove('active'));
   $$('.page').forEach(x => x.classList.remove('active'));
+  $$('.navitem').forEach(x => x.removeAttribute('aria-current'));
   it.classList.add('active');
-  $('#page-' + it.dataset.page).classList.add('active');
+  it.setAttribute('aria-current', 'page');
+  const pg = $('#page-' + it.dataset.page);
+  pg.classList.add('active');
+  if (window.esA11y) window.esA11y.pageShown(pg);
   setTimeout(() => Object.keys(PLOTS).forEach(id => { const d = $('#' + id); if (d && d.offsetParent) Plotly.Plots.resize(d); }), 60);
 }));
 document.addEventListener('click', e => {
@@ -259,17 +279,20 @@ $('#btnTheme').addEventListener('click', () => {
   const dark = document.body.dataset.theme === 'dark';
   document.body.dataset.theme = dark ? '' : 'dark';
   localStorage.setItem('es-theme', dark ? '' : 'dark');
+  $('#btnTheme').setAttribute('aria-pressed', String(!dark));
   Object.keys(PLOTS).forEach(id => { const d = $('#' + id); if (d && d.data) Plotly.relayout(d, baseLayout()); });
 });
 document.body.dataset.theme = localStorage.getItem('es-theme') || '';
+$('#btnTheme').setAttribute('aria-pressed', String(document.body.dataset.theme === 'dark'));
 
 /* ============================================================= 1. SOIL === */
-function soilAdd(a = '', r = '') {
+function soilAdd(a = '', r = '', t = '') {
   const tr = document.createElement('tr');
   tr.innerHTML = `<td class="rn"></td>
                   <td><input type="number" step="0.1" value="${a}" placeholder="spacing"></td>
                   <td><input type="number" step="0.1" value="${r}"></td>
                   <td class="derived">—</td>
+                  <td><input type="text" value="${esc(t)}" placeholder="—" style="width:64px"></td>
                   <td><button class="ghost" title="Remove this row">✕</button></td>`;
   tr.querySelector('button').onclick = () => { tr.remove(); soilTableSync(); };
   $$('input', tr).forEach(i => i.oninput = soilTableSync);
@@ -335,7 +358,7 @@ function soilTableSync() {
 function soilRows() {
   return $$('#soilTable tbody tr').map(tr => {
     const i = $$('input', tr);
-    return { spacing: parseFloat(i[0].value), rho: parseFloat(i[1].value) };
+    return { spacing: parseFloat(i[0].value), rho: parseFloat(i[1].value), traverse: (i[2] ? i[2].value.trim() : '') };
   }).filter(r => isFinite(r.spacing) && isFinite(r.rho));
 }
 $('#soilAdd').onclick = () => soilAdd();
@@ -409,8 +432,9 @@ $('#soilRun').onclick = e => run(e.target, async () => {
   const payload = {
     array: V('soilArray'),
     rows: rr.map(r => key === 'rho'
-      ? { a: r.spacing, s: r.spacing, rho: r.rho, d: mn }
-      : { a: r.spacing, s: r.spacing, R: r.rho, d: mn }),
+      ? { a: r.spacing, s: r.spacing, rho: r.rho, d: mn, traverse: r.traverse }
+      : { a: r.spacing, s: r.spacing, R: r.rho, d: mn, traverse: r.traverse }),
+    robust: C('soilRobust'),
     grid_depth: N('soilDepth', 0.5), rod_length: N('soilRod', 0),
     equivalent_method: V('soilEquiv'), grid_area: N('soilArea', 0)
   };
@@ -505,6 +529,7 @@ $('#soilRun').onclick = e => run(e.target, async () => {
      error over all spacings (IEEE Std 81-2025 §7.6). Use the equivalent uniform resistivity for the
      closed-form IEEE 80 equations, and the layered model itself for the numerical solver
      (its <i>Use the fitted soil model</i> button copies it across).</div>`;
+  if (typeof window.esSoilExtras === 'function') window.esSoilExtras(d);
   toast(d.model_warning ? 'Soil model fitted — but the readings do not support all of it; read the warning.'
     : d.fit_warning ? 'Soil model fitted — but read the fit-quality warning before using it.' : 'Soil model fitted.',
     d.fit_warning || d.model_warning ? 'err' : 'ok');
@@ -537,7 +562,7 @@ $('#fRun').onclick = e => run(e.target, async () => {
   }
   if (NB('f3I0') !== null) p.three_I0_kA = NB('f3I0');
   const d = await api('/api/fault', p);
-  S.fault = d; markNav('fault', true);
+  d._in = p; S.fault = d; markNav('fault', true);
   const lg = d.line_to_earth || {}, tp = d.three_phase || {};   /* null in direct mode */
   kpis('fKpis', [
     { value: fmt(lg.Ik1_kA) + ' <small>kA</small>', label: 'Line-to-earth fault Iₖ₁″' },
@@ -592,7 +617,7 @@ $('#cRun').onclick = e => run(e.target, async () => {
   };
   if (N('cSline', 0) > 0) p.S_line_mm2 = N('cSline');
   const d = await api('/api/conductor', p);
-  S.conductor = d; markNav('conductor', true);
+  d._in = p; S.conductor = d; markNav('conductor', true);
   const ie = d.ieee80;
   kpis('cKpis', [
     { value: fmt(ie.area_mm2) + ' <small>mm²</small>', label: 'IEEE 80 minimum area' },
@@ -801,10 +826,16 @@ const BEM_DEF = {
   conductor: { kind: 'conductor', p1: [0, 0, 0.6], p2: [20, 0, 0.6], radius: 0.005 },
   fence: { kind: 'fence', x0: -3, y0: -3, Lx: 76, Ly: 76, post_spacing: 3, post_depth: 0.76, post_radius: 0.025,
            wire: 1, wire_offset: 1, wire_depth: 0.5, bonded: 0 },
+  /* 1.8.4: a fence along any outline, x,y pairs separated by semicolons */
+  fencepath: { kind: 'fence', path: [[-3, -3], [73, -3], [73, 40], [40, 73], [-3, 73]], closed: 1, post_spacing: 3,
+               post_depth: 0.76, post_radius: 0.025, wire: 0, wire_offset: 1, wire_depth: 0.5, bonded: 0 },
   pier: { kind: 'foundation', shape: 'pier', x: 0, y: 0, top_depth: 0, length: 3, diameter: 0.4,
           bars: 6, bar_diameter: 0.016, cover: 0.05, rho_c: 50, eps_c: 10 },
   footing: { kind: 'foundation', shape: 'strip', x0: 0, y0: 0, x1: 10, y1: 0, depth: 0.8, width: 0.6, height: 0.4,
-             bars: 4, bar_diameter: 0.016, cover: 0.05, rho_c: 50, eps_c: 10 }
+             bars: 4, bar_diameter: 0.016, cover: 0.05, rho_c: 50, eps_c: 10 },
+  /* 1.9.0: thin solid metal plates (earth plates, a raft's reinforcement as one sheet) */
+  plate: { kind: 'plate', orientation: 'horizontal', x0: 0, y0: 0, Lx: 1, Ly: 1, depth: 0.6, angle: 0, strips: 0 },
+  vplate: { kind: 'plate', orientation: 'vertical', x0: 0, y0: 0, length: 1, height: 1, top_depth: 0.6, angle: 0, strips: 0 }
 };
 /* ---------------------------------------------------- parameter labels ---
    The geometry tables used to show the raw key of each parameter, so a column
@@ -866,7 +897,10 @@ const PARAM_META = {
     wire: ['Buried wire (1/0)', '', '1 adds a buried conductor along the fence, connected to the fence only; 0 leaves the posts alone'],
     wire_offset: ['Wire offset', 'm', 'Distance of the buried fence wire from the fence line, positive outwards'],
     wire_depth: ['Wire depth', 'm', 'Burial depth of the fence wire'],
-    bonded: ['Bonded to grid (1/0)', '', '1 connects the fence to the grid, so it rises to the full GPR; 0 isolates it, so it floats at the potential the soil imposes']
+    bonded: ['Bonded to grid (1/0)', '', '1 connects the fence to the grid, so it rises to the full GPR; 0 isolates it, so it floats at the potential the soil imposes'],
+    path: ['Outline', 'm', 'Corners of the fence line as x,y pairs separated by semicolons, e.g. 0,0; 40,0; 40,30; 0,30'],
+    closed: ['Closed (1/0)', '', '1 joins the last corner back to the first; 0 leaves the fence open. Insulated sections and gates: enter each section as its own open outline (closed 0), bonded or isolated; the gap between two outlines is the gate or the insulating joint, and the results give the voltage between the sections'],
+    name: ['Name', '', 'Name of the fence in the results and the report']
   },
   foundation_bem: {
     x: ['Centre x', 'm', 'x co-ordinate of the pier axis'],
@@ -886,6 +920,18 @@ const PARAM_META = {
     cover: ['Cover', 'm', 'Concrete cover from the outside of the concrete to the bars'],
     rho_c: ['Concrete resistivity', 'Ω·m', 'Resistivity of the concrete: about 30–100 Ω·m in moist ground (Fagan and Lee; EPRI), several hundred when dry'],
     eps_c: ['Concrete ε_r', '', 'Relative permittivity of the concrete, used by the lightning model only; about 10 when moist']
+  },
+  plate_bem: {
+    x0: ['Corner x', 'm', 'x co-ordinate of the corner of the plate (for a vertical plate, one end of its top edge)'],
+    y0: ['Corner y', 'm', 'y co-ordinate of the corner of the plate (for a vertical plate, one end of its top edge)'],
+    Lx: ['Length Lx', 'm', 'Length of the plate along its first side'],
+    Ly: ['Width Ly', 'm', 'Width of the plate along its second side'],
+    depth: ['Depth', 'm', 'Depth from ground level to the plate'],
+    length: ['Length', 'm', 'Horizontal length of the vertical plate'],
+    height: ['Height', 'm', 'Height of the vertical plate, from its top edge down'],
+    top_depth: ['Depth to top', 'm', 'Depth from ground level to the top edge of the plate'],
+    angle: ['Angle', '°', 'Direction of the first side (horizontal plate) or of the top edge (vertical plate) in the plan, from the x axis'],
+    strips: ['Strips (0 = automatic)', '', 'Number of strips the plate is cut into across its short side, 4 to 96. 0 chooses 16, more for a wide plate near the surface (at most 64): 16 strips put the resistance within 0.3 % of an exact plate']
   },
   rectangle: {
     Lx: ['Length Lx', 'm', 'Length of the buried rectangle'],
@@ -925,19 +971,36 @@ function renderBem() {
   const tb = $('#nTable tbody'); tb.innerHTML = '';
   BEM_ITEMS.forEach((it, i) => {
     const tr = document.createElement('tr');
-    const pk = it.kind === 'foundation' ? 'foundation_bem' : it.kind;
-    const flds = Object.keys(it).filter(k => k !== 'kind' && k !== 'shape').map(k => {
+    const pk = it.kind === 'foundation' ? 'foundation_bem' : it.kind === 'plate' ? 'plate_bem' : it.kind;
+    const flds = Object.keys(it).filter(k => k !== 'kind' && k !== 'shape' && k !== 'orientation').map(k => {
       const v = it[k];
-      const inp = Array.isArray(v)
+      /* a path is a list of x,y pairs: shown and edited as "x,y; x,y; ..." (1.8.4) */
+      const inp = k === 'path'
+        ? `<input class="wide" data-i="${i}" data-k="${k}" data-path="1" value="${esc(v.map(q => q.join(',')).join('; '))}">`
+        : Array.isArray(v)
         ? `<input data-i="${i}" data-k="${k}" value="${v.join(',')}">`
+        : typeof v === 'string'
+        ? `<input data-i="${i}" data-k="${k}" data-text="1" value="${esc(v)}">`
         : `<input type="number" step="any" data-i="${i}" data-k="${k}" value="${v}">`;
       return paramField(pk, k, inp);
     }).join('');
-    const lab = it.kind === 'foundation' ? (it.shape === 'strip' ? 'strip footing' : 'pier / pile') : it.kind;
+    const lab = it.kind === 'foundation' ? (it.shape === 'strip' ? 'strip footing' : 'pier / pile')
+      : it.kind === 'plate' ? (String(it.orientation || 'horizontal').startsWith('v') ? 'plate (vertical)' : 'plate (horizontal)') : it.kind;
     tr.innerHTML = `<td><b>${lab}</b></td><td><div class="pgrid">${flds}</div></td><td><button class="ghost">✕</button></td>`;
     tr.querySelector('button').onclick = () => { BEM_ITEMS.splice(i, 1); renderBem(); };
     $$('input', tr).forEach(inp => inp.onchange = () => {
       const k = inp.dataset.k;
+      if (inp.dataset.path) {
+        const pts = inp.value.split(';').map(s => s.trim()).filter(Boolean).map(s => s.split(',').map(Number));
+        if (pts.length < 2 || pts.some(q => q.length !== 2 || !q.every(isFinite))) {
+          toast('A fence outline needs at least two points written as x,y; x,y; …', 'err');
+          inp.value = BEM_ITEMS[i][k].map(q => q.join(',')).join('; ');
+          return;
+        }
+        BEM_ITEMS[i][k] = pts;
+        return;
+      }
+      if (inp.dataset.text) { BEM_ITEMS[i][k] = inp.value; return; }
       BEM_ITEMS[i][k] = inp.value.includes(',') ? inp.value.split(',').map(Number) : parseFloat(inp.value);
     });
     tb.appendChild(tr);
@@ -949,6 +1012,16 @@ $$('#page-numerical [data-add]').forEach(b => b.onclick = () => {
 });
 $('#nFromGrid').onclick = () => {
   const g = gridPayload();
+  const lay = S.grid && S.grid.layout;
+  if (g.shape !== 'rectangular' && lay && lay.notch && S.grid.geometry && S.grid.geometry.Lx === g.Lx && S.grid.geometry.Ly === g.Ly) {
+    /* L- or T-shaped grid: take the clipped conductors and the rods of the evaluated layout */
+    BEM_ITEMS = lay.conductors.map(([a, b]) => ({ kind: 'conductor', p1: [a[0], a[1], g.h], p2: [b[0], b[1], g.h], radius: g.d / 2 }));
+    if (g.n_rods > 0 && g.Lr > 0)
+      lay.rods.forEach(([x, y]) => BEM_ITEMS.push({ kind: 'rod', x: +x.toFixed(2), y: +y.toFixed(2), top_depth: g.h, length: g.Lr, radius: g.d_rod / 2 }));
+    set('nRho1', g.rho); set('nIG', (g.IG_kA * 1000).toFixed(0));
+    renderBem(); toast('L/T-shaped geometry built from the evaluated IEEE 80 layout.');
+    return;
+  }
   BEM_ITEMS = [{ kind: 'grid', Lx: g.Lx, Ly: g.Ly, D: g.D, depth: g.h, radius: g.d / 2, x0: 0, y0: 0 }];
   if (g.n_rods > 0 && g.Lr > 0 && !g.rods_on_perimeter) {
     /* rods spread over the area — the same layout as ieee80.GridGeometry.rod_positions */
@@ -990,14 +1063,16 @@ $('#nRun').onclick = e => run(e.target, async () => {
   const p = {
     rho1: N('nRho1', 100), IG: N('nIG', 1000), items: BEM_ITEMS,
     segment_length: N('nSeg', 3), nx: parseInt(V('nRes')) || 61, ny: parseInt(V('nRes')) || 61,
-    step_distance: N('nStep', 1)
+    step_distance: N('nStep', 1), grade_ends: C('nGrade'), zones: parseZones(V('nZones'))
   };
   if (NB('nRho2') !== null && NB('nHl') !== null) { p.rho2 = NB('nRho2'); p.h_layer = NB('nHl'); }
   if (NB('nRho3') !== null || NB('nH2') !== null) { p.rho3 = NB('nRho3'); p.h_layer2 = NB('nH2'); }
   if (NB('nRho4') !== null || NB('nH3') !== null) { p.rho4 = NB('nRho4'); p.h_layer3 = NB('nH3'); }
+  if (NB('nRhoV') !== null) { p.rho_v = NB('nRhoV'); p.x_v = N('nXv', 0); p.y_v = N('nYv', 0); p.angle_v = N('nAngV', 0); }
+  if (NB('nAuto') !== null) p.auto_refine = NB('nAuto');
   if (S.grid) p.limits = { E_touch: S.grid.tolerable.E_touch, E_step: S.grid.tolerable.E_step };
   const d = await api('/api/bem', p);
-  S.bem = d; markNav('numerical', d.checks ? d.checks.every(c => c.passed) : true);
+  d._in = { items: p.items }; S.bem = d; markNav('numerical', d.checks ? d.checks.every(c => c.passed) : true);
   const lim = p.limits || {};
   kpis('nKpis', [
     { value: fmt(d.Rg) + ' <small>Ω</small>', label: 'Earth resistance R_g' },
@@ -1007,7 +1082,8 @@ $('#nRun').onclick = e => run(e.target, async () => {
     ...(d.fences || []).map(f => ({ value: fmt(Math.abs(f.touch_max)) + ' <small>V</small>', label: `Fence touch (${f.bonded ? 'bonded' : 'isolated'})`,
       state: lim.E_touch ? (Math.abs(f.touch_max) <= lim.E_touch ? 'ok' : 'bad') : '' })),
     { value: d.segments, label: 'Segments solved' },
-    { value: fmt(d.total_length) + ' <small>m</small>', label: 'Buried length' }
+    { value: fmt(d.total_length) + ' <small>m</small>', label: 'Buried length' },
+    ...(d.plate_area ? [{ value: fmt(d.plate_area) + ' <small>m²</small>', label: 'Plate area' }] : [])
   ]);
   const sc = css('--line');
   const heat = (z, name) => ([{
@@ -1019,13 +1095,21 @@ $('#nRun').onclick = e => run(e.target, async () => {
     x: [s.p1[0], s.p2[0]], y: [s.p1[1], s.p2[1]], mode: 'lines',
     line: { color: '#fff', width: 1.2 }, showlegend: false, hoverinfo: 'skip', opacity: .55
   }));
+  if (d.soil_boundary) {
+    // the vertical soil boundary across the plotted area (1.8.7)
+    const b = d.soil_boundary, a = b.angle * Math.PI / 180, tx = -Math.sin(a), ty = Math.cos(a);
+    const xs = d.surface.x, ys = d.surface.y, L = Math.hypot(xs[xs.length - 1] - xs[0], ys[ys.length - 1] - ys[0]);
+    geoTraces.push({ x: [b.x - L * tx, b.x + L * tx], y: [b.y - L * ty, b.y + L * ty], mode: 'lines',
+      line: { color: '#ffd166', width: 2, dash: 'dash' }, name: `Soil boundary (ρ′ = ${fmt(b.rho)} Ω·m beyond)`,
+      showlegend: false, hoverinfo: 'name' });
+  }
   plot('nPlotSurf', heat(d.surface.V, 'V').concat(geoTraces), {
-    xaxis: { title: { text: 'x (m)' }, scaleanchor: 'y', gridcolor: sc },
-    yaxis: { title: { text: 'y (m)' }, gridcolor: sc }
+    xaxis: { title: { text: 'x (m)' }, scaleanchor: 'y', gridcolor: sc, range: [d.surface.x[0], d.surface.x[d.surface.x.length - 1]] },
+    yaxis: { title: { text: 'y (m)' }, gridcolor: sc, range: [d.surface.y[0], d.surface.y[d.surface.y.length - 1]] }
   });
   plot('nPlotTouch', heat(d.surface.touch, 'U_T (V)').concat(geoTraces), {
-    xaxis: { title: { text: 'x (m)' }, scaleanchor: 'y', gridcolor: sc },
-    yaxis: { title: { text: 'y (m)' }, gridcolor: sc }
+    xaxis: { title: { text: 'x (m)' }, scaleanchor: 'y', gridcolor: sc, range: [d.surface.x[0], d.surface.x[d.surface.x.length - 1]] },
+    yaxis: { title: { text: 'y (m)' }, gridcolor: sc, range: [d.surface.y[0], d.surface.y[d.surface.y.length - 1]] }
   });
   Plotly.react('nPlot3d', [{
     x: d.surface.x, y: d.surface.y, z: d.surface.V, type: 'surface',
@@ -1062,15 +1146,18 @@ $('#nRun').onclick = e => run(e.target, async () => {
   });
   const g3 = { x: [], y: [], z: [] };
   d.geometry.forEach(s => { g3.x.push(s.p1[0], s.p2[0], null); g3.y.push(s.p1[1], s.p2[1], null); g3.z.push(-s.p1[2], -s.p2[2], null); });
-  Plotly.react('nPlotGeo', [{ ...g3, type: 'scatter3d', mode: 'lines', line: { color: PAL[0], width: 4 }, name: 'Electrodes' }],
+  if (!(window.esGrid3d && window.esGrid3d.render('nPlotGeo', d))) Plotly.react('nPlotGeo', [{ ...g3, type: 'scatter3d', mode: 'lines', line: { color: PAL[0], width: 4 }, name: 'Electrodes' }],
     baseLayout({ scene: { xaxis: { title: 'x (m)' }, yaxis: { title: 'y (m)' }, zaxis: { title: 'z (m, down −)' }, aspectmode: 'data' }, margin: { l: 0, r: 0, t: 10, b: 0 } }),
     { displaylogo: false, responsive: true });
-  PLOTS['nPlotGeo'] = true;
+  if (!$('#nPlotGeo').dataset.three) PLOTS['nPlotGeo'] = true; else delete PLOTS['nPlotGeo'];
 
   $('#nOut').innerHTML = checksHtml(d.checks, d.narrative, d.cross_check) + rows([
     ['Soil model', '—', d.soil, '', ''],
     ['Discretised segments', 'N', d.segments, '–', ''],
-    ['Total buried length', 'L', d.total_length, 'm', ''],
+    ...(d.solver_text ? [['Solution method', '—', d.solver_text, '', '']] : []),
+    ...(d.refinement ? [['Automatic refinement', '—', refineText(d.refinement), '', '']] : []),
+    ['Total buried length', 'L', d.total_length, 'm', d.plate_area ? 'conductors, rods and foundations' : ''],
+    ...(d.plate_area ? [['Plate area', 'A_p', d.plate_area, 'm²', `${d.plates} plate(s), cut into strips`]] : []),
     ['Injected current', 'I_G', d.IG, 'A', ''],
     ['Earth resistance', 'R_g', d.Rg, 'Ω', 'R_g = GPR / I_G'],
     ['Ground potential rise', 'GPR', d.GPR, 'V', ''],
@@ -1086,6 +1173,8 @@ $('#nRun').onclick = e => run(e.target, async () => {
       <b>${fmt(S.grid.mesh.Em)} V</b> against the numerical corner-mesh touch voltage
       <b>${fmt(d.probes[0].touch)} V</b>: a difference of
       <b>${fmt((d.probes[0].touch / S.grid.mesh.Em - 1) * 100, 1)} %</b>.</div>` : '');
+  if (typeof window.esBemExtras === 'function') window.esBemExtras(d);
+  if (typeof window.esRefreshGoverning === 'function') window.esRefreshGoverning();
   toast('Numerical solution complete.', 'ok');
 });
 
@@ -1122,12 +1211,17 @@ $('#tRun').onclick = e => run(e.target, async () => {
       start: st, direction: [Math.cos(ang), Math.sin(ang)], length: N('tLen', 1000), depth: N('tDepth', 1),
       kind: V('tKind'), radius: N('tRad', 0.1), metal: V('tMetal'), wall: NB('tWall'), r_dc_per_km: NB('tRdc'),
       coating_res: NB('tCoat'), leak_ohm_km: NB('tLeak'), near: V('tNear'), far: V('tFar'), R_far: NB('tRfar'),
-      access_points: V('tAccess').split(',').map(Number).filter(v => isFinite(v) && v > 0)
+      coupled: C('tCoupled'),
+      access_points: V('tAccess').split(',').map(Number).filter(v => isFinite(v) && v > 0),
+      path: parsePoints(V('tPath')),
+      induced: NB('tIndI') ? Object.assign({ I_A: NB('tIndI'), d: N('tIndD', 30), s_from: N('tIndA', 0), s_to: NB('tIndB') },
+        V('tIndPath').trim() ? { line_path: V('tIndPath').split(';').map(q => q.trim()).filter(Boolean).map(q => q.split(',').map(Number)) } : {}) : null
     }
   };
   if (NB('nRho2') !== null && NB('nHl') !== null) { p.rho2 = NB('nRho2'); p.h_layer = NB('nHl'); }
   if (NB('nRho3') !== null || NB('nH2') !== null) { p.rho3 = NB('nRho3'); p.h_layer2 = NB('nH2'); }
   if (NB('nRho4') !== null || NB('nH3') !== null) { p.rho4 = NB('nRho4'); p.h_layer3 = NB('nH3'); }
+  if (NB('nRhoV') !== null) { p.rho_v = NB('nRhoV'); p.x_v = N('nXv', 0); p.y_v = N('nYv', 0); p.angle_v = N('nAngV', 0); }
   if (S.grid) p.limits = { E_touch: S.grid.tolerable.E_touch };
   const d = await api('/api/transfer', p);
   S.transfer = d;
@@ -1141,10 +1235,23 @@ $('#tRun').onclick = e => run(e.target, async () => {
       ['GPR with it', 'GPR', d.GPR, 'V', `current drawn away ${fmt(d.I_diverted)} A`],
       ['Far-end metal potential', 'V_far', d.V_far, 'V', `${fmt(d.V_far_pct, 1)} % of GPR`],
       ['Far-end transferred touch', 'U_T', d.transfer_far, 'V', d.E_touch ? `tolerable ${fmt(d.E_touch)} V` : ''],
-      ['Largest touch along the route', '—', d.touch_max, 'V', `at ${fmt(d.touch_max_at)} m`]
-    ]) + `<table class="data" style="margin-top:8px"><thead><tr><th>Access point (m)</th><th style="text-align:right">Metal (V)</th><th style="text-align:right">Soil (V)</th><th style="text-align:right">Touch (V)</th><th></th></tr></thead><tbody>` +
-    d.access.map(a => `<tr><td>${fmt(a.s)}</td><td class="n">${fmt(a.V_metal)}</td><td class="n">${fmt(a.V_soil)}</td><td class="n">${fmt(a.touch)}</td><td>${a.passed === null ? '' : (a.passed ? '✓' : '✗')}</td></tr>`).join('') +
-    '</tbody></table>' + (d.notes || []).map(n => `<div class="note info">${esc(n)}</div>`).join('') +
+      ['Largest touch along the route', '—', d.touch_max, 'V', `at ${fmt(d.touch_max_at)} m`],
+      d.model === 'coupled' ? ['Solution', '—', `with the station (${d.segments.route} route segments)`, '',
+        `one-way line model: GPR ${fmt(d.one_way.GPR)} V, far end ${fmt(d.one_way.V_far_pct, 1)} %, largest touch ${fmt(d.one_way.touch_max)} V`]
+        : ['Solution', '—', 'one-way line model', '', ''],
+      ...(d.circuit_field ? [d.circuit_field.skipped
+        ? ['Circuit-field check', '—', 'not run', '', d.circuit_field.skipped]
+        : ['Circuit-field check', '—', `${d.circuit_field.segments} segments`, '',
+           `station and route as one network with conductor impedance and mutual inductance: current drawn ${fmt(d.circuit_field.I_diverted)} A, far end ${fmt(d.circuit_field.V_far_pct, 1)} %, largest touch ${fmt(d.circuit_field.touch_max)} V; the larger touch of the two is the design value`]] : [])
+    ]) + `<table class="data" style="margin-top:8px"><thead><tr><th>Access point (m)</th><th style="text-align:right">Metal (V)</th><th style="text-align:right">Soil (V)</th><th style="text-align:right">Touch (V)</th>${d.access.some(a => a.touch_check !== undefined) ? '<th style="text-align:right">Check (V)</th>' : ''}<th></th></tr></thead><tbody>` +
+    d.access.map(a => `<tr><td>${fmt(a.s)}</td><td class="n">${fmt(a.V_metal)}</td><td class="n">${fmt(a.V_soil)}</td><td class="n">${fmt(a.touch)}</td>${a.touch_check !== undefined ? `<td class="n">${fmt(a.touch_check)}</td>` : ''}<td>${a.passed === null || a.passed === undefined ? '' : (a.passed ? '✓' : '✗')}</td></tr>`).join('') +
+    '</tbody></table>' + (d.induced ? rows([
+      ['Mutual impedance to the faulted line', 'z_m', `${fmt(d.induced.zm_per_km[0], 3)} + j${fmt(d.induced.zm_per_km[1], 3)}`, 'Ω/km', `at ${fmt(d.induced.d)} m (Carson)`],
+      ['Induced EMF', 'E', d.induced.emf_total, 'V', d.induced.mode === 'geometry'
+        ? `up to ${fmt(d.induced.emf_per_km)} V/km, ${fmt(d.induced.exposure_m)} m exposed, nearest approach ${fmt(d.induced.d)} m`
+        : `${fmt(d.induced.emf_per_km)} V/km over ${fmt(d.induced.s_from)}–${fmt(d.induced.s_to)} m`],
+      ['Largest touch from induction alone', '—', d.induced.touch_induced_max, 'V', `at ${fmt(d.induced.touch_induced_at)} m; added to the conductive part above as a phasor`]
+    ]) : '') + (d.notes || []).map(n => `<div class="note info">${esc(n)}</div>`).join('') +
     (d.remedy && d.remedy.length ? '<ul class="small">' + d.remedy.map(r => `<li>${esc(r)}</li>`).join('') + '</ul>' : '');
   plot('tPlot', [
     { x: pr.s, y: pr.V_metal, mode: 'lines', name: 'Metal potential', line: { color: PAL[0], width: 2.5 } },
@@ -1177,6 +1284,7 @@ $('#hRun').onclick = e => run(e.target, async () => {
   }
   if ($('#hIon').checked) p.E0 = N('hE0', 400);
   if (BEM_ITEMS.some(it => it.kind === 'fence')) toast('Fences are left out of the lightning model.', '');
+  if (NB('nRhoV') !== null) toast('The lightning response uses horizontally layered soil only: the vertical soil boundary is left out.', '');
   const fd = V('hFeed').trim();
   if (fd) {
     const v = fd.split(',').map(Number);
@@ -1199,9 +1307,12 @@ $('#hRun').onclick = e => run(e.target, async () => {
     </div>
     <div id="hPlotZ" class="plot" style="height:320px"></div>
     <div id="hPlotT" class="plot" style="height:500px"></div>
-    <div class="note info">${esc(d.narrative)}</div>` + rows([
+    <div class="note info">${esc(d.narrative)}</div>` +
+    (d.warnings || []).map(w => `<div class="note warn"><b>Discretisation.</b> ${esc(w)}</div>`).join('') + rows([
       ['Soil', '—', d.soil, '', ''],
-      ['Segments / nodes', 'N', `${d.segments} / ${d.nodes}`, '', 'thin-wire model'],
+      ['Segments / nodes', 'N', `${d.segments} / ${d.nodes}`, '', d.grading
+        ? `thin-wire model, graded: ${fmt(d.grading.s0, 2)} m at the injection, growing ${fmt(100 * d.grading.alpha, 1)} % of the distance from it, up to ${fmt(d.grading.s_max, 2)} m`
+        : `thin-wire model, ${fmt(d.seg_len, 2)} m segments`],
       ['Injection point', '—', d.feed.map(v => fmt(v)).join(', '), 'm', 'nearest node'],
       ['Low-frequency resistance', 'R_LF', d.R, 'Ω', 'Z(jω) as ω → 0'],
       ['First stroke: peak current', 'I_p', r1.I_peak_kA, 'kA', r1.label],
@@ -1270,8 +1381,12 @@ $$('#page-building [data-badd]').forEach(b => b.onclick = () => {
   BUILD_ITEMS.push(JSON.parse(JSON.stringify(BUILD_DEF[b.dataset.badd]))); renderBuild();
 });
 $('#bDev').onchange = () => {
-  const rcd = V('bDev') === 'rcd';
-  $('#bCurveBox').style.display = V('bDev') === 'mcb' ? '' : 'none';
+  const rcd = V('bDev') === 'rcd', dv = V('bDev');
+  $('#bCurveBox').style.display = dv === 'mcb' ? '' : 'none';
+  $('#bFuseSysBox').style.display = (dv === 'fuse_iec' || dv === 'fuse_gm') ? '' : 'none';
+  $('#bFusePtsBox').style.display = dv === 'fuse_curve' ? '' : 'none';
+  $('#bFuseTolBox').style.display = dv === 'fuse_curve' ? '' : 'none';
+  if (!dv.startsWith('fuse_')) $('#bFusePlot').style.display = 'none';
   $('#bRatingU').textContent = rcd ? 'A (IΔn)' : 'A';
   if (rcd && N('bRating') > 5) set('bRating', 0.03);
 };
@@ -1280,12 +1395,13 @@ $('#bRun').onclick = e => run(e.target, async () => {
   const p = {
     system: V('bSys'), U0: N('bU0', 230), rho: N('bRho', 100),
     electrodes: BUILD_ITEMS.map(it => { const o = { ...it }; delete o._R; return o; }),
-    device: { kind: V('bDev'), rating_A: N('bRating', 32), curve: V('bCurve') },
+    device: { kind: V('bDev'), rating_A: N('bRating', 32), curve: V('bCurve'), system: V('bFuseSys'),
+              points: V('bDev') === 'fuse_curve' ? V('bFusePts') : undefined, tolerance_pct: N('bFuseTol', 0) },
     circuit: V('bCircuit'), Z_line: N('bZl', 0), Z_pe: N('bZpe', 0),
     Z_source: N('bZs', 0), UL: N('bUL', 50), separation: N('bSep', 0)
   };
   const d = await api('/api/building', p);
-  S.building = d; markNav('building', d.passed);
+  d._in = p; S.building = d; markNav('building', d.passed);
   d.electrodes.forEach((r, i) => { if (BUILD_ITEMS[i]) BUILD_ITEMS[i]._R = r.R; });
   renderBuild();
   kpis('bKpis', [
@@ -1307,6 +1423,7 @@ $('#bRun').onclick = e => run(e.target, async () => {
       d.combination.mutual && ['Ideal parallel value (no mutual resistance)', '—', d.combination.ideal, 'Ω', 'for comparison only'],
       ['Earth-fault loop impedance', 'Z_s', d.Zs, 'Ω', ''],
       ['Operating current', 'I_a', d.device.Ia, 'A', d.device.basis],
+      d.device.If_min && ['Fuse operating time at C_min·U₀/Z_s', 't_op', d.device.t_operate ?? 'does not operate', d.device.t_operate != null ? 's' : '', `I_f = ${fmt(d.device.If_min)} A, ${d.device.t_operate_how || ''}`],
       ['Maximum disconnection time', 't', d.disconnection.required === false ? 'not required (U₀ ≤ 50 V)' : d.disconnection.t, d.disconnection.required === false ? '' : 's', d.disconnection.rule],
       ['Prospective touch voltage', 'U_t', d.touch_voltage.Ut, 'V', d.touch_voltage.formula],
       d.rcd && ['Maximum permissible IΔn', 'IΔn', d.rcd.max_IdN * 1000, 'mA', 'R_A · IΔn ≤ ' + fmt(N('bUL', 50)) + ' V'],
@@ -1326,8 +1443,30 @@ $('#bRun').onclick = e => run(e.target, async () => {
     xaxis: { title: { text: 'Soil resistivity (Ω·m)' }, gridcolor: css('--line') },
     yaxis: { title: { text: 'Electrode resistance R_A (Ω)' }, gridcolor: css('--line') }
   });
+  if (p.device.kind.startsWith('fuse_')) await fusePlot(p.device, d); else $('#bFusePlot').style.display = 'none';
   toast('Installation assessed.', 'ok');
 });
+/* 1.8.6: the fuse's time–current band (IEC 60269 gates) or curve, with I_a
+   at the required time and the prospective fault current */
+async function fusePlot(dev, d) {
+  const kind = { fuse_iec: 'gG', fuse_gm: 'gM', fuse_am: 'aM', fuse_curve: 'gG' }[dev.kind];
+  const f = await api('/api/fuse', { kind, rating: dev.rating_A, system: dev.system,
+    points: dev.kind === 'fuse_curve' ? dev.points : undefined, tolerance_pct: dev.kind === 'fuse_curve' ? dev.tolerance_pct : 0 });
+  const L = f.lines, tr = [];
+  const line = (pts, name, color, dash) => ({ x: pts.map(q => q[0]), y: pts.map(q => q[1]), mode: 'lines+markers', name,
+    line: { color, width: 2, dash }, marker: { size: 5 } });
+  if (L.upper) { tr.push(line(L.upper, 'upper limit (operates)', PAL[1])); tr.push(line(L.lower, 'lower limit (does not melt)', PAL[0], 'dot')); }
+  if (L.curve) tr.push(line(L.curve, "manufacturer's curve", PAL[0]));
+  if (L.curve_tol) tr.push(line(L.curve_tol, `with +${fmt(dev.tolerance_pct)} % tolerance`, PAL[1], 'dash'));
+  if (d.disconnection.t) tr.push({ x: [d.device.Ia], y: [d.disconnection.t], mode: 'markers', name: `I_a at ${+d.disconnection.t} s`, marker: { size: 11, color: PAL[2] } });
+  if (d.device.If_min) tr.push({ x: [d.device.If_min, d.device.If_min], y: [0.005, 10000], mode: 'lines', name: 'fault current C_min·U₀/Z_s', line: { color: PAL[3], dash: 'dot' } });
+  $('#bFusePlot').style.display = '';
+  plot('bFusePlot', tr, {
+    xaxis: { title: { text: 'Prospective current (A)' }, type: 'log', gridcolor: css('--line') },
+    yaxis: { title: { text: 'Pre-arcing time (s)' }, type: 'log', range: [-2.3, 4], gridcolor: css('--line') },
+    legend: { orientation: 'h', y: -0.3 }
+  });
+}
 $('#bSize').onclick = e => run(e.target, async () => {
   const target = parseFloat(prompt('Target electrode resistance (Ω):', '10'));
   if (!isFinite(target)) return;
@@ -1363,7 +1502,7 @@ $('#epRun').onclick = e => run(e.target, async () => {
   if (NB('epTarget') !== null) p.target = NB('epTarget');
   if (NB('epI') !== null) p.I_fault = NB('epI');
   const d = await api('/api/earthpit', p);
-  S.earthpit = d;
+  d._in = p; S.earthpit = d;
   const g = d.group, gd = d.group_dry, ld = d.loading;
   kpis('epKpis', [
     { value: fmt(d.R_bare) + ' <small>Ω</small>', label: 'Same electrode, no backfill' },
@@ -1433,7 +1572,7 @@ $('#lRun').onclick = e => run(e.target, async () => {
   if (NB('lVol') !== null) p.foundation_volume = NB('lVol');
   if (NB('lMesh') !== null) p.mesh_spacing = NB('lMesh');
   const d = await api('/api/lightning', p);
-  S.lightning = d; markNav('lightning', d.passed);
+  d._in = p; S.lightning = d; markNav('lightning', d.passed);
   const e2 = d.earth, dc = d.down_conductors;
   const l1 = typeof e2.l1 === 'number' ? e2.l1 : e2.l1?.l1;
   kpis('lKpis', [
@@ -1582,7 +1721,7 @@ $('#sRun').onclick = e => run(e.target, async () => {
   };
   if (NB('sX1') !== null) { p.X1 = NB('sX1'); p.X0 = NB('sX0'); p.R0 = NB('sR0') || 0; }
   const d = await api('/api/system-grounding', p);
-  S.sysgnd = d; markNav('sysgnd', !(d.warnings && d.warnings.length));
+  d._in = p; S.sysgnd = d; markNav('sysgnd', !(d.warnings && d.warnings.length));
   const m = d.methods[d.method] || {};
   kpis('sKpis', [
     { value: esc(m.name || d.method), label: 'Grounding method' },
@@ -1639,7 +1778,10 @@ function reportSections() {
   const map = [['soil', 'Soil model'], ['fault', 'Fault current'], ['conductor', 'Conductor sizing'],
   ['grid', 'Substation grid (IEEE 80)'], ['bem', 'Numerical analysis'], ['building', 'Buildings & homes'],
   ['lightning', 'Lightning earth termination'], ['airterm', 'Air termination & zone'],
-  ['sysgnd', 'System grounding']];
+  ['sysgnd', 'System grounding'], ['faultsweep', 'Shield wires and fault location'],
+  ['convergence', 'Convergence check'], ['seasonal', 'Seasonal soil'], ['montecarlo', 'Soil uncertainty'],
+  ['powerfreq', 'Non-equipotential solution'], ['optimise', 'Grid optimisation'],
+  ['earthtest', 'Fall-of-potential test'], ['risk', 'Risk assessment (IEC 62305-2)'], ['spd', 'Surge protection (IEC 62305-4)']];
   $('#rSections').innerHTML = '<table class="data"><tbody>' + map.map(([k, n]) =>
     `<tr><td>${n}</td><td style="width:90px"><span class="badge ${S[k] ? 'ok' : 'warn'}">${S[k] ? 'included' : 'not run'}</span></td></tr>`).join('') + '</tbody></table>';
 }
@@ -1671,12 +1813,17 @@ function reportData(figs) {
     off_scale: S.conductor.off_scale, required_mm2: S.conductor.required_mm2,
     basis: S.conductor.basis, governs: S.conductor.governs };
   if (S.grid) d.grid = S.grid;
-  if (S.bem) d.bem = { ...S.bem, ...(S.transfer ? { transfer: S.transfer } : {}), ...(S.hf ? { hf: S.hf } : {}) };
+  if (S.bem) d.bem = { ...S.bem, ...(S.transfer ? { transfer: S.transfer } : {}), ...(S.hf ? { hf: S.hf } : {}),
+    ...(S.governing && S.governing.model_key === S.bem.model_key ? { governing: S.governing } : {}) };
   if (S.building) d.building = S.building;
   if (S.earthpit) d.earthpit = S.earthpit;
   if (S.lightning) d.lightning = S.lightning;
   if (S.sysgnd) d.sysgnd = S.sysgnd;
   if (S.airterm) d.airterm = S.airterm;
+  if (typeof window.esStudiesForReport === 'function') {
+    const st = window.esStudiesForReport();
+    if (st) d.studies = st;
+  }
   return d;
 }
 let LAST_REPORT = '';
@@ -1735,8 +1882,30 @@ $('#btnLoadProj').onclick = e => run(e.target, async () => {
 });
 
 /* ------------------------------------------------------------------ modal */
-function modal(title, html) { $('#modalTitle').textContent = title; $('#modalBody').innerHTML = html; $('#modal').classList.add('on'); }
-function closeModal() { $('#modal').classList.remove('on'); }
+let MODAL_RETURN = null;
+function modal(title, html) {
+  MODAL_RETURN = document.activeElement;
+  $('#modalTitle').textContent = title; $('#modalBody').innerHTML = html; $('#modal').classList.add('on');
+  $('#app').setAttribute('inert', '');
+  const box = $('#modal .box');
+  const first = box.querySelector('#modalBody button, #modalBody [href], #modalBody input, #modalBody select');
+  (first || box).focus();
+}
+function closeModal() {
+  $('#modal').classList.remove('on');
+  $('#app').removeAttribute('inert');
+  if (MODAL_RETURN && MODAL_RETURN.focus) MODAL_RETURN.focus();
+}
+document.addEventListener('keydown', e => {
+  if (!$('#modal').classList.contains('on')) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+  if (e.key !== 'Tab') return;
+  const f = $$('#modal button, #modal [href], #modal input, #modal select, #modal textarea').filter(x => !x.disabled && x.offsetParent);
+  if (!f.length) return;
+  const a = f[0], z = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+  else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+});
 $('#modalClose').onclick = closeModal;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
 
@@ -1869,11 +2038,11 @@ async function init() {
     if (wet > 0) set('gRhoS', wet);
   };
   $('#sfChips').innerHTML = S.meta.split_factor_guide.map(g =>
-    `<span class="chip" data-sf="${g.Sf}">${esc(g.case)} → ${g.Sf}</span>`).join('');
+    `<button type="button" class="chip" aria-pressed="false" data-sf="${g.Sf}">${esc(g.case)} → ${g.Sf}</button>`).join('');
   $$('#sfChips .chip').forEach(c => c.onclick = () => {
     set('fSf', c.dataset.sf);
-    $$('#sfChips .chip').forEach(x => x.classList.remove('on'));
-    c.classList.add('on');
+    $$('#sfChips .chip').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
+    c.classList.add('on'); c.setAttribute('aria-pressed', 'true');
   });
   $('#fC1Go').onclick = () => {
     const L = +V('fC1L'), Nn = +V('fC1N'), hi = V('fC1R') === '1';
@@ -1883,7 +2052,7 @@ async function init() {
     const [zr, zx] = hi ? row.z100 : row.z15;
     const Sf = Math.hypot(zr, zx) / Math.hypot(zr + Rg, zx);
     set('fSf', Sf.toFixed(3));
-    $$('#sfChips .chip').forEach(x => x.classList.remove('on'));
+    $$('#sfChips .chip').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); });
     $('#fC1Out').textContent = `Z_eq = ${zr} + j${zx} Ω → S_f = ${Sf.toFixed(3)} (applied)`;
   };
   $('.navitem[data-page="about"]').addEventListener('click', loadTheory);
