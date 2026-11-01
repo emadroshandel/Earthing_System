@@ -134,7 +134,7 @@ class TestBemImageTail(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(api.APP_VERSION, "1.3.4")
+        self.assertEqual(api.APP_VERSION, "1.10.0")
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# --- BS 7671:2018+A2:2022 Tables 41.2(a) and 41.4(a) (1.3.5) ---------------
+# --- BS 7671:2018+A2:2022 Tables 41.2(a) and 41.4(a) (1.3.4) ---------------
 def test_gg_fuse_Ia_from_bs7671_tables():
     from earthsys import iec60364 as m
     t412 = {2: 33.1, 4: 15.6, 6: 7.80, 10: 4.65, 16: 2.43, 20: 1.68, 25: 1.29,
@@ -260,7 +260,9 @@ def test_gg_fuse_Ia_from_bs7671_tables():
             Ia = m.device_Ia("fuse", r, t)["Ia"]
             assert abs(0.95 * 230 / Ia - z) < 1e-9, (r, t)
             assert "BS 7671:2018+A2:2022" in m.device_Ia("fuse", r, t)["basis"]
-    assert "indicative" in m.device_Ia("fuse", 125, 0.4)["basis"]
+    # not tabulated at 0.4 s: since 1.8.6 the upper limit of the IEC 60269 gates
+    d125 = m.device_Ia("fuse", 125, 0.4)
+    assert "IEC 60269" in d125["basis"] and d125["Ia"] >= 1050.0
 
 
 def test_gg_fuse_small_rating_5s_from_table_414():
