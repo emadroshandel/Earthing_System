@@ -381,7 +381,6 @@ dispatch("/api/ieee80/design", {"rho": 400, "Lx": 70, "Ly": 70, "D": 7,
 | Document | For |
 |---|---|
 | [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 21 figures, and a suggested teaching sequence |
-| `docs/THEORY.docx` | `THEORY.md` as a formatted Word document with title page, contents, numbered figures and page numbers — built locally by `docs/build_docx.sh`, not kept in the repository |
 | [`docs/METHODS.md`](docs/METHODS.md) | The condensed equation reference, every formula with its clause number or source |
 
 Every figure in `docs/figures` is generated from the engine itself by `docs/make_figures.py`, so
