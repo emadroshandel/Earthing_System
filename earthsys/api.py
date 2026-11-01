@@ -29,10 +29,10 @@ import json
 import math
 import os
 
-from . import (airterm, bem, hf, layered, transfer, conductor, earthpit, faultcurrent, iec60364, iec62305,
-               ieee80, ieee142, materials, reasoning, report, soil, standards)
+from . import (airterm, bem, dxfimport, earthtest, fuses, governing, hf, layered, powerfreq, risk, spd, studies, transfer, conductor, drawings, earthpit, faultcurrent, iec60364,
+               iec62305, ieee80, ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.10.0"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")
@@ -142,6 +142,7 @@ def api_meta(_):
         system_types=iec60364.SYSTEM_TYPES,
         disconnection_times=iec60364.DISCONNECTION_TIMES,
         fuse_gg={str(k): v for k, v in iec60364.FUSE_GG.items()},
+        fuse_systems={k: dict(name=v["name"], ratings=fuses.ratings(k)) for k, v in fuses.SYSTEMS.items()},
         mcb_multipliers=iec60364.MCB_MULTIPLIERS,
         lps_classes=iec62305.LPS_CLASS,
         impulse_fronts=iec62305.IMPULSE_FRONTS,
@@ -184,10 +185,12 @@ def api_soil_invert(p):
     rows = p.get("rows")
     array = p.get("array", "wenner")
     mn = None
+    labels = None
     if rows:
         red = soil.reduce_survey(rows, array)
         sp = [r["spacing"] for r in red]
         rh = [r["rho"] for r in red]
+        labels = [r.get("traverse") for r in red]
         if array == "schlumberger":
             mn = [r.get("d") for r in red]
     else:
@@ -195,6 +198,134 @@ def api_soil_invert(p):
         rh = p["rho"]
         if array == "schlumberger" and p.get("mn"):
             mn = p["mn"]
+    res = _soil_invert_core(p, sp, rh, mn, array)
+    if _truthy(p.get("robust", True)) and len(sp) >= 5:
+        res = _robust_refit(p, res, sp, rh, mn, array)
+    if labels and len({t for t in labels if t}) >= 2:
+        res["traverses"] = _traverse_fits(sp, rh, mn, labels, array)
+    return res
+
+
+def _model_rho(res, array, xs, mn=None):
+    """Apparent resistivity of a fitted model at spacings xs."""
+    if res.get("n_layers", 2) >= 3:
+        rr = [res["rho1"], res["rho2"], res["rho3"]] + ([res["rho4"]] if res.get("rho4") else [])
+        hh = [res["h"], res["h2"]] + ([res["h3"]] if res.get("h3") else [])
+        return [float(v) for v in layered.apparent(layered.LayeredEarth(rr, hh), array, xs, mn)]
+    fwd = soil.FORWARD.get(array, soil.wenner_two_layer)
+    out = []
+    for i, a in enumerate(xs):
+        if array == "schlumberger" and mn is not None:
+            out.append(float(fwd(a, res["rho1"], res["rho2"], res["h"], mn[i])))
+        else:
+            out.append(float(fwd(a, res["rho1"], res["rho2"], res["h"])))
+    return out
+
+
+def _robust_refit(p, res, sp, rh, mn, array):
+    """Reject readings the model cannot explain, and refit without them.
+
+    A single bad reading (a pin in a stone, a buried pipe, a misread range)
+    pulls a least-squares fit towards itself.  The residuals of the first fit
+    are scaled by their median absolute deviation, σ ≈ 1.4826·MAD, and a
+    reading more than max(3σ, 5 %) from the median is set aside — at most a
+    fifth of them, and never so many that the model loses its spare
+    degrees of freedom.  The refit is reported with the excluded readings,
+    their value under the refitted model, and the RMS before and after.
+    One reading is set aside at a time and the model refitted, since a large
+    outlier distorts the residuals of its neighbours."""
+    keep = list(range(len(sp)))
+    excluded = []
+    cur = res
+    need = {2: 4, 3: 6, 4: 9}
+    for _ in range(max(1, len(sp) // 5)):
+        r = [cur["residual_pct"][i] for i in range(len(keep))]
+        med = sorted(r)[len(r) // 2]
+        mad = sorted(abs(v - med) for v in r)[len(r) // 2] * 1.4826
+        thr = max(3.0 * mad, 5.0)
+        bad = sorted(((abs(r[i] - med), i) for i in range(len(keep)) if abs(r[i] - med) > thr),
+                     reverse=True)
+        room = min(len(sp) // 5 - len(excluded),
+                   len(keep) - need.get(int(cur.get("n_layers", 2)), 4))
+        # one at a time: the worst reading drags the fit, so the residuals of
+        # its neighbours are only meaningful once it has been set aside
+        bad = bad[:min(1, max(room, 0))]
+        if not bad:
+            break
+        for _, i in bad:
+            excluded.append(keep[i])
+        keep = [k for k in range(len(sp)) if k not in excluded]
+        cur = _soil_invert_core(p, [sp[k] for k in keep], [rh[k] for k in keep],
+                                [mn[k] for k in keep] if mn else None, array)
+    if not excluded:
+        res["robust"] = dict(applied=True, excluded=[],
+                             note="No reading lies further from the fitted curve than the scatter of "
+                                  "the others explains (3 × the robust standard deviation, at least 5 %).")
+        return res
+    ex = sorted(excluded)
+    xs = [sp[k] for k in ex]
+    model = _model_rho(cur, array, xs, [mn[k] for k in ex] if mn else None)
+    cur["robust"] = dict(
+        applied=True, rms_all=res["rms_pct"], rms_kept=cur["rms_pct"],
+        excluded=[dict(index=k + 1, spacing=sp[k], measured=rh[k], model=m,
+                       residual_pct=(m - rh[k]) / rh[k] * 100.0)
+                  for k, m in zip(ex, model)],
+        note=(f"{len(ex)} reading{'s' if len(ex) > 1 else ''} set aside as inconsistent with the "
+              f"rest (more than 3 robust standard deviations, at least 5 %, from the fitted "
+              f"curve); the RMS error falls from {res['rms_pct']:.2f} % to {cur['rms_pct']:.2f} %. "
+              "Check the field sheet for those spacings — re-measure them if you can — before "
+              "accepting the refit."))
+    return cur
+
+
+def _traverse_fits(sp, rh, mn, labels, array):
+    """A two-layer fit of each traverse on its own, and how much they differ.
+
+    The inversion assumes horizontal layers; traverses in different
+    directions or places that disagree show lateral variation, which no
+    layered model represents.  IEEE Std 81 recommends several traverses for
+    exactly this reason."""
+    groups = {}
+    for i, t in enumerate(labels):
+        groups.setdefault(t or "(unlabelled)", []).append(i)
+    fits = []
+    for name, idx in groups.items():
+        if len(idx) < 3:
+            fits.append(dict(name=name, n=len(idx), fitted=False))
+            continue
+        r = soil.invert_two_layer([sp[i] for i in idx], [rh[i] for i in idx], array,
+                                  [mn[i] for i in idx] if mn else None)
+        fits.append(dict(name=name, n=len(idx), fitted=True, rho1=r["rho1"], rho2=r["rho2"],
+                         h=r["h"], rms_pct=r["rms_pct"], curve_x=r["curve_x"],
+                         curve_y=r["curve_y"], spacings=r["spacings"], measured=r["measured"]))
+    ok = [f for f in fits if f["fitted"]]
+    out = dict(fits=fits)
+    if len(ok) >= 2:
+        sp1 = max(f["rho1"] for f in ok) / min(f["rho1"] for f in ok)
+        sp2 = max(f["rho2"] for f in ok) / min(f["rho2"] for f in ok)
+        # apparent resistivity at the spacings the traverses share
+        common = None
+        for f in ok:
+            s_ = {round(x, 6) for x in f["spacings"]}
+            common = s_ if common is None else common & s_
+        worst = 1.0
+        for x in sorted(common or []):
+            vals = [f["measured"][[round(v, 6) for v in f["spacings"]].index(x)] for f in ok]
+            worst = max(worst, max(vals) / min(vals))
+        out.update(spread_rho1=sp1, spread_rho2=sp2, spread_apparent=worst,
+                   lateral=bool(max(sp1, sp2, worst) > 1.5))
+        out["note"] = (
+            f"The traverses give ρ₁ within a factor {sp1:.2f} and ρ₂ within {sp2:.2f}"
+            + (f", and their readings at shared spacings differ by up to a factor {worst:.2f}"
+               if common else "") + ". "
+            + ("That is more than 1.5: the soil varies laterally, which a layered model cannot "
+               "represent. Design with the worst traverse (the highest resistivity where the "
+               "electrode is), or model the zones separately." if out["lateral"] else
+               "The site is laterally uniform enough for one layered model."))
+    return out
+
+
+def _soil_invert_core(p, sp, rh, mn, array):
     layers = _require_choice(str(p.get("layers", "auto")).lower(),
                              {"auto", "2", "3", "4"}, "Number of soil layers")
     res = soil.invert_two_layer(sp, rh, array, mn)
@@ -631,7 +762,7 @@ def api_conductor(p):
     # means a sheath.  A bare conductor buried in soil is NOT protected, so
     # its floor is 25 mm2 copper / 50 mm2 steel.  Up to 1.3.4 the default was
     # "corrosion protected" (16 mm2) even for the default bare buried
-    # conductor, which contradicted the table and the book (Sec. 5.5).
+    # conductor, which contradicted the table (see docs/THEORY.md §4.4).
     bare_buried = (p.get("insulation", "bare") == "bare" and
                    p.get("installation", "buried" if p.get("buried", True)
                          else "separate") == "buried")
@@ -649,7 +780,7 @@ def api_conductor(p):
             "(78.5 mm² hot-dip galvanized round wire to IEC 60364-5-54:2011), "
             "not 16 mm². Select 'Not protected against corrosion' unless the "
             "conductor is sheathed.")
-    # Design basis (book Sec. 5.3).  'both' (default) selects the larger of
+    # Design basis (docs/THEORY.md §4).  'both' (default) selects the larger of
     # the IEEE 80 and IEC areas; 'ieee80' sizes an HV grid to IEEE 80 alone,
     # where the joint temperature T_m is what the design relies on; 'iec'
     # sizes an LV protective/earthing conductor to IEC 60364-5-54 alone.
@@ -776,7 +907,10 @@ def api_ieee80(p):
         float(p.get("rho_s", 3000.0)), float(p.get("hs", 0.1)),
         float(p.get("ts", 0.5)), int(p.get("body_weight", 70)),
         p.get("r_method", "auto"))
-    res["layout"] = dict(conductors=g.conductor_paths(), rods=g.rod_positions())
+    res["layout"] = dict(conductors=g.conductor_paths(), rods=g.rod_positions(), outline=g.outline())
+    nt = g.notch()
+    if nt is not None:
+        res["layout"]["notch"] = dict(a=nt[0], b=nt[1], area=nt[2], Lc=nt[3])
     return reasoning.explain_ieee80(res)
 
 
@@ -809,7 +943,7 @@ def api_ieee80_optimise(p):
                         "rods_on_perimeter": (True if added
                                               else p.get("rods_on_perimeter", True))})
         best["layout"] = dict(conductors=gg.conductor_paths(),
-                              rods=gg.rod_positions())
+                              rods=gg.rod_positions(), outline=gg.outline())
         reasoning.explain_ieee80(best)
     return res
 
@@ -872,7 +1006,8 @@ def api_transfer(p):
     _clean_fences(p)
     net = bem.build_network(p)
     net.discretise(float(p.get("segment_length", 2.5)),
-                   int(p.get("max_segments", 2500)))
+                   int(p.get("max_segments", bem.MAX_SEGMENTS)),
+                   grade_ends=_truthy(p.get("grade_ends", True)))
     sol = net.solve()
     L = float(route["length"])
     start = route.get("start") or [0.0, 0.0]
@@ -884,27 +1019,99 @@ def api_transfer(p):
     if math.hypot(*direction[:2]) == 0:
         raise ValueError("The route needs a direction.")
     depth = float(route.get("depth", 1.0))
-    prof = transfer.soil_profile_from_network(net, start, direction, L, depth)
+    path = route.get("path") or None
+    if path:
+        path = [[float(q[0]), float(q[1])] for q in path]
+        if len(path) < 2:
+            raise ValueError("A route path needs at least two points.")
+        start = path[0]
+    prof = transfer.soil_profile_from_network(net, start, direction, L, depth, path=path)
+    # the route's own geometry, for induction from a faulted line of any shape
+    route_at, _ = transfer._polyline(path or [
+        [float(start[0]), float(start[1])],
+        [float(start[0]) + float(direction[0]) / math.hypot(*direction[:2]) * L,
+         float(start[1]) + float(direction[1]) / math.hypot(*direction[:2]) * L]], L)
+    ind = route.get("induced")
+    if ind and ind.get("line_path"):
+        lp = ind["line_path"]
+        if len(lp) < 2 or any(len(q) < 2 for q in lp):
+            raise ValueError("The faulted line's route needs at least two x, y points.")
     lim = p.get("limits") or {}
-    res = transfer.transferred_potential(
-        GPR=sol["GPR"], Rg=sol["Rg"], IG=sol["IG"], soil_profile=prof,
-        length=L, kind=route.get("kind", "bare"),
-        rho_soil=float(route.get("rho_soil") or p.get("rho1", 100.0)),
-        radius=float(route["radius"]), depth=depth,
-        f=float(route.get("f", 50.0)), metal=route.get("metal", "steel"),
-        wall=route.get("wall"), r_dc_per_km=route.get("r_dc_per_km"),
-        coating_res=route.get("coating_res"), leak_ohm_km=route.get("leak_ohm_km"),
-        z_per_km=route.get("z_per_km"),
-        near=route.get("near", "bonded"), R_bond=float(route.get("R_bond") or 0.0),
-        far=route.get("far", "open"),
-        R_far=(float(route["R_far"]) if route.get("R_far") not in (None, "") else None),
-        E_touch=lim.get("E_touch"), access_points=route.get("access_points"))
+    kind = route.get("kind", "bare")
+    coupled = _truthy(route.get("coupled", True)) and kind in ("bare", "coated")
+    if coupled and len(net.segments) + 400 > transfer.COUPLED_LIMIT:
+        coupled = False
+    if coupled:
+        if kind == "coated" and (route.get("coating_res") in (None, "")
+                                 or float(route.get("coating_res")) <= 0):
+            raise ValueError("Give the coating specific resistance (ohm.m²).")
+        res = transfer.transferred_potential_coupled(
+            net, route_at=route_at, soil_profile=prof, length=L, kind=kind,
+            rho_soil=float(route.get("rho_soil") or p.get("rho1", 100.0)),
+            radius=float(route["radius"]), depth=depth,
+            f=float(route.get("f", 50.0)), metal=route.get("metal", "steel"),
+            wall=route.get("wall"), r_dc_per_km=route.get("r_dc_per_km"),
+            coating_res=route.get("coating_res"), z_per_km=route.get("z_per_km"),
+            near=route.get("near", "bonded"), R_bond=float(route.get("R_bond") or 0.0),
+            far=route.get("far", "open"),
+            R_far=(float(route["R_far"]) if route.get("R_far") not in (None, "") else None),
+            E_touch=lim.get("E_touch"), access_points=route.get("access_points"),
+            induced=route.get("induced"))
+    else:
+        res = transfer.transferred_potential(
+            GPR=sol["GPR"], Rg=sol["Rg"], IG=sol["IG"], soil_profile=prof,
+            length=L, kind=route.get("kind", "bare"),
+            rho_soil=float(route.get("rho_soil") or p.get("rho1", 100.0)),
+            radius=float(route["radius"]), depth=depth,
+            f=float(route.get("f", 50.0)), metal=route.get("metal", "steel"),
+            wall=route.get("wall"), r_dc_per_km=route.get("r_dc_per_km"),
+            coating_res=route.get("coating_res"), leak_ohm_km=route.get("leak_ohm_km"),
+            z_per_km=route.get("z_per_km"),
+            near=route.get("near", "bonded"), R_bond=float(route.get("R_bond") or 0.0),
+            far=route.get("far", "open"),
+            R_far=(float(route["R_far"]) if route.get("R_far") not in (None, "") else None),
+            E_touch=lim.get("E_touch"), access_points=route.get("access_points"),
+            induced=route.get("induced"), route_at=route_at)
+    # circuit-field check (1.9.2): station and route as one network of
+    # conductors with their impedance and mutual inductance; the larger touch
+    # voltage of the two models is the design value
+    if coupled and _truthy(route.get("check", True)):
+        why = None
+        if route.get("near", "bonded") != "bonded" or float(route.get("R_bond") or 0) > 0:
+            why = "the route is not bonded directly to the station"
+        elif route.get("far", "open") != "open":
+            why = "the route ends on an earth (the circuit-field model has no lumped resistor)"
+        elif res.get("induced"):
+            why = "induction from a faulted line is not in the circuit-field model"
+        elif route.get("z_per_km") not in (None, ""):
+            why = "the series impedance was given directly"
+        if why:
+            chk = dict(skipped=why)
+        else:
+            chk = transfer.circuit_field_check(
+                p, route_at=route_at, length=L, depth=depth, radius=float(route["radius"]),
+                kind=kind, coating_res=route.get("coating_res"),
+                metal=route.get("metal", "steel"), wall=route.get("wall"),
+                r_dc_per_km=route.get("r_dc_per_km"), f=float(route.get("f", 50.0)),
+                access_points=route.get("access_points"),
+                grid_metal=str(p.get("grid_metal", "copper")))
+        res["circuit_field"] = chk
+        if not chk.get("skipped"):
+            for a, b in zip(res["access"], chk["access"]):
+                a["touch_check"] = b["touch"]
+                a["touch_design"] = max(a["touch"], b["touch"])
+                if lim.get("E_touch"):
+                    a["passed"] = bool(a["touch_design"] <= float(lim["E_touch"]))
+            res["touch_max_design"] = max(res["touch_max"], chk["touch_max"])
+            if lim.get("E_touch"):
+                res["passed"] = all(a["passed"] for a in res["access"])
     res["station"] = dict(Rg=sol["Rg"], GPR=sol["GPR"], IG=sol["IG"],
                           soil=sol["soil"], segments=sol["segments"])
     if sol.get("networks"):
         res["station"]["networks"] = sol["networks"]
     res["route"] = dict(start=list(map(float, start[:2])),
-                        direction=list(map(float, direction[:2])), depth=depth)
+                        direction=list(map(float, direction[:2])), depth=depth,
+                        path=path)
     return reasoning.explain_transfer(res)
 
 
@@ -992,13 +1199,17 @@ def api_bem(p):
         _require_positive(p, {"rho4": "Fourth-layer resistivity rho4 (ohm.m)",
                               "h_layer3": "Third-layer thickness (m)"})
 
+    _require_vertical(p)
     if not bem.HAVE_NUMPY:
         raise RuntimeError("The numerical solver needs numpy. "
                            "Install it with:  pip install numpy")
     _clean_fences(p)
+    key = governing.model_key(p)
     net = bem.build_network(p)
+    zones = _zones(p.get("zones"))
     seg = net.discretise(float(p.get("segment_length", 2.5)),
-                         int(p.get("max_segments", 2500)))
+                         int(p.get("max_segments", bem.MAX_SEGMENTS)),
+                         grade_ends=_truthy(p.get("grade_ends", True)))
     sol = net.solve()
 
     xs = [c for it in net.raw for c in (it[0][0], it[1][0])]
@@ -1009,10 +1220,20 @@ def api_bem(p):
     nx = int(p.get("nx", 61))
     ny = int(p.get("ny", 61))
 
-    ws = net.worst_touch_step(xlim, ylim, nx, ny,
-                              float(p.get("step_distance", 1.0)),
-                              p.get("touch_box"),
-                              float(p.get("touch_margin", 1.0)))
+    wsa = dict(xlim=xlim, ylim=ylim, nx=nx, ny=ny, step=float(p.get("step_distance", 1.0)),
+               touch_box=p.get("touch_box"), touch_margin=float(p.get("touch_margin", 1.0)),
+               zones=zones)
+    refinement = None
+    if p.get("auto_refine") not in (None, "", False, 0, "0"):
+        tol = float(p.get("auto_refine"))
+        if not 0.05 <= tol <= 10:
+            raise ValueError("The refinement tolerance must be between 0.05 % and 10 %.")
+        sol, ws, refinement = net.auto_refine(wsa, tol / 100.0,
+                                              int(p.get("refine_levels", 4)),
+                                              int(p.get("max_segments", bem.MAX_SEGMENTS)))
+        seg = len(net.segments)
+    else:
+        ws = net.worst_touch_step(**wsa)
     prof = net.profile(p.get("profile_start", [xlim[0], (ylim[0] + ylim[1]) / 2]),
                        p.get("profile_end", [xlim[1], (ylim[0] + ylim[1]) / 2]),
                        int(p.get("profile_points", 240)),
@@ -1040,14 +1261,35 @@ def api_bem(p):
             q["touch"] = float(net.V - v)
 
     out = dict(sol)
-    out.update(segments=seg, surface=ws["surface"], probes=probes,
+    out["solver_text"] = bem.describe_solver(sol.get("solver"))
+    if refinement:
+        out["refinement"] = refinement
+    if net.soil.vertical:
+        v = net.soil.vertical
+        out["soil_boundary"] = dict(x=v["x"], y=v["y"], angle=v["angle"], rho=v["rho"])
+    out.update(model_key=key, segments=seg, surface=ws["surface"], probes=probes,
                touch_box=ws.get("touch_box"),
                touch_max=ws["touch_max"], touch_at=ws["touch_at"],
                step_max=ws["step_max"], step_at=ws["step_at"],
+               step_direction_deg=ws.get("step_direction_deg"),
+               touch_region=ws.get("touch_region"), zones=ws.get("zones"),
+               graded=bool(getattr(net, "graded", False)),
                profile=prof, geometry=net.geometry_json(),
                current=net.current_distribution(), xlim=xlim, ylim=ylim)
     if ws.get("fences"):
         out["fences"] = ws["fences"]
+    warnings = []
+    if getattr(net, "coarsened", None):
+        c = net.coarsened
+        warnings.append(
+            f"The model has more conductor than {c['max_segments']} segments of "
+            f"{c['requested']:g} m allow, so the segments were lengthened to "
+            f"{c['used']:.2f} m. Accuracy falls with segment length: run the convergence "
+            f"check, or raise the segment limit.")
+    if getattr(net, "thick", None):
+        warnings.append(bem.thick_warning(net.thick))
+    if warnings:
+        out["warnings"] = warnings
 
     lim = p.get("limits") or {}
     if lim.get("E_touch") or lim.get("E_step"):
@@ -1059,6 +1301,11 @@ def api_bem(p):
                  limit=lim.get("E_step"), unit="V",
                  passed=(lim.get("E_step") or 1e18) >= ws["step_max"]),
         ]
+        for z in ws.get("zones") or []:
+            zl = z.get("limit") or lim.get("E_touch")
+            out["checks"].append(dict(
+                name=f"Touch voltage at {z['name']}", value=z["touch_max"],
+                limit=zl, unit="V", passed=(zl or 1e18) >= z["touch_max"], zone=z))
         for f in ws.get("fences") or []:
             v = abs(f["touch_max"])
             out["checks"].append(dict(
@@ -1067,6 +1314,337 @@ def api_bem(p):
                 passed=(lim.get("E_touch") or 1e18) >= v,
                 fence=f))
     return reasoning.explain_bem(out)
+
+
+def _zones(zs):
+    """Touch zones from the page: list of dict(name, x0, y0, x1, y1[, limit])."""
+    out = []
+    for i, z in enumerate(zs or [], 1):
+        try:
+            q = dict(name=str(z.get("name") or f"Zone {i}"),
+                     x0=float(z["x0"]), y0=float(z["y0"]),
+                     x1=float(z["x1"]), y1=float(z["y1"]))
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"Touch zone {i}: give x0, y0, x1 and y1 in metres.")
+        if z.get("limit") not in (None, ""):
+            q["limit"] = float(z["limit"])
+        out.append(q)
+    return out
+
+
+def _require_vertical(p):
+    """A vertical soil boundary (1.8.7): ρ' positive, uniform soil each side."""
+    if p.get("rho_v") in (None, ""):
+        return False
+    _require_positive(p, {"rho_v": "Resistivity beyond the vertical boundary ρ' (ohm.m)"})
+    for k, lab in (("x_v", "Boundary point x"), ("y_v", "Boundary point y"),
+                   ("angle_v", "Boundary normal angle")):
+        v = p.get(k)
+        if v not in (None, ""):
+            try:
+                ok = math.isfinite(float(v))
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                raise ValueError(f"{lab} must be a number.")
+    if p.get("rho2") not in (None, "") and p.get("h_layer") not in (None, ""):
+        raise ValueError("A vertical soil boundary is solved with uniform soil on each side: "
+                         "clear the lower layers, or the boundary.")
+    return True
+
+
+def _no_vertical(p, what):
+    if p.get("rho_v") not in (None, ""):
+        raise ValueError(f"The {what} is computed for horizontally layered soil only: "
+                         "clear the vertical soil boundary to run it.")
+
+
+def _bem_prepare(p):
+    """Validation shared by the numerical-study endpoints."""
+    _require_rows(p.get("items"), "electrode")
+    _require_positive(p, {"rho1": "Upper layer resistivity rho1 (ohm.m)"})
+    _require_vertical(p)
+    if not bem.HAVE_NUMPY:
+        raise RuntimeError("The numerical solver needs numpy. Install it with:  pip install numpy")
+    _clean_fences(p)
+    p["zones"] = _zones(p.get("zones"))
+    p["_model_key"] = governing.model_key(p)
+    return p
+
+
+def _keyed(p, result):
+    """Stamp a study result with the model it solved (see governing.py)."""
+    result["model_key"] = p.get("_model_key")
+    return result
+
+
+def api_bem_convergence(p):
+    """Discretisation error of the numerical solution (1.8.0)."""
+    _bem_prepare(p)
+    return _keyed(p, studies.convergence(p))
+
+
+def api_bem_seasonal(p):
+    """The same electrodes under a dry and a frozen top layer (1.8.0)."""
+    _bem_prepare(p)
+    _no_vertical(p, "seasonal study")
+    return _keyed(p, studies.seasonal(p))
+
+
+def api_bem_montecarlo(p):
+    """Soil-model uncertainty carried through to R_g, touch and step (1.8.0)."""
+    _bem_prepare(p)
+    _no_vertical(p, "soil-uncertainty study")
+    fit = p.get("soil_fit")
+    if not fit:
+        raise ValueError("Fit the soil model on page 1 first: the uncertainty comes from it.")
+    n = int(p.get("samples", 24))
+    if not 4 <= n <= 400:
+        raise ValueError("Use between 4 and 400 samples.")
+    method = str(p.get("sampling", "lhs"))
+    if method not in ("lhs", "random"):
+        raise ValueError("Sampling must be 'lhs' (Latin hypercube) or 'random'.")
+    return _keyed(p, studies.monte_carlo(p, fit, n, int(p.get("seed", 1)), method))
+
+
+def api_bem_powerfreq(p):
+    """Power-frequency solution with the conductors' own impedance (1.8.0)."""
+    _bem_prepare(p)
+    _no_vertical(p, "power-frequency (non-equipotential) solution")
+    for fd in p.get("feeds") or []:
+        for k in ("x", "y"):
+            if fd.get(k) in (None, ""):
+                raise ValueError("Every injection point needs x and y.")
+    return _keyed(p, powerfreq.analyse(p))
+
+
+def api_bem_governing(p):
+    """Governing touch, step, R_g and GPR: the plain numerical solution
+    combined with every study run on the same model (1.8.2)."""
+    b = p.get("bem")
+    if not b:
+        raise ValueError("Run the numerical solution first.")
+    out = governing.governing(b, p.get("studies") or {}, p.get("limits"))
+    return reasoning.explain_governing(out)
+
+
+def _dxf_source(p):
+    """The drawing: ASCII DXF text, or the file's bytes in base64 (binary DXF, 1.9.5)."""
+    if p.get("data_b64"):
+        import base64
+        try:
+            return base64.b64decode(str(p["data_b64"]), validate=True)
+        except ValueError:
+            raise ValueError("The drawing could not be read (bad base64 data).") from None
+    return str(p.get("text") or "")
+
+
+def api_dxf_inspect(p):
+    """Layers of a DXF site drawing and what they hold (1.8.4)."""
+    return dxfimport.inspect(_dxf_source(p))
+
+
+def api_dxf_import(p):
+    """Electrode items from the layers of a DXF drawing (1.8.4)."""
+    mapping = p.get("mapping") or {}
+    if not any(v != "ignore" for v in mapping.values()):
+        raise ValueError("Mark at least one layer as conductor, rod or fence.")
+    for k, lab in (("depth", "Burial depth"), ("conductor_radius", "Conductor radius"),
+                   ("rod_length", "Rod length"), ("rod_radius", "Rod radius")):
+        if k in p and not _finite_pos(p.get(k)):
+            raise ValueError(f"{lab} must be positive.")
+    sc = p.get("scale")
+    if sc not in (None, "") and not _finite_pos(sc):
+        raise ValueError("The scale (metres per drawing unit) must be positive.")
+    return dxfimport.to_items(
+        _dxf_source(p), mapping, depth=float(p.get("depth", 0.6)),
+        conductor_radius=float(p.get("conductor_radius", 0.005)),
+        rod_length=float(p.get("rod_length", 3.0)), rod_radius=float(p.get("rod_radius", 0.008)),
+        scale=float(sc) if sc not in (None, "") else None,
+        to_origin=_truthy(p.get("to_origin", True)), fence=p.get("fence") or {})
+
+
+def api_bem_optimise(p):
+    """Cheapest grid meeting the touch and step limits, by the numerical solver (1.8.0)."""
+    _require_positive(p, {"rho1": "Upper layer resistivity rho1 (ohm.m)",
+                          "Lx": "Grid length Lx (m)", "Ly": "Grid width Ly (m)",
+                          "IG": "Injected current I_G (A)"})
+    if not bem.HAVE_NUMPY:
+        raise RuntimeError("The numerical solver needs numpy.")
+    p["zones"] = _zones(p.get("zones"))
+    return studies.optimise_grid(p)
+
+
+def api_earthtest(p):
+    """Fall-of-potential test planning and interpretation (1.8.0)."""
+    _bem_prepare(p)
+    mult = p.get("multiples") or [1, 2, 3, 5, 7, 10]
+    meas = p.get("measured") or None
+    if meas:
+        try:
+            meas = [[float(m[0]), float(m[1])] for m in meas]
+        except (TypeError, ValueError, IndexError):
+            raise ValueError("Measured readings must be pairs of probe distance (m) and resistance (Ω).")
+    dCm = p.get("dC_measured")
+    return earthtest.plan(p, float(p.get("bearing", 0.0)), float(p.get("probe_angle", 0.0)),
+                          [float(m) for m in mult], float(p.get("accuracy_pct", 2.0)),
+                          meas, float(dCm) if dCm not in (None, "") else None,
+                          from_edge=str(p.get("measured_from", "centre")) == "edge")
+
+
+def _cx(v, label):
+    if v in (None, ""):
+        return None
+    if isinstance(v, dict):
+        return complex(float(v.get("re", 0)), float(v.get("im", 0)))
+    if isinstance(v, (list, tuple)):
+        return complex(float(v[0]), float(v[1]))
+    try:
+        return complex(str(v).replace(" ", "").replace("i", "j"))
+    except ValueError:
+        raise ValueError(f"{label}: enter a complex value such as 0.5+5j.")
+
+
+def api_fault_sweep(p):
+    """Grid current for faults along an outgoing line with a shield wire (1.8.0)."""
+    _require_positive(p, {"Un_kV": "Nominal voltage (kV)", "Rg": "Grid resistance R_g (Ω)",
+                          "line_km": "Line length (km)", "span_km": "Span length (km)",
+                          "Rt": "Tower footing resistance (Ω)", "R_remote": "Remote station earth (Ω)"})
+    kw = dict(line_km=float(p["line_km"]), span_km=float(p["span_km"]), Rt=float(p["Rt"]),
+              R_remote=float(p["R_remote"]), rho=float(p.get("rho", 100.0)),
+              f=float(p.get("f", 50.0)), c=float(p.get("c", 1.1)),
+              sw_r_km=float(p.get("sw_r_km", 0.33)), sw_gmr=float(p.get("sw_gmr", 0.004)),
+              d_phase_sw=float(p.get("d_phase_sw", 8.0)))
+    for k, lab in (("Z1_line", "Line Z₁ per km"), ("Z0_line", "Line Z₀ per km"),
+                   ("Z1_local", "Local source Z₁"), ("Z0_local", "Local source Z₀"),
+                   ("Z1_remote", "Remote source Z₁"), ("Z0_remote", "Remote source Z₀"),
+                   ("Z_other", "Other shield wires and neutrals")):
+        v = _cx(p.get(k), lab)
+        if v is not None:
+            kw[k] = v
+    if float(kw["span_km"]) > float(kw["line_km"]) and not p.get("spans_km"):
+        raise ValueError("The span cannot be longer than the line.")
+    if p.get("spans_km"):
+        kw["spans_km"] = _num_list(p["spans_km"], "Span lengths")
+    if p.get("Rt_list"):
+        kw["Rt_list"] = _num_list(p["Rt_list"], "Footing resistances")
+    if p.get("other_lines"):
+        ol = []
+        for i, row in enumerate(p["other_lines"], 1):
+            if isinstance(row, dict):
+                ol.append(row)
+                continue
+            v = _num_list(row, f"Other line {i}")
+            if len(v) < 4:
+                raise ValueError(f"Other line {i}: give length, span, footing resistance and "
+                                 f"remote earth.")
+            ol.append(dict(line_km=v[0], span_km=v[1], Rt=v[2], R_remote=v[3],
+                           n_wires=int(v[4]) if len(v) > 4 else 1, name=f"line {i}"))
+        kw["other_lines"] = ol
+    # 1.9.2: two shield wires on the faulted line, and lines sharing its corridor
+    if p.get("n_wires") not in (None, ""):
+        kw["n_wires"] = int(float(p["n_wires"]))
+        if kw["n_wires"] not in (1, 2):
+            raise ValueError("The faulted line has one or two shield wires.")
+    if p.get("d_sw") not in (None, ""):
+        _require_positive(p, {"d_sw": "Spacing of the two shield wires (m)"})
+        kw["d_sw"] = float(p["d_sw"])
+    if p.get("parallel_lines"):
+        pls = []
+        for i, row in enumerate(p["parallel_lines"], 1):
+            if isinstance(row, dict):
+                pls.append(row)
+                continue
+            v = _num_list(row, f"Parallel line {i}")
+            if len(v) < 2:
+                raise ValueError(f"Parallel line {i}: give the separation (m) and the footing "
+                                 f"resistance (Ω).")
+            q = dict(separation=v[0], Rt=v[1], name=f"parallel line {i}")
+            if len(v) > 2:
+                q["n_wires"] = int(v[2])
+            if len(v) > 3:
+                q["d_sw"] = v[3]
+            if len(v) > 4:
+                q["d_phase"] = v[4]
+            pls.append(q)
+        kw["parallel_lines"] = pls
+    r = faultcurrent.fault_location_sweep(float(p["Un_kV"]), float(p["Rg"]), **kw)
+    r["Df"] = float(p.get("Df", 1.0) or 1.0)
+    r["IG_design_kA"] = r["worst"]["Ig_kA"] * r["Df"]
+    return r
+
+
+def _num_list(v, label):
+    """A list of positive numbers from a list or a comma/semicolon string."""
+    if isinstance(v, str):
+        v = [t for t in v.replace(";", ",").split(",") if t.strip()]
+    try:
+        out = [float(t) for t in v]
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}: give numbers separated by commas.")
+    if not out or any(not math.isfinite(t) or t <= 0 for t in out):
+        raise ValueError(f"{label}: every value must be a positive number.")
+    return out
+
+
+def api_cable_sheath(p):
+    """Earth-fault current returning in cable sheaths (1.8.5)."""
+    _require_positive(p, {"If_kA": "Earth-fault current (kA)", "length_km": "Cable length (km)",
+                          "R_A": "Earth resistance at A (Ω)", "R_B": "Earth resistance at B (Ω)",
+                          "r_sheath_km": "Sheath resistance (Ω/km)", "r_mean": "Sheath mean radius (m)"})
+    joints = _num_list(p["joints"], "Joint distances") if p.get("joints") else None
+    form = p.get("formation", "trefoil")
+    _require_choice(form, ("trefoil", "flat", "three_core"), "Formation")
+    _require_choice(p.get("bonding", "both_ends"), ("both_ends", "single_point_A", "single_point_B",
+                                                   "cross_bonded"), "Sheath bonding")
+    minor = None
+    if p.get("bonding") == "cross_bonded":
+        if not p.get("minor_km"):
+            raise ValueError("Give the minor section lengths of the cross-bonded cable.")
+        minor = _num_list(p["minor_km"], "Minor section lengths")
+        if abs(sum(minor) - float(p["length_km"])) > 1e-6 * float(p["length_km"]):
+            raise ValueError(f"The minor sections add up to {sum(minor):g} km, not the cable "
+                             f"length of {float(p['length_km']):g} km.")
+        if joints:
+            raise ValueError("With cross-bonding the earthed joints are the major-section joints, "
+                             "set by the minor sections; leave the joint list empty.")
+    ph = int(float(p.get("faulted_phase", 0) or 0))
+    if ph not in (0, 1, 2):
+        raise ValueError("The faulted phase is 1, 2 or 3 (entered as 0, 1 or 2).")
+    _require_choice(p.get("fault_at", "B"), ("A", "B"), "Fault location")
+    if form != "three_core" and not _finite_pos(p.get("spacing", 0.1)):
+        raise ValueError("The phase spacing must be positive.")
+    ra = p.get("r_armour_km")
+    return faultcurrent.cable_sheath_return(
+        float(p["If_kA"]), length_km=float(p["length_km"]), R_A=float(p["R_A"]),
+        R_B=float(p["R_B"]), r_sheath_km=float(p["r_sheath_km"]), r_mean=float(p["r_mean"]),
+        formation=form, spacing=float(p.get("spacing", 0.1)),
+        n_circuits=int(p.get("n_circuits", 1) or 1), joints=joints,
+        R_joint=(float(p["R_joint"]) if p.get("R_joint") not in (None, "") else None),
+        bonding=p.get("bonding", "both_ends"), rho=float(p.get("rho", 100.0)),
+        f=float(p.get("f", 50.0)), fault_at=p.get("fault_at", "B"),
+        r_armour_km=(float(ra) if ra not in (None, "") else None),
+        source_beyond=_truthy(p.get("source_beyond", False)), minor_km=minor,
+        circuit_sep=float(p.get("circuit_sep") or 0.5), faulted_phase=ph)
+
+
+def api_fuse(p):
+    """Fuse time–current band (IEC 60269 gates) or manufacturer's curve, I_a at
+    the usual disconnection times and the operating time at a current (1.8.6)."""
+    if p.get("I") not in (None, ""):
+        _require_positive(p, {"I": "Current (A)"})
+    return fuses.describe(p)
+
+
+def api_risk(p):
+    """IEC 62305-2:2024 risk R and frequency of damage F, zone by zone, and the
+    least protection that meets R_T and F_T (1.8.0; the 2024 edition in 1.8.5)."""
+    return risk.select(p)
+
+
+def api_spd(p):
+    """SPD selection and coordination, IEC 62305-4:2024 Annex C (1.8.0, 1.8.5)."""
+    return spd.coordinate(p)
 
 
 # Geometric inputs each electrode formula divides by or takes the logarithm
@@ -1127,9 +1705,13 @@ def api_building(p):
     dev = p.get("device") or {}
     if dev:
         _require_choice(str(dev.get("kind", "mcb")).lower(),
-                        {"mcb", "breaker", "mccb", "fuse", "gg", "fuse_gg", "rcd", "rcbo"},
+                        {"mcb", "breaker", "mccb", "fuse", "gg", "fuse_gg", "rcd", "rcbo",
+                         "fuse_iec", "fuse_gm", "fuse_am", "fuse_curve"},
                         "Protective device")
-        _require_positive(dev, {"rating_A": "Device rating (A, or A for IΔn)"})
+        if str(dev.get("kind")).lower() != "fuse_curve":
+            _require_positive(dev, {"rating_A": "Device rating (A, or A for IΔn)"})
+        elif not dev.get("points") or (isinstance(dev.get("points"), str) and not dev["points"].strip()):
+            raise ValueError("Paste the fuse's time–current points (current A, time s), one pair per line.")
     _require_nonneg(p, {"Z_line": "Line impedance (ohm)", "Z_pe": "PE impedance (ohm)",
                         "Z_source": "Source impedance (ohm)"})
     if p.get("separation") not in (None, "", 0, "0"):
@@ -1342,6 +1924,52 @@ def api_report(p):
     return dict(html=html_doc, path=path, filename=name)
 
 
+def api_drawings(p):
+    """Construction drawing set (module 11) from the results of the other
+    modules.  Returns SVG previews, a vector PDF and a ZIP with DXF/SVG/CSV."""
+    results = p.get("results") or {}
+    if not isinstance(results, dict):
+        raise ValueError("results must be the module results object.")
+    usable = [k for k in ("grid", "bem", "building", "earthpit", "lightning", "airterm", "sysgnd")
+              if results.get(k)]
+    if not usable:
+        raise ValueError("Run at least one design module (substation grid, numerical solver, "
+                         "building, earth pit, lightning or air termination) before drawing.")
+    opt = dict(p.get("options") or {})
+    for key, label in (("conductor_mm2", "Conductor size (mm²)"), ("rod_section_m", "Rod section length (m)"),
+                       ("fence_offset", "Fence offset (m)"), ("fence_bond_m", "Fence bonding interval (m)")):
+        if opt.get(key) not in (None, "", 0, "0"):
+            _require_positive(opt, {key: label})
+        else:
+            opt.pop(key, None)
+    for key, label, lo, hi in (("wastage_pct", "Allowance (%)", 0, 100), ("met_ways", "MET ways", 4, 40),
+                               ("test_pits", "Test pits", 0, 200)):
+        if opt.get(key) not in (None, ""):
+            v = float(opt[key])
+            if not lo <= v <= hi:
+                raise ValueError(f"{label} must be between {lo} and {hi}.")
+        else:
+            opt.pop(key, None)
+    res = drawings.build(dict(results=results, options=opt, meta=p.get("meta") or {},
+                              version=APP_VERSION))
+    pre = os.path.basename(res["filename"] or "drawings")
+    if p.get("save") is False:
+        res["saved_to"] = None
+        return res
+    try:
+        import base64
+        out = os.path.join(OUTPUTS, "drawings")
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, pre + "_drawings.pdf"), "wb") as fh:
+            fh.write(base64.b64decode(res["pdf_b64"]))
+        with open(os.path.join(out, pre + "_drawing_set.zip"), "wb") as fh:
+            fh.write(base64.b64decode(res["zip_b64"]))
+        res["saved_to"] = out
+    except OSError:
+        res["saved_to"] = None
+    return res
+
+
 def api_project_save(p):
     os.makedirs(PROJECTS, exist_ok=True)
     name = os.path.basename(p.get("name") or "project")
@@ -1384,6 +2012,20 @@ ROUTES = {
     "/api/ieee80/optimise": api_ieee80_optimise,
     "/api/bem": api_bem,
     "/api/transfer": api_transfer,
+    "/api/bem/convergence": api_bem_convergence,
+    "/api/bem/seasonal": api_bem_seasonal,
+    "/api/bem/montecarlo": api_bem_montecarlo,
+    "/api/bem/powerfreq": api_bem_powerfreq,
+    "/api/bem/optimise": api_bem_optimise,
+    "/api/bem/governing": api_bem_governing,
+    "/api/dxf/inspect": api_dxf_inspect,
+    "/api/cable/sheath": api_cable_sheath,
+    "/api/dxf/import": api_dxf_import,
+    "/api/earthtest": api_earthtest,
+    "/api/fault/sweep": api_fault_sweep,
+    "/api/risk": api_risk,
+    "/api/fuse": api_fuse,
+    "/api/spd": api_spd,
     "/api/hf": api_hf,
     "/api/building": api_building,
     "/api/electrode": api_electrode,
@@ -1394,6 +2036,7 @@ ROUTES = {
     "/api/system-grounding": api_sysgnd,
     "/api/standards": api_standards,
     "/api/report": api_report,
+    "/api/drawings": api_drawings,
     "/api/project/save": api_project_save,
     "/api/project/list": api_project_list,
     "/api/project/load": api_project_load,
