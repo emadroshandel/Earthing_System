@@ -444,16 +444,49 @@ FUSE_GG = {r: ((_UC / BS7671_GG_ZS_04[r]) if r in BS7671_GG_ZS_04 else _GG_04_IN
 FUSE_GG_BS7671 = {0.4: set(BS7671_GG_ZS_04), 5.0: set(BS7671_GG_ZS_5)}
 
 
+FUSE_KINDS = ("fuse_iec", "fuse_gm", "fuse_am", "fuse_curve")
+
+
 def device_Ia(kind: str, rating_A: float, t_required: float = 0.4,
-              curve: str = "B") -> dict:
-    """Current I_a causing automatic operation within the required time."""
+              curve: str = "B", device: dict | None = None) -> dict:
+    """Current I_a causing automatic operation within the required time.
+
+    Fuses: ``fuse`` (gG to BS 88-2, BS 7671 tables), ``fuse_iec`` (gG, the
+    upper limit of the IEC 60269 gates of ``device['system']``), ``fuse_gm``
+    (gM, gates of the characteristic current), ``fuse_am`` (aM, Table 4 of
+    IEC 60269-1) and ``fuse_curve`` (the manufacturer's current–time points
+    ``device['points']`` with ``device['tolerance_pct']``) — 1.8.6."""
     kind = kind.lower()
+    device = device or {}
+    if kind in FUSE_KINDS:
+        from . import fuses
+        fk = {"fuse_iec": "gG", "fuse_gm": "gM", "fuse_am": "aM", "fuse_curve": "gG"}[kind]
+        r = fuses.operating_current(
+            t_required, kind=fk, rating=rating_A, system=device.get("system", "general"),
+            points=device.get("points") if kind == "fuse_curve" else None,
+            tolerance_pct=device.get("tolerance_pct", 0.0) if kind == "fuse_curve" else 0.0)
+        out = dict(Ia=r["Ia"], basis=r["basis"], fuse_kind=fk)
+        if kind == "fuse_curve":
+            out["curve"] = r["curve"]
+        else:
+            out["upper"] = r["band"]["upper"]
+            out["lower"] = r["band"]["lower"]
+        return out
     if kind in ("mcb", "breaker", "mccb"):
         m = MCB_MULTIPLIERS.get(curve.upper(), 5.0)
         return dict(Ia=m * rating_A, basis=f"Type {curve.upper()} MCB, "
                     f"instantaneous trip at {m:g}·In",
                     multiplier=m)
     if kind in ("fuse", "gg", "fuse_gg"):
+        from . import fuses
+        t_key0 = 0.4 if t_required <= 1.0 else 5.0
+        if rating_A not in FUSE_GG_BS7671[t_key0] and rating_A in fuses.GATES_PART1:
+            # not tabulated in BS 7671: the upper limit of the IEC 60269-1
+            # gates (1.8.6; up to 1.8.5 indicative values or a multiplier)
+            r = fuses.operating_current(t_required, kind="gG", rating=rating_A)
+            return dict(Ia=r["Ia"], basis=(f"gG fuse {rating_A:g} A, {t_required:g} s: not in "
+                                           "BS 7671 Tables 41.2/41.4; " + r["basis"].split(": ", 1)[1]),
+                        upper=r["band"]["upper"], lower=r["band"]["lower"])
         if rating_A in FUSE_GG:
             i04, i5 = FUSE_GG[rating_A]
             t_key = 0.4 if t_required <= 1.0 else 5.0
@@ -489,6 +522,7 @@ def loop_impedance_check(U0: float, Zs: float, Ia: float,
     Zs_max = Cmin * U0 / Ia
     If = Cmin * U0 / Zs if Zs > 0 else float("inf")
     return dict(Zs=Zs, Zs_max=Zs_max, Ia=Ia, If=If, U0=U0, Cmin=Cmin,
+                value=Zs, limit=Zs_max, unit="Ω",
                 passed=Zs <= Zs_max,
                 margin_pct=(Zs_max - Zs) / Zs_max * 100.0 if Zs_max else 0.0,
                 formula="Z_s · I_a ≤ C_min · U₀  (IEC 60364-4-41 §411.4.4)")
@@ -498,6 +532,7 @@ def tt_electrode_check(RA: float, Ia: float, UL: float = 50.0) -> dict:
     """TT systems: R_A × I_a ≤ U_L (50 V a.c.)  (IEC 60364-4-41 §411.5.3)."""
     RA_max = UL / Ia if Ia else float("inf")
     return dict(RA=RA, RA_max=RA_max, Ia=Ia, UL=UL, passed=RA <= RA_max,
+                value=RA, limit=(RA_max if math.isfinite(RA_max) else None), unit="Ω",
                 touch_voltage=RA * Ia,
                 formula="R_A · I_a ≤ U_L  (IEC 60364-4-41 §411.5.3)")
 
@@ -563,7 +598,7 @@ def assess(system: str, U0: float, rho: float, electrodes: list,
     kind = str(device.get("kind", "mcb")).lower()
     dev = device_Ia(kind, device.get("rating_A", 32),
                     t_max["t"] if t_max["t"] is not None else 5.0,
-                    device.get("curve", "B"))
+                    device.get("curve", "B"), device)
 
     checks = []
     if sysu.startswith("TT"):
@@ -615,6 +650,25 @@ def assess(system: str, U0: float, rho: float, electrodes: list,
         dict(Ut=RA * (U0 / Zs if Zs else 0.0), Zs=Zs,
              formula="U_t = R_A · I_f")
 
+    if kind in FUSE_KINDS and Zs and math.isfinite(Zs) and Zs > 0:
+        # the time the fuse certainly operates in at the prospective fault
+        # current (C_min·U₀/Z_s): the upper limit of the gates or the curve
+        from . import fuses
+        If_min = 0.95 * U0 / Zs
+        pts = dev.get("curve") or dev.get("upper")
+        tol = float(device.get("tolerance_pct", 0) or 0) if kind == "fuse_curve" else 0.0
+        t_op, how = fuses.time_at(pts, If_min / (1.0 + tol / 100.0))
+        dev.update(If_min=If_min, t_operate=t_op, t_operate_how=how)
+        if t_max.get("required", True) and t_max.get("t"):
+            checks.append(dict(
+                name="Fuse operating time at the fault current (information)",
+                passed=True, advisory=True, value=t_op, limit=t_max["t"], unit="s",
+                note=(f"At I_f = C_min·U₀/Z_s = {If_min:.0f} A the fuse operates within "
+                      + (f"{t_op:.3g} s" if t_op is not None else
+                         "no time the characteristic shows (the current is below it)")
+                      + f" against the {t_max['t']:g} s required "
+                      + ("(manufacturer's curve)." if kind == "fuse_curve"
+                         else "(upper limit of the IEC 60269 gates).")))) 
     return dict(system=sysu, system_info=SYSTEM_TYPES.get(sysu, {}),
                 electrodes=results, RA=RA, combination=comb,
                 disconnection=t_max, device=dev, checks=checks,
