@@ -22,7 +22,7 @@ Sources
 * IEEE Std 80-2013, Tables 7 and 8 -- surface-layer and soil resistivities
 * IEC 60364-5-54:2011, Tables A.54.1 .. A.54.6 -- k factors (adiabatic)
 * IEC 60364-5-54:2011, Table 54.1 -- minimum earthing-conductor sizes
-* IEC 62305-3:2010, Table 7 / Figure 3 -- lightning earth-termination data
+* IEC 62305-3:2024, Table 8 / Figure 5 (2010: Table 7 / Figure 3) -- lightning earth-termination data
 
 All tables are plain Python data so they can be edited by the user without
 touching the calculation code.
@@ -207,7 +207,7 @@ MIN_BARE_BURIED_IEC2011 = dict(
     "round wire 10 mm (78.5 mm²) or strip 90 mm² × 3 mm",
     general_copper=6.0, general_steel=50.0)
 
-# IEC 62305-3:2010 Table 7 -- minimum dimensions of earth electrodes
+# IEC 62305-3:2024 Table 8 (2010 Table 7) -- minimum dimensions of earth electrodes
 # (Edition 2.0; the thickness figures of Edition 1 are no longer tabulated.)
 LPS_ELECTRODE_MIN = [
     dict(material="Copper, tin-plated copper", form="Solid round rod", dim="15 mm diameter"),
@@ -226,7 +226,7 @@ LPS_ELECTRODE_MIN = [
     dict(material="Stainless steel", form="Solid round / solid tape conductor", dim="78 / 100 mm²"),
 ]
 
-# IEC 62305-3:2010 Figure 3 -- minimum length l1 (m) of each earth electrode.
+# IEC 62305-3:2024 Figure 5 (2010 Figure 3, the same lines) -- minimum length l1 (m) of each earth electrode.
 # The figure is three straight lines; the break-points below were read from
 # the vector drawing of the standard (not from a raster image):
 #   class I   l1 = 5 m up to 500 ohm.m, then 0.03 rho - 10  (80 m at 3000)
