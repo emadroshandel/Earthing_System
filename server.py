@@ -121,16 +121,28 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             if os.environ.get("EARTHSYS_VERBOSE"):
                 traceback.print_exc()
-            self._json(400, dict(error=str(exc),
-                                 type=type(exc).__name__,
-                                 trace=traceback.format_exc().splitlines()[-4:]))
+            # Validation errors (ValueError) carry a readable message.  Anything
+            # else is an input the checks did not anticipate: say so plainly,
+            # and do not send server file paths to the browser (1.3.5).
+            msg = str(exc) if isinstance(exc, ValueError) else (
+                f"The calculation could not be completed with these inputs "
+                f"({type(exc).__name__}: {exc}). Check for zero, negative or "
+                f"missing values.")
+            self._json(400, dict(error=msg, type=type(exc).__name__))
 
     def _static(self, root, rel):
         rel = rel.replace("\\", "/")
         full = os.path.normpath(os.path.join(root, rel))
         if not full.startswith(os.path.normpath(root)) or not os.path.isfile(full):
             return self._send(404, b"Not found", "text/plain; charset=utf-8")
-        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        # The Windows registry often maps .js to text/plain, and browsers refuse
+        # to run an ES module (the three.js view) served with that type, so the
+        # web types are fixed here rather than taken from the system (1.10.0).
+        ext = os.path.splitext(full)[1].lower()
+        ctype = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
+                 ".html": "text/html", ".svg": "image/svg+xml", ".json": "application/json",
+                 ".wasm": "application/wasm"}.get(ext) or \
+            mimetypes.guess_type(full)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript",
                                                   "application/json"):
             ctype += "; charset=utf-8"
