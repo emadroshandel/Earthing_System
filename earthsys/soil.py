@@ -538,10 +538,14 @@ def reduce_survey(rows: Iterable[dict], array: str = "wenner") -> List[dict]:
             rho = float(r["rho"]) if r.get("rho") is not None else wenner_rho(
                 float(R), a, r.get("b"))
             out.append(dict(spacing=a, R=R, rho=rho))
+            if r.get("traverse") not in (None, ""):
+                out[-1]["traverse"] = str(r["traverse"])
         else:
             s = float(r.get("s", r.get("spacing", 0)))
             d = float(r.get("d", 1.0))
             rho = float(r["rho"]) if r.get("rho") is not None else schlumberger_rho(
                 float(R), s, d)
             out.append(dict(spacing=s, R=R, rho=rho, d=d))
+            if r.get("traverse") not in (None, ""):
+                out[-1]["traverse"] = str(r["traverse"])
     return out
