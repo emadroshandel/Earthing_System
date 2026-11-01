@@ -445,10 +445,36 @@ of 1.18; on Slaoui and Erchiqui's sounding a fourth layer is refused (`p = 1`).
 `R_g` = 0.519 Ω; on the three-layer model the same grid has 0.959 Ω. The two-layer fit
 understates the GPR by 46 % — the unsafe direction.
 
-The full treatment, with the equivalence maps and the worked examples, is §2.7 of the book
-*Earthing System — Theory and Practice*.
 
 ---
+
+### 2.9 One bad reading, and more than one traverse (version 1.8)
+
+**Robust fitting.** Least squares weighs every reading by the square of its misfit, so one
+reading that is simply wrong — a pin in a stone, a buried pipe under the traverse, a
+misread range — pulls the whole curve towards itself. The soil page now fits all the
+readings, scales the residuals rᵢ (in %) by their median absolute deviation,
+
+    σ̂ = 1.4826 · median|rᵢ − median r|,
+
+and sets aside the worst reading if it lies more than max(3σ̂, 5 %) from the median, then
+refits. One reading goes at a time — a large outlier distorts the residuals of its
+neighbours, and removing several at once would discard good readings with it — and never
+more than a fifth of them, nor so many that the model loses its spare degrees of freedom.
+The page lists what it set aside and the refitted value at that spacing, so the reading can
+be checked on the field sheet or measured again. A reading is never discarded silently.
+
+On the example traverse with the 6 m reading changed from 156 to 260 Ω·m, the plain fit
+has an RMS error of 10.6 % and puts the interface at 3.2 m; the robust fit sets that one
+reading aside and returns ρ₁ = 297 Ω·m, ρ₂ = 108 Ω·m, h = 2.51 m — the clean values.
+
+**Several traverses.** Every inversion on this page assumes horizontal layers. IEEE Std 81
+asks for traverses in more than one direction precisely because that assumption can fail.
+Give each reading its traverse name and the page fits all of them together *and* each
+traverse with three or more readings on its own. When the separate fits disagree by more
+than a factor of 1.5 — in ρ₁, in ρ₂ or in the readings at the spacings they share — the
+soil varies across the site, which no layered model represents. Design with the worst
+traverse where the electrode is, or model the zones separately.
 
 ## 3. Fault current — module 2
 ### 3.1 Why symmetrical components
@@ -573,6 +599,111 @@ Note how little `D_f` contributes at 0.5 s and how much `S_f` does. Students con
 over-focus on the first and under-focus on the second.
 
 ---
+
+### 3.7 The split factor from the shield wire, and where the fault is (version 1.8)
+
+Table C.1 of IEEE Std 80 is a set of answers for typical lines. Behind it is a ladder: the
+shield wire of each span has a series impedance Z_s = z_s·ℓ (Carson, with earth return),
+
+    z_s = r + π²·10⁻⁴·f + j·4π·10⁻⁴·f·ln(D_e/GMR)   Ω/km,   D_e = 658.5·√(ρ/f),
+
+every tower ties it to earth through its footing resistance R_t, and the far end is bonded
+to the remote station. An infinite ladder has the driving-point impedance (Endrenyi)
+
+    Z∞ = Z_s/2 + √(Z_s·R_t + Z_s²/4).
+
+The phase current also induces a voltage in the shield wire through the mutual impedance
+z_m (the same formula with the phase-to-shield distance in place of the GMR), which drives a
+share k = |z_m/z_s| of the return current along the wire without its ever entering the
+soil.
+
+The fault-current page now solves that ladder node by node — the towers, the station grid
+R_g, the remote station — with the fault current injected where the fault is, each
+source's zero-sequence current returning to its own neutral, and an EMF −z_m·I_phase in
+every span the phase current flows through. The grid current is V₀/R_g. Moving the fault
+from the station out along the line answers the question clause 15.9 raises: for a fault
+inside the station only the *remote* contribution returns through the soil, but for a fault
+at a tower a few kilometres out the station's *own* source returns its current through the
+soil to its neutral, and that can be several times larger. On a 132 kV, 20 km line with
+R_t = 15 Ω and R_g = 0.5 Ω the station fault puts 1.3 kA into the grid and a fault 4 km out
+puts 6.3 kA. The design current is the largest of the sweep.
+
+**Real lines (version 1.8.5).** Nothing in the nodal solution needs equal spans or equal
+footings: the span impedances Z_k = z_s·ℓ_k and the EMFs −z_m·ℓ_k·I enter span by span, and
+each tower's own R_t,k enters its node. Measured footing resistances matter most near the
+station — a poor tower in the first kilometre shifts more of a station fault back into the
+grid. The other outgoing lines are ladders too. Each is solved on its own for its input
+impedance seen from the station,
+
+    Z_in,j = 1/Y_0  of the ladder (Z_s,j, R_t,j, …, R_remote,j)  with no source in it,
+
+and the admittances Σ 1/Z_in,j are added to the station node in parallel with 1/R_g. The
+mutual coupling between the shield wires of different lines is neglected for lines on
+different routes; it is small when the lines leave in different directions. With equal spans
+and footings the result is the uniform one exactly.
+
+**Coupled shield wires (version 1.9.2).** Two shield wires bonded at every tower carry the same
+voltage drop, so with their impedance matrix Z the bundle's current is 1ᵀZ⁻¹1 times that drop:
+
+    z_bundle = (z_s + z_m(d_sw))/2       for two wires d_sw apart,
+
+not z_s/2 — the mutual impedance of two wires ten metres apart is a third of the self
+impedance or more, and z_s/2 put the ladder impedance of a two-wire line 14–19 % low. Lines that
+share the corridor over the whole route are solved together. Every shield wire w is a
+conductor of the wire-level matrix Z (Carson self and mutual impedances, Ω/km) and couples to
+the faulted phase through z_p,w; the wires of a line meet at its towers, so with B mapping
+wires to lines the lines' span admittance is Y = BᵀZ⁻¹B/ℓ and the phase current drives
+J = −BᵀZ⁻¹z_p·I_phase in each span:
+
+    I_lines = Y (V_k − V_{k+1}) + J,
+
+one node per line and tower, the station and the remote station shared. Far from both ends
+the drop along every wire vanishes and the wires carry −Z⁻¹z_p·I_phase, the classical
+coupling; the solution reproduces that to 10⁻⁶ and an independent solution with every wire of
+every span its own branch to 10⁻¹⁰. On a 132 kV, 20 km line (R_t = 15 Ω, R_g = 0.5 Ω) a
+parallel line 30 m away lowers the station-fault grid current from 1.30 to 0.91 kA and the worst
+from 6.29 to 4.70 kA; as an uncoupled ladder it gave 1.10 and 5.33 kA.
+
+### 3.8 Earth-fault current returning in cable sheaths (version 1.8.5)
+
+When the station is fed by cable the sheaths take the place of the shield wire. For a fault
+at the far end B fed from A, the core carries I_f from A to B and induces −z_m·ℓ·I_f in the
+sheath circuit of every section, where
+
+    z_s = r_s/n + π²·10⁻⁴·f + j·4π·10⁻⁴·f·ln(D_e/GMR_sheaths)     Ω/km
+    z_m =         π²·10⁻⁴·f + j·4π·10⁻⁴·f·ln(D_e/GMD_core,sheaths)
+
+with all n sheaths in parallel (their geometric mean radius together: r_m for a three-core
+cable, (r_m·s²)^{1/3} for trefoil, and so on). The sheaths are earthed at A (R_A), at B (R_B)
+and at each joint or link box (R_j), which makes the same ladder as §3.7, and its node
+potentials give the current into each earth. For a single section and a three-core cable
+the result is exactly the EREC S34 Appendix D form
+
+    S_f = |ℓ·r_c| / |ℓ·z_c + R_A + R_B|        (source at A, D.2.1)
+    S_f = |ℓ·r_c + R_A| / |ℓ·z_c + R_A + R_B|  (source beyond A, D.2.3)
+
+with z_c and r_c those of the sheath. A cable bonded at one end only has no sheath circuit
+for this current, so S_f = 1: the whole fault current goes through the soil, which is why
+single-point bonded cables are laid with an earth-continuity conductor. As the cable gets
+longer S_f falls towards the reduction factor |1 − z_m/z_s|.
+
+**Cross-bonded sheaths (version 1.9.4).** A cross-bonded cable is split into minor sections,
+three to a major section; at the link boxes between them each sheath is connected to the
+sheath of the next cable position, and the sheaths are earthed together at the major joints.
+The model keeps every sheath of every minor section k as a branch of length ℓ_k, with the
+branch impedance matrix ℓ_k·Z, where Z_ii = r_s + π²·10⁻⁴·f + j·4π·10⁻⁴·f·ln(D_e/r_m) and
+Z_ij the same without r_s at the distance between sheaths i and j, and the source
+−ℓ_k·z_ci·I_f from the faulted core (z_ci at the distance from the core to sheath i, r_m for
+its own sheath). The nodes are A, B, the major joints, and at each link box one node per
+cable position and circuit, where position p of section k continues as position p + 1 of
+section k + 1. The nodal equations (A_b·Y_b·A_bᵀ + earths)·V = injections − A_b·Y_b·E, with
+Y_b the inverse of the branch matrices, give the earth currents, the sheath currents and the
+link-box voltages. The link boxes are open, as with the sheath voltage limiters not
+conducting, and the cores are not transposed. With equal minor sections every sheath path
+visits each position once, its impedance is the mean of the matrix rows, and the result is
+that of the both-ends model with earths at the major joints, which the program reproduces to
+10⁻¹². In trefoil the paths' impedance matrix is αI + β11ᵀ whatever the minor lengths, so
+the split is independent of them while the link-box voltages are not.
 
 ## 4. Conductor sizing — module 3
 ### 4.1 The adiabatic assumption
@@ -1123,14 +1254,460 @@ that returns to lift the grid. Checks: the line solution against `cosh γ(L−x)
 4 × 10⁻⁹; a 150 m bare wire bonded to a 40 m grid gives the GPR within 1 % of the full solver
 (6 % low without the correction `c`).
 
+**Solved with the station (version 1.8.8).** (8.10) is a one-way coupling: the soil along the
+route is the station's alone, so the conductor's own leakage — which lifts the soil beside
+it — is left out, and the GPR correction is a first-order estimate. A bare or coated
+conductor is now solved together with the grid. The route is cut into segments (short at the
+station, growing to 50 m) that leak into the soil through the same potential-coefficient
+matrix as the grid's segments; a coating adds `r_c/(2πa)` to each segment's own coefficient.
+Between its nodes the route has the series impedance `z Δs`. With `I` all the leakage
+currents, `V_s` the station potentials and `U` the route's node potentials:
+
+```
+P I = E V_s + B U          soil (a route segment is at the mean of its two node potentials)
+Eᵀ I = J − I_bond          station networks
+J_{j−1} = J_j + leak_j     route nodes,   J_j = (U_j − U_{j+1} + e_j Δs_j)/(z Δs_j)
+```
+
+`P` is the static matrix of the main solver (the leakage field is quasi-static at 50 Hz, as
+before); `I = P⁻¹[E, B][V_s; U]` is eliminated and the small complex system in `V_s`, `U`
+and the bond current is solved. The touch voltage along the route is now the metal
+potential minus the surface potential one metre to the side, which includes the conductor's
+own leakage. Checks: with `z → 0` it reproduces the main solver with the wire as part of the
+grid (bonded) or as a separate network (floating) to 10⁻⁶; against the full circuit-field
+model of §10.7 at 50 Hz, for a 2 km bare copper wire bonded to Grid 3, the GPR is within
+1.2 %, the current drawn within 1.4 % and the touch voltage along the route within 3 %. The
+one-way model read the GPR 10 % high and the touch voltage two to three times high; for a
+coated pipe the two agree beyond the station edge. Rails (whose leakage is given, not
+computed) and insulated screens keep the line model.
+
+**Circuit-field check (version 1.9.2).** The coupled solution still holds the station at one
+potential and couples the route to it through the soil only. Where the model is small enough
+(2000 segments), station and route are also solved by the circuit-field model at 50 Hz: one
+network of conductors with internal impedance — the grid's metal for the grid, the route's own
+(a hollow steel pipe, say) for the route — and self and mutual inductance with earth return,
+so the magnetic coupling between route and grid conductors and the drop along the grid are in
+it; a coating is a resistive shell of r_c/(2πa) per metre. The route is bonded at its start to
+the nearest grid node and the fault current enters at the grid node nearest to the centroid.
+Its touch voltages are computed the same way, metal minus the surface one metre to the side,
+and the larger of the two models is the design value. The two agree within 1 % for a 400 m
+wire on a 30 m grid and a coated pipe, and within 4 % for steel pipes of 600 m to 1 km on a
+100 m grid, one of them running beside the grid edge, the check slightly higher at the far
+end.
+
 **Teaching point.** Put four 2 km conductors on Grid 3 (GPR 720 V). An insulated screen earthed
 remotely through 10 Ω keeps 89 % of the GPR at its far end. A coated pipe keeps 97 %. A bare
-copper wire leaks, falls to 42 % and halves the GPR — it is a counterpoise. An insulating
-joint at the fence leaves the pipe floating at 3.5 %, but a person at the joint touches
-512 V, because the soil there is still at 74 % of the GPR. Put the joint where the soil
-potential has fallen.
+copper wire leaks, falls to 30 % and more than halves the GPR (334 V, drawing 460 A) — it is
+a counterpoise, and the soil it lifts beside itself keeps its touch voltage near 120 V. An
+insulating joint at the fence leaves the pipe floating at 3.5 %, but a person at the joint
+touches 564 V, because the surface there is still at four fifths of the GPR. Put the joint
+where the soil potential has fallen.
 
 ---
+
+### 8.10 Finding the worst touch and step voltage (version 1.8)
+
+The surface potential is smooth, but its maxima of interest sit on the edge of where they
+are allowed to be — the touch voltage at one metre from the last conductor, the step voltage
+across the edge of the grid — and a plot grid only samples them. Version 1.7 differenced
+the potential over one step in +x and in +y and combined the two as √(ΔV_x² + ΔV_y²). That
+is the gradient for a field that is linear over a metre, which the field at a grid corner is
+not: on the IEEE 80 Annex B grid with its 20 rods it read 480 V with a 61-point scan and
+603 V with a 181-point scan, against 488 V from a brute-force search over position and
+direction. The scan also never stepped in −x or −y, so on two sides of the grid it missed the
+step that ends on the conductor.
+
+Now both maxima are first located coarsely — the step screened in four directions and both
+senses on the plot grid (interpolated) and along a ring one step outside the electrodes
+(exact) — and the best candidates are refined by a compass search in position and, for the
+step, in direction, to 0.02 m and 1°. The answer is 487 V at every resolution.
+
+The touch voltage is counted only where a person can stand on the soil and reach earthed
+metal: within one metre of buried metal seen in plan, or inside a mesh (enclosed by
+conductors on all four sides). The empty notch of an L- or T-shaped grid no longer counts.
+Where the equipment that can actually be touched is known, *touch zones* restrict the check
+to those rectangles, each with its own limit if it has one. Because the reach region is
+bounded by arcs round the conductor ends, its boundary is sampled directly — a compass search
+cannot slide along a curve.
+
+### 8.11 Refinement at the ends, and the discretisation error (version 1.8)
+
+The leakage current density rises steeply towards the free end of a conductor — the grid
+corner, the rod tip — and the touch and step voltages there follow it. A uniform mesh of
+3 m segments smears that peak:
+
+| Segments | Unknowns | Touch 1 m from the corner |
+|---|---|---|
+| uniform 3 m | 588 | 1173 V |
+| uniform 0.5 m | 3380 | 1216 V |
+| 3 m, ends halved three times | 840 | 1201 V |
+
+Halving the end segment of every conductor three times buys most of the refinement at a
+quarter of the unknowns, and is on by default. The solver now also says how far it is from
+the converged answer: the *convergence check* solves again with the segments halved and
+estimates the limit by Richardson extrapolation, f∞ ≈ f(h/2) + [f(h/2) − f(h)] for a
+first-order method. The observed order is between 0.5 and 1, so this correction is if anything
+too small; the verdict therefore uses the largest of the two solutions and the estimate.
+When a model has more conductor than the segment limit allows, the segments are lengthened —
+and the page now says so.
+
+**Automatic refinement at the worst points (version 1.8.8).** The touch and step voltages that
+decide the verdict depend most on the segments within a few metres of where they occur.
+With *automatic refinement* on, the solver halves the segments within 3 m of the worst touch
+point and of both feet of the worst step (and of their images under the layout's symmetries,
+so the reduction of §8.19 is kept), solves again, searches again, and repeats until both
+change by less than the tolerance from one level to the next. On Annex B with twenty rods,
+3 m graded segments move by 0.04 % (touch) and 0.15 % (step) on the first refinement; 8 m
+segments converge in two levels to about 0.5 % (touch, high) and 0.3 % (step) of a mesh of
+0.25 m. What it cannot remove is the global part of the error — the GPR, set by every
+segment — which is what the convergence check measures, so the two are complementary.
+
+### 8.12 When the grid is not at one potential (version 1.8)
+
+The method of moments of §8.2 holds every piece of buried metal at the same potential. The
+conductors have impedance: internal (skin effect, and steel's permeability), and self and
+mutual inductance with earth return. For a compact copper grid the voltage drop along the
+conductors is negligible against the GPR; for a power-plant grid of several hundred metres,
+for steel, or in low-resistivity soil, it is not. The fault current enters at the
+transformer neutral and loses voltage on its way to the far corners.
+
+The non-equipotential solution solves the same electrodes as a network of conductors coupled
+through the soil — the circuit–field model of the lightning page (§10.7) evaluated at 50 or
+60 Hz — with the fault current entering at one or more points. The leakage currents it finds
+are then put into the static Green's function of §8.3, real and imaginary parts separately,
+for the surface potential; the touch voltage at a point is the magnitude of the difference
+between the potential of the nearest grid node and the surface potential there.
+
+| Grid, fed at one corner | Soil | |Z| / R_g | Far corner / feed point |
+|---|---|---|---|
+| 100 m × 100 m copper | 100 Ω·m | 1.005 | 0.99 |
+| 300 m × 300 m copper | 30 Ω·m | 1.33 | 0.70 |
+| 300 m × 300 m steel | 30 Ω·m | 3.1 | 0.24 |
+
+For the 300 m copper grid the touch voltage near the feed point is 190 V against 104 V for the
+equipotential solution. The page says whether the assumption is adequate (|Z| within 5 % of
+R_g and no metal below 90 % of the feed-point potential).
+
+Fences are part of the same network (version 1.8.3). Their posts and any buried fence wire
+leak current like any other conductor; the fabric above ground does not, so it is represented
+by joining the post tops and the wire into one node — a connection without leakage. An
+isolated fence then floats at whatever potential the soil around it imposes; a bonded fence is
+joined to the grid at the grid node nearest to it. One bond is deliberate: a perfect fence
+bonded at several points would short-circuit the grid's own impedance, which is the very
+effect this solution is there to show. The fence touch voltage is the magnitude of the fence
+potential minus the surface potential, 0.5 m and 1 m inside and outside the fence line.
+
+### 8.13 The soil is uncertain, and it changes with the season (version 1.8)
+
+The soil model is the least certain input of the whole design. §2.5 gives its covariance
+C = s²(JᵀJ)⁻¹ in logarithmic parameters; the *uncertainty study* draws soil models from it
+(log-normal, correlations kept, a parameter the readings do not resolve capped at a factor of
+three), solves the electrodes in each, and reports the 5 %, 50 % and 95 % values of R_g, GPR,
+touch and step voltage, and the fraction of models that meet the limits. To keep it
+affordable, each sample is solved in full but searched for its maxima only around the points
+found for the fitted model.
+
+With 20 samples, plain random sampling leaves whole parts of a distribution empty. The study
+therefore uses Latin hypercube sampling (version 1.8.3): the standard normal range of each
+parameter is split into n bands of equal probability 1/n, one value is drawn in each band, the
+bands are paired at random between the parameters, and the correlations of the fit are then
+imposed through the square root of the covariance matrix. Each parameter is covered evenly
+from tail to tail; the scatter of the estimated mean falls by more than half for ten samples.
+A fraction k/n of models that pass is an estimate, so its 95 % confidence interval is given
+by the Wilson score interval
+
+    (p̂ + z²/2n ± z·√(p̂(1−p̂)/n + z²/4n²)) / (1 + z²/n),   z = 1.96,
+
+and about 1.96²·p(1−p)/0.05² samples narrow it to ±5 %. The 95th percentile of the samples is
+the design value; the largest of n samples lies above the true 95th percentile with
+confidence 1 − 0.95ⁿ, which reaches 95 % at n = 59.
+
+The survey is also one moment in the year. The *seasonal study* multiplies the resistivity of
+the top metre (or any depth) by a dry-season factor, and optionally replaces the top by a
+frozen layer, collapsing the result back to at most four layers, and solves each case. A dry
+top layer raises R_g and the GPR; whether it raises the touch voltage depends on how much of
+the potential the surface soil carries — which is why it is computed rather than assumed.
+
+### 8.14 Optimising the grid (version 1.8)
+
+A uniform grid has its highest mesh voltages in the corner meshes and its lowest in the
+middle; drawing the conductors towards the edges evens them out. A line at fraction u of the
+width is placed at
+
+    x = L·(u − g·sin(2πu)/2π),
+
+so the edge meshes are (1 − g) and the centre meshes (1 + g) times the mean spacing. The
+optimiser searches, with the numerical solver itself, the number of conductors (upwards from
+the sparsest grid, then by bisection — fewer conductors give higher voltages), the grading
+g ∈ {0, 0.35, 0.6} and rods round the perimeter or none, and returns the cheapest design that
+meets both limits, with the cost of a metre of conductor and of rod as relative weights. A
+candidate that already costs more than the best design found so far is never solved, so the
+dense, slow grids are rarely reached: on a 70 m square the search takes 40 % less time than
+solving the densest grid of every combination first (version 1.8.1).
+
+### 8.15 Planning and reading a fall-of-potential test (version 1.8)
+
+IEEE Std 81 measures an electrode's resistance by passing a current to a remote current
+electrode C and reading the voltage to a probe P moved out along the traverse. The reading
+equals the true resistance only where P sits at the potential of remote earth as seen from
+the electrode — 61.8 % of the distance for a hemisphere in uniform soil. In layered soil,
+with the probe line at an angle, or with distances taped from the edge of a large grid, that
+point moves.
+
+The test page solves the electrode and a driven current electrode together — two networks,
++I and −I — so the whole curve R(x) = (V_E − V_P(x))/I is computed for the real geometry and
+soil. For the 70 m Annex B grid (largest dimension D = 99 m), distances measured from its
+centre as IEEE Std 81 does:
+
+| Current electrode at | Uniform 400 Ω·m | 100 Ω·m over 1000 Ω·m at 5 m |
+|---|---|---|
+| 1 × D | −5.0 % (true value at 64 %) | −27 % (at 71 %) |
+| 2 × D | −0.5 % (62 %) | −7.2 % (66 %) |
+| 5 × D | 0.0 % (62 %) | −0.9 % (63 %) |
+
+(error of the reading taken at 61.8 %, and the probe position that gives the true value). In
+uniform soil the rule holds for a grid much as for a hemisphere, as superposition leads one
+to expect; over a resistive substratum the current electrode must be far further out. Taped from
+the grid's edge instead of its centre, the true-value position for C at 1 × D moves to about
+50 % of the distance and the 61.8 % reading is 19 % high. The plan recommends the shortest
+distance whose 61.8 % reading is within the accuracy asked for, and where the probe must stand.
+Given the readings, the computed curve is scaled to them by least squares: the factor is the
+ratio of site to model resistance, and the residual of the shape says whether the soil model —
+not only its level — is right.
+
+### 8.16 Induction along a parallel route (version 1.8; any route, 1.8.5)
+
+A pipeline or cable that runs beside a faulted line also has a voltage induced along it by
+the earth-return current I in the line, z_m·I per metre (Carson's mutual impedance at the
+separation d, §3.7). The transferred-potential solver adds it as a series source in every
+section of the parallel stretch; with the GPR and the fault current in phase it is combined
+with the conductive part as a phasor. An insulated conductor bonded at the station and open
+at the far end carries the whole EMF, z_m·I·ℓ, to its far end. Routes need no longer be
+straight: a polyline is followed through the station's soil potential.
+
+Since 1.8.5 the faulted line can be given as its own route. At each point s of the
+conductor the nearest point of the line is found, at distance d(s), with u the line's
+direction there and t the conductor's, and
+
+    e(s) = z_m(d(s))·I·(t·u)     V/m,
+
+zero where the nearest point is beyond the line's ends or d exceeds the Carson depth D_e.
+This is the K.26 sectioning of an oblique exposure taken to the limit of short sections: an
+approach at angle θ counts cos θ of its length, and a crossing at right angles induces
+nothing. The EMF profile then enters the same lossy-line solution as before.
+
+### 8.17 Which value decides: the governing values (version 1.8.2)
+
+Each study of §8.11–8.13 corrects the plain solution for one thing it leaves out: the
+convergence check for the length of the segments, the seasonal study for a dry or frozen
+surface, the uncertainty study for what the soil readings cannot pin down, and the
+non-equipotential solution for the impedance of the conductors. A verdict that ignores them
+answers a question nobody asked. The page therefore takes, for each of the touch voltage, the
+step voltage, R_g and the GPR,
+
+    X_gov = max( X_plain, X_convergence, X_seasonal,worst, X_uncertainty,95 %, X_non-equipotential ),
+
+over the studies that were actually run, and names the one that gave the maximum. The maxima
+are taken one at a time and not multiplied: a dry season, an unlucky soil draw, a coarse mesh
+and the conductor impedance acting together at their worst is not a design case, and stacking
+them would penalise every design that is studied carefully.
+
+Two rules keep the comparison honest. A study counts only if it solved the same electrodes,
+soil and current as the plain solution — each result carries a fingerprint of that model, and
+a study left from before an edit is listed as out of date and ignored. And the touch checks
+of touch zones and fences, which only the plain solution evaluates, are multiplied by
+X_gov / X_plain for the touch voltage: exact when the study scales the whole field (a uniform
+change of resistivity), conservative otherwise. The design report and the drawing stamp use
+the same governing values, so the verdict cannot differ between the page, the report and the
+drawings.
+
+### 8.18 Keeping the work down (version 1.8.4)
+
+Almost all the time of a solution goes into evaluating the image sum of §8.3 between pairs of
+points, and how many quadrature points each pair needs depends only on how far apart they are
+compared with the segment length L. A Gauss rule with m points integrates a polynomial of
+degree 2m − 1 exactly; along a segment seen from a distance d the integrand 1/r is smooth on
+the scale of d, so the error of an m-point rule falls roughly as (L/2d)^(2m). The solver
+therefore spends its effort where the integrand is sharp:
+
+| Where | Rule | Error |
+|---|---|---|
+| matrix, pairs closer than 2.5 L | 6 × 10 double (Galerkin) quadrature | the reference |
+| matrix, 2.5 L to 8 L | 3 × 4 double quadrature | about 1e-8 relative |
+| matrix, beyond 8 L | 4-point collocation | about 1e-9 |
+| field, within 5 L of a segment | 12 points | the reference |
+| field, beyond 5 L | 2 points | about 1e-5 at 5 L, falling as (L/d)⁴ |
+
+Against the uniform rules of earlier versions the touch and step voltages and R_g move by less
+than one part in a million. Independent solutions — seasonal cases, soil samples, the two
+halves of the convergence check, the candidates of one optimisation round — are spread over
+the processor's cores; each worker does its linear algebra on one thread so that the cores are
+not oversubscribed.
+
+### 8.19 Large grids: symmetry, compression and reuse (version 1.8.7)
+
+The matrix P of §8.2 is dense — every segment raises the potential of every other — so stored
+as it is it needs n² numbers and its solution n³/3 operations. At 4000 segments that is
+128 MB and a few seconds; a power-plant grid of 300 × 300 m with 10 m meshes has 18 km of
+conductor, 7000 segments at 2.5 m, and 400 MB and a minute; at 1 m segments it does not fit at
+all. Version 1.8.7 removes the limit in three ways, each checked against the dense solution.
+
+**Symmetry.** A square grid with rods on its perimeter looks the same after a mirror in x, in
+y or in a diagonal, or a quarter turn: eight transformations. If a transformation g maps
+every segment onto a segment (same radius, same layer, same network) and the soil onto
+itself, then P[gi, gj] = P[i, j], the injections are unchanged, and so is the solution: the
+current is the same on every segment of an orbit {g i}. Writing I_b for the common current of
+orbit O_b and taking one equation per orbit, at its representative r_a,
+
+    Σ_b I_b Σ_{j∈O_b} P[r_a, j] = V ,     Σ_{j∈O_b} P[r_a, j] = (|O_b|/|O_a|) Σ_{i∈O_a} P[i, r_b]
+
+and the right-hand form needs only the columns of the representatives. The square grid is
+solved with an eighth of the columns and an eighth of the unknowns — 1/512 of the
+elimination — and the answer is the same to the last digits (10⁻¹² in the tests). A
+rectangle has four symmetries, an L-shaped grid none; the solver finds them itself.
+
+**Compression.** Two groups of segments far apart compared with their size see each other
+through a smooth function: the block of P between them is, to any stated accuracy, a sum of
+a few products of a column and a row. The segments are sorted into a tree of clusters (each
+split in two along its longest side, down to 64), and a pair of clusters whose horizontal
+gap exceeds 1/1.5 of the smaller diameter, and the 8 L reach of the near-field quadrature of
+§8.18, is replaced by such a sum, found by adaptive cross approximation: take a row of the
+block, its largest entry picks a column, subtract the product, and repeat until the next
+product is below 10⁻⁸ of what has been gathered. Only k(m + n) of the m n entries are ever
+computed. Horizontal gaps are used because every image of §8.3 and §8.6 sits at the
+horizontal position of its source (or, in §8.20, further away on the same side). The
+system is then solved by GMRES, which needs only products of the compressed matrix with
+vectors, preconditioned with the exact inverse of the diagonal blocks of 256 segments; it
+converges in 10 to 20 iterations. On the Annex B grid at 0.125 m segments (13 520 unknowns)
+R_g agrees with the dense solution to 4 × 10⁻¹¹ and the touch voltage to 5 × 10⁻⁹. Above
+4000 unknowns (after the symmetry reduction) the compressed solution is used.
+
+In two-layer soil most of the time went into the image series, up to 4N + 4 = 244 terms per
+pair. For a grid at one depth the series between two of its points depends only on their
+horizontal distance, so it is tabulated once — in u = asinh(r/Δ_min), Δ_min the smallest
+vertical offset of an image, with the derivative for cubic Hermite interpolation, to 10⁻¹⁰ —
+and the single term at zero offset is added exactly. The Annex H Grid 3 solution is twice as
+fast and the answers move by 10⁻¹¹.
+
+**Reuse.** The currents depend on the geometry and the soil, not on I_G, so a solution is
+kept and serves the same model with another current; in uniform soil they do not depend on ρ
+either (R_g is proportional to it), so one solution serves every resistivity. The studies
+keep their cases too: the "as measured" case of the seasonal study is the coarse case of the
+convergence check, and running a study again with nothing changed costs nothing.
+
+The non-equipotential solution of §8.12 had its own limit, 1500 segments, from its
+(N_n + 2N)² complex system. Eliminating the segment currents first — I_T = Z_T⁻¹ M V and
+I_L = Z_L⁻¹ D V, with M the average and D the difference of the end potentials — leaves the
+node admittance matrix Y = Dᵀ Z_L⁻¹ D + Mᵀ Z_T⁻¹ M: a third of the memory and a ninth of the
+arithmetic, and the limit is now 3000 segments.
+
+**Two scales (version 1.8.9).** A model beyond that limit is solved in two scales. The metal
+potential varies slowly along a conductor — it changes over the distance on which the series
+impedance acts, tens of metres — while the leakage current and the surface potential change
+over a segment length near a crossing or an end. The circuit-field model is therefore solved
+with segments long enough to stay within the limit, giving the node potentials V_n. On each
+conductor V is interpolated linearly between the nodes to the mid-points of segments of the
+length asked for, and the leakage currents there follow from the static potential
+coefficients of §8.3:
+
+    P I_f = V(x_f),   real and imaginary parts separately (P is real),
+
+dense, or with the compressed matrix and GMRES described above beyond 4000 segments. The sum of I_f
+differs from I_G by the difference between the two models' leakage, a fraction of a percent;
+I_f is scaled to I_G and the ratio reported. The surface potential, touch and step voltages
+are those of I_f, with the metal potential interpolated at the ends of the fine segments; the
+earth impedance and the metal potentials are those of the coarse model. On the 300 m grid of
+§8.12, fed at a corner, coarse 20 m and fine 5 m segments reproduce the touch and
+step voltages of the full 5 m model within 0.4 % — copper and steel, uniform and two-layer
+soil — where the 20 m model alone is 6–20 % out (the step voltage low, the touch voltage
+high). The count against the limit is taken after the conductors are cut at their crossings
+and at the layer boundaries.
+
+### 8.20 Two soils side by side (version 1.8.7)
+
+Soil is not always layered horizontally. A geological fault, a rock face, the edge of a lake or
+of a backfilled area divides the site into two soils side by side. For two uniform soils
+separated by a vertical plane the image method of §2.4 is exact — and simpler than for
+layers, because the plane is crossed only once.
+
+A unit source in soil 1 (ρ₁) near the plane to soil 2 (ρ₂) produces in soil 1 the field of
+the source and of a mirror image in the plane, of strength K = (ρ₂ − ρ₁)/(ρ₂ + ρ₁); in soil 2,
+the field of the source alone, of strength 1 − K, in soil 2's resistivity:
+
+    V₁ = ρ₁/(4π) [1/r + K/r′],     V₂ = ρ₂(1 − K)/(4π r) = ρ₁(1 + K)/(4π r)
+
+Both conditions on the plane hold: there r = r′, so V₁ = ρ₁(1 + K)/(4πr) = V₂; and the normal
+derivatives of 1/r and 1/r′ are opposite, so the normal current density is
+(1 − K)/(4π)·∂(1/r)/∂n on both sides. The air surface is a second mirror, perpendicular to
+the first, so its image of each term simply joins it (§8.3): four terms in all, no series.
+A source in soil 2 is the same with K → −K.
+
+Two limits check it. Far from the plane K/r′ vanishes and the soil is uniform. A source in
+the plane sees ρ₁(1 + K) = 2ρ₁ρ₂/(ρ₁ + ρ₂) in every direction — so an electrode lying in the
+plane behaves exactly as in uniform soil of the harmonic mean resistivity, which the solver
+reproduces to 10⁻¹². More generally, for any electrode symmetric about the plane the uniform
+solution in the harmonic mean has no current across the plane, so it meets both conditions
+and is exact: the Annex B grid with the boundary through its centre agrees with it to
+3 × 10⁻⁶. A rod 1 m from the plane agrees within 0.05 % with the first-order
+estimate R ≈ R₁₁ + K R₁₂, R₁₂ the mutual resistance to its own mirror image.
+
+Conductors that cross the plane are split there, as at a layer interface, and each piece
+uses its own side's resistivity. A conductor parallel to the plane and close to it sees its
+own mirror image as a parallel line 2d away, a nearly singular term that a Gauss rule would
+resolve poorly; it is taken in closed form, the same average potential as the self term of
+§8.4 with the radius replaced by 2d. Horizontal layers on either side are not combined with
+the plane: images of perpendicular planes with different contrasts do not close.
+
+### 8.21 Plates (version 1.9.0)
+
+An earth plate, or the reinforcement of a raft taken as one sheet, is a thin conductor whose
+charge spreads over an area and crowds towards its edges, where the surface density of a
+thin plate rises as d^(−1/2) with the distance d from the edge. The solver's elements are
+wires, so the plate is cut along its long side into n strips whose edges follow a cosine
+(Chebyshev) spacing across the short side, t_k = ½ − ½ cos(πk/n), narrow at the edges where the
+density changes fastest. Each strip becomes a conductor on its centre line with radius
+
+    a_k = w_k / (2π).
+
+The radius is not the w/4 of an isolated flat strip. An infinite array of wires of radius a
+at spacing s, charge q per metre, has the two-dimensional potential
+−(q/4πε) ln[2 cosh(2πz/s) − 2 cos(2πy/s)]. Away from the array this is the potential of the
+plane with the same charge, σ = q/s; on the wires it exceeds the plane's by
+(q/2πε) ln(s/2πa), which vanishes for a = s/2π. With that radius the array carries charge
+exactly as the plane it fills. The strips are cut into segments of the short side divided by
+n, without end grading, which keeps every segment about four radii long, inside the range of
+the thin-wire kernel. They keep that length when the rest of the model is refined.
+
+Checked against an independent panel solution — constant-charge rectangles with the exact
+potential of a uniform rectangle, ∫∫dA/r = x ln(y + r) + y ln(x + r) − w atan(xy/wr), cosine
+graded, with the image of the surface (and in two-layer soil the series of K^n images), and
+Richardson extrapolation in 1/n² — which itself reproduces the capacitance of the unit square,
+C = 0.3667896·4πε₀ a (Read 2004), to 1·10⁻⁵. With 16 strips the resistance is high by 0.08–0.22 %
+for a 10 m square in a full space, 1 m squares horizontal and vertical near the surface,
+10:1 strips and a plate in two-layer soil; the error falls as 50/n² % and is never below the
+reference. The surface potential over a 6 m plate 0.5 m deep is within 0.8 % of the GPR. A
+wide horizontal plate near the surface gets more strips, so that the widest is no wider than
+about 1.2 times its depth (at most 64).
+
+A raft's bars entered as a grid and the same raft as a plate differ by 0.0–0.7 % in R
+(6–18 m, bars 12–20 mm at 0.2–0.25 m), the plate lower, since a mesh of bars leaks a little
+less readily than the solid sheet; on a 12 m raft the touch voltage is 1.2 % lower and the
+step voltage 2.6 % higher. The concrete is taken as soil.
+
+### 8.22 The shortest segment (version 1.9.1)
+
+The thin-wire kernel puts each segment's current on its axis and evaluates the potential on
+the surface of the other segments, 1/√(r² + a²). That is accurate while a segment is long
+against its radius. Below about four radii the potential-coefficient matrix stops being
+positive definite and some leakage currents come out negative: for a 6 m rod of 50 mm radius
+in 100 Ω·m, R is 13.05 Ω at ten radii, 12.92 Ω at four, then 13.06, 12.83 and 11.91 Ω at three,
+2.5 and two radii, with negative currents on a third to a half of the segments. Where conductors cross,
+negative currents appear near six radii. The end grading and the automatic refinement have
+always stopped at ten radii; since 1.9.1 the segment length itself does, for every bare
+conductor, in the numerical solver, the non-equipotential solution and the lightning model,
+and the results name the conductors kept there. The strips of a plate (§8.21) are about four
+of their radii long by design; they are parallel and do not cross, their matrix is positive
+definite, and their resistance was checked against an exact plate solution.
 
 ## 9. Buildings and homes — module 6
 ### 9.1 The system types, and what actually differs
@@ -1167,6 +1744,30 @@ type C `10I_n`, type D `20I_n`. `C_min = 0.95` allows for a low supply voltage.
 Why the times differ: 0.4 s is the exposure a person may credibly receive from a portable
 appliance they are holding; 5 s applies to fixed distribution equipment they are unlikely
 to be touching when the fault occurs. Both trace back to the same `I_B = k/√t` curve.
+
+**Fuses (version 1.8.6).** A fuse has no multiplier: `I_a` is read from its time–current
+characteristic at the required time. IEC 60269 does not fix that curve, only the **gates**
+it must pass through. For gG (and gM) fuse-links of 16–1250 A, IEC 60269-1 Table 3 gives
+`I_min(10 s)`, `I_max(5 s)`, `I_min(0.1 s)` and `I_max(0.1 s)`; Table 7 the pre-arcing `I²t`
+at 0.01 s; Table 2 the conventional non-fusing and fusing currents `I_nf`, `I_f` (1.25 and
+1.6·I_n) at the conventional time (1 to 4 h); Parts 2 and 3 add the small ratings of each fuse
+system. Every compliant fuse-link of rating `I_n` operates within `t` at any current to the
+right of the **upper limit** of the band, the polyline through
+
+```
+(I_f, t_conv), (I_max(5 s), 5 s), (I_max(0.1 s), 0.1 s), (√(I²t_max/0.01 s), 0.01 s)   … (9.1a)
+```
+
+on log–log axes, extended below 0.01 s at constant `I²t`. Real characteristics are concave
+on those axes and lie inside the band, so the chord is safe: for a 32 A gG fuse it gives
+259 A at 0.4 s, against the 221 A of BS 7671 Table 41.2 for BS 88-2 fuses (whose tabulated
+values all lie inside the gates — a test checks every one). Where the make is known the
+manufacturer's curve is better: it is entered as current–time points, followed on log–log
+axes, and moved by its current tolerance (often ±10 % on a mean pre-arcing curve) to the
+safe side. Above 0.1 s the arcing time is negligible, so pre-arcing time and operating time
+coincide, which is how IEC 60364 uses the curve. The page also reports the time within which
+the fuse certainly operates at the prospective fault current `C_min·U₀/Z_s` — the same
+criterion as (9.1) read the other way.
 
 ### 9.3 The TT criterion
 
@@ -1362,9 +1963,9 @@ protection class. It is a proxy for "enough soil volume to disperse the charge".
 If `r_e < l₁`, add `l_r = l₁ − r_e` horizontally or `l_v = (l₁ − r_e)/2` vertically at each
 down-conductor. The software computes these directly.
 
-![Figure 18 — The minimum electrode length of IEC 62305-3 Figure 3. For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.](figures/fig18_lps_l1.png)
+![Figure 18 — The minimum electrode length of IEC 62305-3:2024 Figure 5 (Figure 3 in 2010, unchanged). For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.](figures/fig18_lps_l1.png)
 
-*Figure 18 — The minimum electrode length of IEC 62305-3 Figure 3. For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.*
+*Figure 18 — The minimum electrode length of IEC 62305-3:2024 Figure 5 (Figure 3 in 2010, unchanged). For classes III and IV it is 5 m whatever the soil; for classes I and II it grows steeply in resistive ground.*
 
 ### 10.3 Separation distance — the derivation
 
@@ -1589,14 +2190,128 @@ with the soil, `κ_c = 1/ρ_c + jωε_c`, and the soil sees a conductor of the c
 
 *Figure 21 — (a) A 3.05 m rod bare and cast in 0.41 m of concrete against soil resistivity: Earthing System (lines) and Fagan and Lee's Table VII (markers); the concrete helps once the soil is more resistive than the concrete. (b) Harmonic impedance of a 3 m concrete pier (0.4 m, six 16 mm bars, ρ_c = 50 Ω·m) and a bare 3 m rod in 100 and 1000 Ω·m soil.*
 
+**Large electrodes (version 1.9.3).** The segment length at the injection is a fifth of the
+soil's skin depth at the highest frequency (at most 1 m): there the current changes within
+that distance. The model is held to 800 segments, and up to 1.9.2 a larger electrode had every
+segment lengthened alike — 5 m on a 200 m grid, 20 m on a 400 m one — the injection included.
+Away from the injection the current has either decayed (high frequencies) or varies slowly
+(low ones), so the mesh is now graded: s(d) = s₀ + α·d with d the distance from the
+injection, each conductor piece marched with the local length, and α the smallest value that
+keeps the model within the limit (found by bisection). A grid cut at its crossings has a
+least number of segments however coarse the mesh; when that is near the limit, the limit
+gives way so that half of it remains for the fine mesh at the injection. Largest error of
+|Z(jω)| over 100 Hz–10 MHz:
+
+| Grid (corner feed unless noted) | Soil | Reference | Graded | Old uniform mesh |
+|---|---|---|---|---|
+| 40 m × 40 m, D 10 m | 100 Ω·m | uniform 0.21 m, 1920 seg. | 250 seg.: 0.07 % | 280 seg. (1.4 m): 0.7 % |
+| 200 m × 200 m, D 20 m | 100 Ω·m | graded, 2400 seg. | 800 seg.: 0.09 % | 880 seg. (5 m): 3.5 % |
+| same, fed at the centre | 100 Ω·m | graded, 2400 seg. | 800 seg.: 0.10 % | 880 seg.: 7.9 % |
+| 200 m × 200 m, D 20 m | 30 Ω·m | graded, 2400 seg. | 800 seg.: 0.07 % | 880 seg.: 14.7 % |
+| 400 m × 400 m, D 20 m | 100 Ω·m | graded, 2400 seg. | 1240 seg.: 0.10 % | 840 seg. (20 m): 68 % |
+
+The 40 m case is against a uniform mesh at the full fine length; the larger ones against a
+graded mesh with three times the segments. R_LF is within 0.1 % everywhere; the impulse
+impedance of the TB 781 strokes, whose energy lies below 1 MHz, moved by at most 3 % with the
+old mesh, but |Z| at a few megahertz — the steep fronts — was badly wrong.
+
 **Limits.** Conductors are thin wires. A foundation is a cylinder of concrete (rafts and
 blocks are not modelled, nor is breakdown of the concrete, which Fagan and Lee observed under
 impulse current). All layers share one frequency dependence and permittivity. The ionisation
-formula is instantaneous and was recommended for electrodes up to about 30 m. The full
-derivations and checks are §11.9 and §13.11 of the book *Earthing System — Theory and
-Practice*.
+formula is instantaneous and was recommended for electrodes up to about 30 m. 
 
 ---
+
+### 10.8 Does the structure need protection? — IEC 62305-2:2024 (version 1.8.5)
+
+The risk assessment decides whether a lightning protection system is needed at all and how
+much. Edition 3 (2024) of IEC 62305-2 has one risk, the sum of the injury to living beings
+(L1) and the physical damage (L2),
+
+    R = R_L1 + R_L2,   tolerable R_T = 10⁻⁵ per year,
+
+and judges the internal systems by their **frequency of damage**
+
+    F = F_C + F_M + F_W + F_Z,   tolerable F_T = 0.1 /yr (critical) or 1 /yr (non-critical),
+
+both in every risk zone — a part of the structure with its own floor, fire compartment,
+loss class and equipment, and outside areas where people stand.
+
+**Dangerous events.** Lightning location systems count flashes, but one flash often strikes
+the ground at several points, so the 2024 edition works with the strike-point density
+N_SG = k·N_G (k = 2 unless the data provider gives it). With A_D as before,
+
+    N_D = N_SG·A_D·C_D·10⁻⁶,
+    N_M = (N_SG/k)·A_M·10⁻⁶,       A_M = 2r_M(L + W) + πr_M²,   r_M = 350/U_w,
+    N_L = N_SG·40L_L·C_I·C_E·C_T·10⁻⁶,
+    N_I = (N_SG/k)·2r_I·L_L·C_I·C_E·C_T·10⁻⁶,   r_I = 2000/U_w^1.8,
+
+summed over the sections of each line (an HV section beyond the transformer has C_T = 0.2,
+a buried one C_I = 0.3). The equipment withstand U_w now sets how far away a flash still
+matters: for 2.5 kV r_I = 384 m, for 1.5 kV 964 m.
+
+**Components** (Table 3) are N × P × L with the presence of people P_P = t_z/8760 and the
+exposure of equipment P_e = t_e/8760 written out:
+
+    R_AT = N_D·P_AT·P_P·L_T,   R_AD = N_D·P_AD·P_P·L_D (people on a roof),
+    R_B1 = N_D·P_B·P_P·L_F1,   R_B2 = N_D·P_B·L_F2,
+    R_C1 = N_D·P_C·P_P·P_e·L_O1,  R_M1 = N_M·P_M·P_P·P_e·L_O1,
+    R_U = (N_L + N_DJ)·P_U·P_P·L_T,  R_V1,2, R_W1,2 likewise,  R_Z1 = N_I·P_Z·P_P·P_e·L_O1,
+
+with P_B = P_S·P_LPS·r_f·r_p (P_S = 1 once an LPS is installed), P_C = 1 − Π(1 − P_SPD·C_LD)
+and P_M = 1 − Π(1 − P_SPD·(K_S1K_S2K_S3)²) over the internal systems in the zone, and the
+thunderstorm-warning factor P_TWS in the touch and line probabilities. The fire reduction
+factors r_f and r_p have moved from the loss to the probability, and the losses are the
+typical values of Table C.2 by loss class (low, normal, high, very high).
+
+The module reproduces the worked examples of Annex F: for the house R = 1.793·10⁻⁵ falling to
+0.149·10⁻⁵ with LPL IV SPDs at the entrance; for the office building's archive R = 6.53·10⁻⁵
+and F = 0.584 /yr, and with an LPS class II and SPDs to LPL II R = 0.59·10⁻⁵ and F = 0.014;
+the hospital's intensive care unit R = 306.8·10⁻⁵. It then searches the LPS class, the SPD
+level of the bonding at the line entrances (an LPS brings its own) and the coordinated SPD
+level, one step each, for the cheapest set that meets R_T in every zone and F_T wherever it is
+set; the class found can be sent to the earth-termination design.
+
+**Damage to the surroundings (Annex E, version 1.9.5).** Where a strike on the structure can
+harm people or property outside it — an explosion, a fire, a toxic or radioactive release,
+pollution of soil or water — Annex E adds, for the zone where the damage starts, the
+components of its Table E.1. They are those of Table 3 with the presence of people in the
+surroundings P_PE = t_zE/8760 (Table E.2; 1 when it is not known) in place of P_P and the
+losses of the surroundings in place of the zone's:
+
+    R_B1E = N_D·P_B·P_PE·L_F1E,   R_B2E = N_D·P_B·L_F2E,
+    R_C1E = N_D·P_C·P_PE·P_e·L_O1E,  R_C2E = N_D·P_C·P_e·L_O2E,
+
+and likewise R_M, R_V, R_W and R_Z; R_AT, R_AD and R_U have no counterpart. L_F1E and L_O1E
+come from Table E.3, separately for damage that stays inside the site fence and damage that
+spreads beyond it (toxic fumes: 0.1 and 1.0 for L_F1E), and L_F2E, L_O2E from Table E.4. The
+surge components count only where a failure of internal systems can itself cause the damage;
+otherwise the annex asks for them to be taken as zero. The components are added to the
+zone's R_L1 and R_L2. With t_zE = t_z and fire and explosion only, this is the simple method
+of (C.1)–(C.2), L_BT = L_B + L_E, which the program reproduces.
+
+### 10.9 Surge protective devices — IEC 62305-4:2024 (version 1.8; 2024 rules 1.8.5)
+
+About half of a direct flash goes into the earth termination and half into the services; it
+divides between the services and their conductors, so a Type 1 SPD on a four-conductor power
+line, with two services, must take I_imp = 0.5·200/(2·4) = 12.5 kA for LPL I. Its effective
+protection level includes its connecting leads, U_p/f = U_p + ΔU for a voltage-limiting SPD
+and max(U_p, ΔU) for a switching one, with ΔU = 0.1·I_SPD kV per metre of lead (IEC 62305-4:2024
+C.4: 1 kV per metre at 10 kA), and protects the equipment only if
+
+    U_p/f ≤ U_w           at the equipment,
+    U_p/f ≤ 0.8·U_w       for a circuit up to 10 m,
+    U_p/f ≤ (U_w − U_i)/k for a longer circuit, k = 1…2 the reflection factor (2 when unknown:
+                          oscillation can double the voltage),
+
+and U_p ≤ 0.5·U_w where the failure of the internal systems is critical. For the simplified
+selection at the origin of the installation, Table C.3 gives I_imp per protection mode —
+25, 18.75 and 12.5 kA for LPL I, II and III–IV on L–PE and N–PE (CT1), with the N–PE gap of a
+CT2 connection taking two or four times that —
+
+with U_i the voltage induced in the circuit loop. Two stages share the energy only with enough
+impedance between them — about 10 m of cable from a spark gap to a varistor, about 5 m between
+two varistors, or a decoupling inductor — unless the manufacturer declares them coordinated.
 
 ## 11. Air termination and protection zones — module 8
 ### 11.1 What the rolling sphere actually is
@@ -1931,9 +2646,7 @@ Earthing System computes to IEEE 80, IEC 60364, IEC 62305 and IEEE 142 (with IEC
 fault current and BS 7430 for the rod factors). Version 1.3 places them among the other
 standards a designer meets. `earthsys/standards.py` holds the registry (edition, status,
 area, and whether the software *implements*, *cross-checks* or only *references* each) and
-the small calculations below. None of them changes a verdict. The tutorial *Earthing System
-Design — Theory and Practice* (2nd edition, version 2.1) derives each one: §5.4, §9.8–9.9,
-§10.8–10.9 and Appendix F.
+the small calculations below. None of them changes a verdict.
 
 **Three families of touch-voltage criterion.**
 
@@ -1997,7 +2710,7 @@ for the EPR. Module 7 reports the frequency-dependent value.
 5. IEC 60364-4-41:2005+A1:2017, *Low-voltage electrical installations — Protection against electric shock*
 6. IEC 60364-5-54:2011+A1:2021, *Earthing arrangements and protective conductors*
 7. IEC 60909-0:2016, *Short-circuit currents in three-phase a.c. systems — Calculation of currents*
-8. IEC 62305-1 and IEC 62305-3:2010, *Protection against lightning* (edition 3 of Part 3 published 2024)
+8. IEC 62305-1, -2, -3 and -4:2024, *Protection against lightning* (edition 3)
 9. BS 7430:2011+A1:2015, *Code of practice for protective earthing of electrical installations* (λ tables; replaced by BS 7430:2026)
 
 **Standards cross-checked or referenced** (`earthsys/standards.py`)
@@ -2082,5 +2795,6 @@ for the EPR. Module 7 reports the frequency-dependent value.
 52. IEEE Std 80-2013 Annex H — benchmark grids with fences (Grids 4 and 5)
 53. Electric Power Research Institute, *Touch and Step Voltage Measurements on Field Installed Ground Grid and Concrete Pads*, Technical Update 1018976, 2009
 54. L. S. Edwards, "A modified pseudosection for resistivity and IP", *Geophysics*, 42(5), 1977 — median depth of investigation of the Wenner and Schlumberger arrays
-
-The book *Earthing System — Theory and Practice* (version 3.5, with Earthing System 1.6.1) treats every topic above at length, with the derivations, worked examples and verification tables.
+55. M. Bebendorf, "Approximation of boundary element matrices", *Numerische Mathematik*, 86(4), 2000 — adaptive cross approximation (compressed solver, 1.8.7)
+56. Y. Saad and M. H. Schultz, "GMRES: a generalized minimal residual algorithm for solving nonsymmetric linear systems", *SIAM J. Sci. Stat. Comput.*, 7(3), 1986
+57. F. H. Read, "Capacitances and singularities of the unit triangle, square, tetrahedron and cube", *COMPEL*, 23(2), 2004 — the reference value for plates (1.9.0)
