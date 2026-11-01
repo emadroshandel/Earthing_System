@@ -150,24 +150,136 @@ class GridGeometry:
                  Lc=self.Lc, LR=self.LR, LT=self.LT, Dmax=self.Dmax)
         return d
 
-    def conductor_paths(self):
-        """Return the grid conductor segments as ((x1,y1),(x2,y2)) pairs."""
+    # ---- plan layout (drawing only: the equations use A, Lp and Lc) -------
+    def _lines(self):
+        ny, nx = self.Ny, self.Nx
+        xs = [self.Lx * j / (ny - 1) if ny > 1 else 0.0 for j in range(ny)]
+        ys = [self.Ly * i / (nx - 1) if nx > 1 else 0.0 for i in range(nx)]
+        return xs, ys
+
+    @staticmethod
+    def _outline_of(shape, Lx, Ly, a, b):
+        if shape == "l":          # notch a x b removed from the top-right corner
+            return [(0.0, 0.0), (Lx, 0.0), (Lx, Ly - b), (Lx - a, Ly - b), (Lx - a, Ly), (0.0, Ly)]
+        if shape == "t":          # notches a x b removed from both bottom corners
+            return [(a, 0.0), (Lx - a, 0.0), (Lx - a, b), (Lx, b), (Lx, Ly), (0.0, Ly), (0.0, b), (a, b)]
+        return [(0.0, 0.0), (Lx, 0.0), (Lx, Ly), (0.0, Ly)]
+
+    @staticmethod
+    def _clip(poly, xs, ys, Lx, Ly):
+        """Grid lines clipped to an orthogonal outline.  A line lying on the
+        boundary is kept wherever either side of it is inside."""
+        def inside(px, py):
+            c = False
+            n = len(poly)
+            for i in range(n):
+                (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]
+                if (y1 > py) != (y2 > py) and px < x1 + (py - y1) * (x2 - x1) / (y2 - y1):
+                    c = not c
+            return c
+
+        def runs(fixed, cuts, along, vertical):
+            out, start = [], None
+            for u0, u1 in zip(cuts, cuts[1:]):
+                um = (u0 + u1) / 2
+                e = 1e-6 * max(Lx, Ly)
+                pts = [(fixed - e, um), (fixed + e, um)] if vertical else [(um, fixed - e), (um, fixed + e)]
+                ok = any(inside(*q) for q in pts)
+                if ok and start is None:
+                    start = u0
+                if not ok and start is not None:
+                    out.append((start, u0)); start = None
+            if start is not None:
+                out.append((start, cuts[-1]))
+            return out
+
         segs = []
-        ny = self.Ny
-        nx = self.Nx
-        for j in range(ny):
-            x = self.Lx * j / (ny - 1) if ny > 1 else 0.0
+        for x in xs:
+            for y0, y1 in runs(x, ys, "y", True):
+                segs.append(((x, y0), (x, y1)))
+        for y in ys:
+            for x0, x1 in runs(y, xs, "x", False):
+                segs.append(((x0, y), (x1, y)))
+        return segs
+
+    def notch(self):
+        """Size of the corner notch(es) of an L- or T-shaped grid, chosen on
+        the conductor lines so that the outline reproduces the entered area A
+        and conductor length L_C as closely as possible (IEEE 80 Example B.4:
+        70 m x 105 m, A = 4900 m2, L_C = 1575 m gives a 35 m x 70 m notch).
+        Returns (a, b, area, Lc) or None for a rectangular grid."""
+        shape = (self.shape or "rectangular").lower()
+        if shape not in ("l", "t") or not self.A_m2 or self.A_m2 >= self.Lx * self.Ly - 1e-9:
+            return None
+        xs, ys = self._lines()
+        R = self.Lx * self.Ly - self.A_m2
+        best = None
+        if shape == "l":
+            cand_a = [self.Lx - x for x in xs[1:-1]]
+        else:
+            cand_a = [x for x in xs[1:-1] if 2 * x < self.Lx - 1e-9
+                      and any(abs((self.Lx - x) - xx) < 1e-6 for xx in xs)]
+        cand_b = [self.Ly - y for y in ys[1:-1]] if shape == "l" else list(ys[1:-1])
+        for a in cand_a:
+            for b in cand_b:
+                poly = self._outline_of(shape, self.Lx, self.Ly, a, b)
+                area = self.Lx * self.Ly - (a * b if shape == "l" else 2 * a * b)
+                segs = self._clip(poly, xs, ys, self.Lx, self.Ly)
+                Lc = sum(abs(p2[0] - p1[0]) + abs(p2[1] - p1[1]) for p1, p2 in segs)
+                score = abs(area - self.A_m2) / self.A_m2
+                if self.Lc_m:
+                    score += abs(Lc - self.Lc_m) / self.Lc_m
+                if best is None or score < best[0] - 1e-12:
+                    best = (score, a, b, area, Lc)
+        return None if best is None else best[1:]
+
+    def outline(self):
+        n = self.notch()
+        shape = (self.shape or "rectangular").lower()
+        if n is None:
+            return self._outline_of("rect", self.Lx, self.Ly, 0, 0)
+        return self._outline_of(shape, self.Lx, self.Ly, n[0], n[1])
+
+    def conductor_paths(self):
+        """Return the grid conductor segments as ((x1,y1),(x2,y2)) pairs.
+        L- and T-shaped grids are clipped to the outline found by notch()."""
+        xs, ys = self._lines()
+        if self.notch() is not None:
+            return self._clip(self.outline(), xs, ys, self.Lx, self.Ly)
+        segs = []
+        for x in xs:
             segs.append(((x, 0.0), (x, self.Ly)))
-        for i in range(nx):
-            y = self.Ly * i / (nx - 1) if nx > 1 else 0.0
+        for y in ys:
             segs.append(((0.0, y), (self.Lx, y)))
         return segs
+
+    def _rods_on_outline(self, poly):
+        """Rods at every vertex first, then spread over the edges in
+        proportion to their length (IEEE 80 Figure B.4)."""
+        n = self.n_rods
+        pts = [tuple(p) for p in poly][:n]
+        m = n - len(pts)
+        if m <= 0:
+            return pts
+        edges = [(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))]
+        lens = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in edges]
+        raw = [m * L / sum(lens) for L in lens]
+        k = [int(math.floor(r)) for r in raw]
+        for i in sorted(range(len(k)), key=lambda i: raw[i] - k[i], reverse=True)[:m - sum(k)]:
+            k[i] += 1
+        for (a, b), ki in zip(edges, k):
+            for j in range(1, ki + 1):
+                t = j / (ki + 1)
+                pts.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])))
+        return pts
 
     def rod_positions(self):
         """Ground-rod (x, y) positions: corners first, then around perimeter."""
         n = self.n_rods
         if n <= 0:
             return []
+        if self.rods_on_perimeter and self.notch() is not None:
+            return self._rods_on_outline(self.outline())
         if not self.rods_on_perimeter:
             # distribute over the whole area
             pts, k = [], max(1, int(math.ceil(math.sqrt(n))))
