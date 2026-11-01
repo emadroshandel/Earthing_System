@@ -2,8 +2,8 @@ cff-version: 1.2.0
 title: "Earthing System: earthing system design for homes, buildings, substations and power plants"
 message: "If you use this software in academic work, please cite it as below."
 type: software
-version: "1.6.1"
-date-released: "2026-10-11"
+version: "1.10.0"
+date-released: "2026-11-01"
 authors:
   - family-names: Roshandel
     given-names: Emad
@@ -17,7 +17,10 @@ abstract: >-
   geometry in uniform or layered soil (up to four layers), fences and other
   separate metal, concrete foundations, transferred potential along long
   conductors, the frequency-domain lightning response of earth electrodes
-  (layered soil, soil ionisation, frequency-dependent soil), and a bilingual
+  (layered soil, soil ionisation, frequency-dependent soil), a non-equipotential
+  power-frequency solution, soil-uncertainty and seasonal studies, grid
+  optimisation, fall-of-potential test planning, shield-wire split factors,
+  IEC 62305-2 risk assessment and IEC 62305-4 surge protection, and a bilingual
   design-report generator. Runs locally as a desktop or browser application, or entirely in
   the browser via Pyodide.
 keywords:
@@ -26,6 +29,7 @@ keywords:
   - IEEE 80
   - IEC 60364
   - IEC 62305
+  - fall-of-potential
   - boundary element method
   - layered soil
   - lightning
