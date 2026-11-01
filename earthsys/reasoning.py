@@ -176,15 +176,18 @@ MEANING = {
         "the real potential rise is higher than I·R would suggest."),
     "bem_touch": (
         "The numerical solver reports the largest touch voltage anywhere the "
-        "person can both stand on the soil and reach earthed metal — the "
-        "electrode footprint plus one metre of arm reach. Unlike the "
-        "closed-form mesh voltage it is not tied to a rectangular grid, so it "
-        "also catches hot spots at re-entrant corners and around isolated "
-        "electrodes."),
+        "person can both stand on the soil and reach earthed metal — within "
+        "one metre of buried metal or inside a mesh, or inside the touch zones "
+        "where equipment stands when they are given. Unlike the closed-form "
+        "mesh voltage it is not tied to a rectangular grid, so it also catches "
+        "hot spots at re-entrant corners and around isolated electrodes, and "
+        "it does not count the empty notch of an L- or T-shaped grid."),
     "bem_step": (
-        "The numerical step voltage is the largest potential difference over "
-        "the chosen step distance anywhere on the scanned surface, taken from "
-        "the gradient of the computed surface potential."),
+        "The numerical step voltage is the largest potential difference "
+        "between two points one step apart, in the worst direction, anywhere "
+        "on the scanned surface; the maximum is located on the plot grid and "
+        "refined to a few centimetres, so it does not depend on the plot "
+        "resolution."),
 }
 
 
@@ -813,14 +816,63 @@ def explain_bem(result: dict) -> dict:
     return result
 
 
+def explain_governing(g: dict) -> dict:
+    """Say which study governs each numerical check, and why it fails (1.8.2)."""
+    for c in g.get("checks", []):
+        v, lim = c.get("value"), c.get("limit")
+        touch = "touch" in c.get("name", "").lower()
+        c["meaning"] = MEANING["bem_touch" if touch else "bem_step"]
+        c["driver"] = "Governing value from " + str(c.get("basis", "the plain solution")) + "."
+        if c.get("passed"):
+            c["verdict"] = (f"{_fmt(v)} V is {_fmt(-_pct(v, lim))} % below the tolerable "
+                            f"{_fmt(lim)} V, with every study run on this model taken into "
+                            f"account.")
+        else:
+            c["verdict"] = (f"{_fmt(v)} V is {_fmt(_pct(v, lim))} % above the tolerable "
+                            f"{_fmt(lim)} V.")
+            src = c.get("source")
+            rem = {
+                "convergence": ["The solution is not converged: shorten the segments (or keep "
+                                "the refinement at conductor ends on) and solve again; if the "
+                                "finer solution still fails, the design fails."],
+                "seasonal": ["The dry or frozen surface layer governs: extend or thicken the "
+                             "surface layer, which raises the tolerable voltage, or add "
+                             "conductor and deeper rods that reach the soil below the "
+                             "seasonal layer."],
+                "montecarlo": ["The soil-model uncertainty governs: more soil readings, at the "
+                               "spacings the fit cannot resolve, narrow the spread; otherwise "
+                               "the design needs margin for it."],
+                "powerfreq": ["The conductors' own impedance governs: add parallel paths and "
+                              "cross-connections near the injection point, use larger or "
+                              "copper conductor, or feed the fault current in at more than one "
+                              "point."],
+            }.get(src, [])
+            c["remedy"] = rem + [
+                "Add conductor or rods local to the hot spot, or extend the surface layer.",
+            ]
+    return g
+
+
 def _narrative_bem(r: dict) -> str:
     base = (
         f"The boundary-element solution used {r.get('segments')} segments over "
-        f"{_fmt(r.get('total_length'))} m of buried metal and gives an earth "
+        + ((f"{_fmt(r.get('total_length'))} m of buried conductor and "
+            if (r.get("total_length") or 0) > 0 else "")
+           + f"{_fmt(r.get('plate_area'))} m² of plate" if r.get("plate_area") else
+           f"{_fmt(r.get('total_length'))} m of buried metal")
+        + f" and gives an earth "
         f"resistance of {_fmt(r.get('Rg'), 3)} Ω, a ground potential rise of "
         f"{_fmt(r.get('GPR'))} V, a worst touch voltage of "
         f"{_fmt(r.get('touch_max'))} V and a worst step voltage of "
         f"{_fmt(r.get('step_max'))} V.")
+    sv = r.get("solver") or {}
+    if sv.get("method") == "hmatrix" or int(sv.get("symmetry", 1) or 1) > 1:
+        from . import bem
+        base += f" The system was solved by {bem.describe_solver(sv)}."
+    if r.get("refinement"):
+        from . import bem
+        base += (" The segments at the worst touch and step points were refined automatically: "
+                 + bem.describe_refinement(r["refinement"]) + ".")
     checks = r.get("checks")
     if not checks:
         return base + (
@@ -828,7 +880,10 @@ def _narrative_bem(r: dict) -> str:
             "the substation-grid module first and the limits from it will be "
             "applied here automatically.")
     if all(c.get("passed") for c in checks):
-        return base + " Both are inside the tolerable limits, so the design complies."
+        return base + (" Both are inside the tolerable limits for this solution. The verdict "
+                       "of the page is given by the governing values, which add every study "
+                       "run on this model (convergence, seasonal soil, soil uncertainty, "
+                       "conductor impedance).")
     return base + (
         " At least one exceeds the tolerable limit; the map on the touch/step "
         "tab shows where, which is the practical advantage of the numerical "
