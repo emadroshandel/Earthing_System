@@ -101,9 +101,18 @@ REGISTRY = [
          title="Power System Earthing Guide — Part 1: Management Principles",
          note="Energy Networks Australia. Coincidence probability and risk bands."),
     # Renewables -------------------------------------------------------------
-    dict(id="IEC 62305-3:2010", area="renewables", role="implemented",
+    dict(id="IEC 62305-1:2024", area="renewables", role="implemented",
+         title="Protection against lightning — Part 1: General principles",
+         note="Conventional surge currents by source of damage (Annex E), used for SPD selection."),
+    dict(id="IEC 62305-2:2024", area="renewables", role="implemented",
+         title="Protection against lightning — Part 2: Risk management",
+         note="Risk R = R_L1 + R_L2 and frequency of damage F, zone by zone (1.8.5); Annex F examples reproduced."),
+    dict(id="IEC 62305-3:2024", area="renewables", role="implemented",
          title="Protection against lightning — Part 3: Physical damage to structures and life hazard",
-         note="Modules 7-8. Edition 3 (2024) published."),
+         note="Modules 7-8. Edition 3; class parameters, Figure 1 and Figure 5 unchanged from 2010."),
+    dict(id="IEC 62305-4:2024", area="renewables", role="implemented",
+         title="Protection against lightning — Part 4: Electrical and electronic systems within structures",
+         note="SPD lead drop 0.1·I_SPD kV/m, Rules 1 and 2 of Annex C, Tables C.3/C.4 (1.8.5)."),
     dict(id="IEC 61400-24:2019", area="renewables", role="reference",
          title="Wind energy generation systems — Part 24: Lightning protection",
          note="+AMD1:2024. Wind-turbine earthing builds on IEC 62305-3."),
@@ -133,6 +142,12 @@ REGISTRY = [
     dict(id="AS/NZS 3000:2018", area="industrial", role="reference",
          title="Electrical installations (Australian/New Zealand Wiring Rules)",
          note="+Amdts 1-3."),
+    dict(id="IEC 60269-1:2006+A2:2014", area="industrial", role="implemented",
+         title="Low-voltage fuses — Part 1: General requirements",
+         note="gG/gM gates (Table 3), conventional currents (Table 2), pre-arcing I²t (Table 7), aM gates (Table 4); I_a for disconnection (1.8.6)."),
+    dict(id="IEC 60269-2:2013+A1:2016 / IEC 60269-3:2010+A1:2013", area="industrial", role="implemented",
+         title="Low-voltage fuses — Parts 2 and 3: fuses for authorized and unskilled persons",
+         note="Small-rating gates of fuse systems A (NH), D-type, NF and BS cylindrical, BS plug-top (1.8.6)."),
     dict(id="BS 7671:2018", area="industrial", role="reference",
          title="Requirements for Electrical Installations (IET Wiring Regulations, 18th Edition)",
          note="Current consolidated version +A4:2026."),
@@ -383,7 +398,7 @@ def touch_cross_check(t_s: float, E_touch: float, E_mesh: float,
     gives U_vTp with R_F2 = 1.5·C_s·ρ_s.  BS EN 50522:2010 Table B.4 writes
     R_F2 = 1.5·ρ_S with no allowance for the layer thickness, i.e. an
     infinitely thick layer; for a 100 mm layer that overstates the standing
-    resistance, and the book (Sec. 3.6) recommends the C_s value as the
+    resistance, and the C_s value (docs/THEORY.md §5.1) is taken as the
     conservative one where the edition and national annex are silent (1.3.5)."""
     U = en50522_touch_limit(t_s)
     Eb = ieee80_bare_touch(t_s, body_weight)
