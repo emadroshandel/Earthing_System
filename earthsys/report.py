@@ -125,6 +125,57 @@ T = {
 
 # Persian labels for the quantity names used in the tables
 LABELS_FA = {
+    "Additional studies": "مطالعات تکمیلی",
+    "Governing values": "مقادیر حاکم (مبنای حکم انطباق)",
+    "Fence touch voltage": "ولتاژ تماس حصار",
+    "Maximum touch voltage (governing)": "حداکثر ولتاژ تماس (مقدار حاکم)",
+    "Maximum step voltage (governing)": "حداکثر ولتاژ گام (مقدار حاکم)",
+    "Earth resistance / impedance": "مقاومت / امپدانس زمین",
+    "plain solution": "حل پایه",
+    "Soil readings set aside (robust fit)": "قرائت‌های کنار گذاشته شده (برازش مقاوم)",
+    "Traverses fitted separately": "برازش جداگانه هر مسیر اندازه‌گیری",
+    "Shield wires and fault location": "سیم محافظ و محل خطا",
+    "Convergence check": "بررسی همگرایی",
+    "Seasonal soil": "تغییرات فصلی خاک",
+    "Soil uncertainty": "عدم قطعیت مدل خاک",
+    "Non-equipotential solution": "حل بدون فرض هم‌پتانسیلی",
+    "Two-scale solution": "حل دومقیاسی",
+    "Plate area": "مساحت صفحه",
+    "Lightning model segments": "تعداد قطعات مدل صاعقه",
+    "Circuit-field check: largest touch voltage": "بررسی مدل مدار-میدان: بیشترین ولتاژ تماس",
+    "Parallel lines in the corridor": "خطوط موازی در مسیر مشترک",
+    "Shield wires on the line": "سیم‌های محافظ خط",
+    "Grid optimisation": "بهینه‌سازی شبکه زمین",
+    "Fall-of-potential test": "آزمون افت پتانسیل",
+    "Risk assessment (IEC 62305-2)": "ارزیابی ریسک (IEC 62305-2)",
+    "Surge protection (IEC 62305-4)": "حفاظت در برابر اضافه‌ولتاژ (IEC 62305-4)",
+    "Reading set aside": "قرائت کنار گذاشته شده",
+    "Largest grid current": "بیشترین جریان شبکه زمین",
+    "Design grid current": "جریان طراحی شبکه زمین",
+    "Fault in the station: grid current": "خطا در پست: جریان شبکه زمین",
+    "Probability of meeting both limits": "احتمال رعایت هر دو حد مجاز",
+    "Earth impedance at the feed": "امپدانس زمین در محل تزریق",
+    "Earth resistance, equipotential": "مقاومت زمین با فرض هم‌پتانسیلی",
+    "Recommended current-electrode distance": "فاصله پیشنهادی الکترود جریان",
+    "Resistance implied by the readings": "مقاومت حاصل از قرائت‌ها",
+    "Risk R1, unprotected": "ریسک R1 بدون حفاظت",
+    "Strike-point density": "چگالی نقاط برخورد",
+    "Flashes to the structure": "تعداد صاعقه به سازه",
+    "Protection found": "حفاظت یافت‌شده",
+    "Closest protection": "نزدیک‌ترین حفاظت",
+    "Fuse operating time at the fault current": "زمان عملکرد فیوز در جریان خطا",
+    "Other lines at the station": "خطوط دیگر متصل به پست",
+    "Measured footing resistances": "مقاومت‌های پای دکل اندازه‌گیری‌شده",
+    "Cable sheaths — earth-fault return": "غلاف کابل‌ها — مسیر برگشت جریان خطای زمین",
+    "Highest link-box voltage": "بیشترین ولتاژ جعبه اتصال",
+    "Split factor": "ضریب تقسیم جریان",
+    "Current into the station earth": "جریان ورودی به زمین پست",
+    "Current returning in the sheaths": "جریان برگشتی از غلاف‌ها",
+    "Earth potential rise at the far end": "افزایش پتانسیل زمین در انتهای دور",
+    "Risk management (IEC 62305-2:2024)": "مدیریت ریسک (IEC 62305-2:2024)",
+    "Protection found": "حفاظت لازم",
+    "Conductors": "هادی‌ها",
+    "Rods": "میله‌ها",
     "Air-termination mesh size": "ابعاد شبکه صاعقه‌گیر روی بام",
     "Impulse front time": "زمان جبهه موج ضربه",
     "Injection point": "محل تزریق جریان صاعقه",
@@ -145,6 +196,8 @@ LABELS_FA = {
     "Decrement factor": "ضریب کاهش (مؤلفه DC)",
     "Design current": "جریان طراحی",
     "Discretised segments": "تعداد المان‌های گسسته‌سازی",
+    "Solution method": "روش حل دستگاه معادلات",
+    "Automatic refinement": "ریزسازی خودکار المان‌ها",
     "Down-conductor spacing": "فاصله هادی‌های نزولی",
     "Duration": "مدت زمان خطا",
     "Earth resistance": "مقاومت زمین",
@@ -240,6 +293,7 @@ LABELS_FA = {
     "Fence touch voltage, inside": "ولتاژ تماس حصار، داخل",
     "Fence touch voltage, outside": "ولتاژ تماس حصار، بیرون",
     "Grid-to-fence transfer voltage": "ولتاژ انتقالی شبکه به حصار",
+    "Largest touch voltage along the route": "بیشترین ولتاژ تماس در طول مسیر",
     "Fence own resistance": "مقاومت زمین حصار",
     "Transferred potential at the far end": "پتانسیل انتقالی در انتهای دور",
     "Far-end metal potential": "پتانسیل فلز در انتهای دور",
@@ -640,13 +694,30 @@ def _sec_grid(t, d):
             f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}")
 
 
+def bem_refine_text(r):
+    from . import bem
+    return bem.describe_refinement(r) or "-"
+
+
+def _solver_text(info):
+    from . import bem
+    return bem.describe_solver(info) or "-"
+
+
 def _sec_bem(t, d):
     if not d:
         return ""
     rows = [
         _row(t, "Soil model", "-", d.get("soil"), "", "Boundary-element solver"),
         _row(t, "Discretised segments", "N", d.get("segments"), "-", ""),
+        _row(t, "Solution method", "-", _solver_text(d.get("solver")), "", ""),
+        *([_row(t, "Automatic refinement", "-", bem_refine_text(d.get("refinement")), "",
+                "segments halved at the worst touch and step points")]
+          if d.get("refinement") else []),
         _row(t, "Total electrode length", "L", d.get("total_length"), "m", ""),
+        *([_row(t, "Plate area", "A_p", d.get("plate_area"), "m²",
+                f"{d.get('plates')} plate(s), both faces in contact with the soil")]
+          if d.get("plate_area") else []),
         _row(t, "Injected current", "I_G", d.get("IG"), "A", ""),
         _row(t, "Earth resistance", "R_g", d.get("Rg"), "Ω",
              "R_g = GPR / I_G from the method-of-moments solution"),
@@ -689,11 +760,28 @@ def _sec_bem(t, d):
                  f"{_fmt(tr.get('V_far_pct'))} % of GPR"),
             _row(t, "Transferred potential at the far end", "U_T", tr.get("transfer_far"), "V",
                  "metal − local soil (IEEE Std 80 §17.3)"),
+            _row(t, "Largest touch voltage along the route", "U_T", tr.get("touch_max"), "V",
+                 f"at {_fmt(tr.get('touch_max_at'))} m; "
+                 + ("solved with the station" if tr.get("model") == "coupled"
+                    else "one-way lossy-line model")),
         ]
+        cf = tr.get("circuit_field") or {}
+        if cf and not cf.get("skipped"):
+            rows.append(_row(t, "Circuit-field check: largest touch voltage", "U_T,cf",
+                             cf.get("touch_max"), "V",
+                             f"station and route with conductor impedance and mutual inductance, "
+                             f"{cf.get('segments')} segments; design value "
+                             f"{_fmt(tr.get('touch_max_design'))} V (the larger of the two)"))
     h = d.get("hf")
     if h:
         rows.append(_row(t, "Low-frequency resistance (lightning model)", "R_LF", h.get("R"), "Ω",
                          h.get("soil", "")))
+        g = h.get("grading")
+        rows.append(_row(t, "Lightning model segments", "N", h.get("segments"), "",
+                         (f"graded mesh: {_fmt(g.get('s0'))} m at the injection, growing "
+                          f"{_fmt(100 * g.get('alpha', 0))} % of the distance, up to "
+                          f"{_fmt(g.get('s_max'))} m") if g else
+                         f"{_fmt(h.get('seg_len'))} m segments"))
         for key, lab in (("first_tb781", "first"), ("subsequent_tb781", "subsequent"),
                          ("first_heidler", "first"), ("subsequent_heidler", "subsequent")):
             x = (h.get("responses") or {}).get(key)
@@ -716,7 +804,193 @@ def _sec_bem(t, d):
                          x.get("V_peak_ion_kV"), "kV", "Grcev (2009) Eq. 20"),
                 ]
     return (f"<h2>{t['numerical']}</h2>{_table(t, rows)}"
-            f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}")
+            f"{_checks_table(t, d.get('checks', []), d.get('narrative'), d.get('cross_check'))}"
+            f"{_sec_governing(t, d.get('governing'))}")
+
+
+def _sec_governing(t, g):
+    """Governing values of the numerical page (1.8.2): the verdict that counts."""
+    if not g:
+        return ""
+    L = t.get("L", {})
+    Q = g.get("quantities") or {}
+    rows = []
+    for k, lab, sym, unit in (("touch", "Maximum touch voltage", "U_T", "V"),
+                              ("step", "Maximum step voltage", "U_S", "V"),
+                              ("Rg", "Earth resistance / impedance", "R_g", "Ω"),
+                              ("GPR", "Ground potential rise", "GPR", "V")):
+        q = Q.get(k)
+        if not q:
+            continue
+        src = str(q.get("label", ""))
+        if q.get("detail"):
+            src += f" ({q['detail']})"
+        if q.get("source") != "base" and q.get("base"):
+            src += f"; {L.get('plain solution', 'plain solution')} {_fmt(q['base'])} {unit}"
+        rows.append(_row(t, lab, sym, q.get("value"), unit, html.escape(src)))
+    title = L.get("Governing values", "Governing values")
+    return (f"<h3>{html.escape(title)}</h3>{_table(t, rows)}"
+            f"{_checks_table(t, g.get('checks', []), g.get('note'))}")
+
+
+def _sec_studies(t, data):
+    """Section for the 1.8.0 studies: robust and multi-traverse soil fits,
+    the shield-wire ladder, accuracy and soil studies of the numerical
+    solver, the non-equipotential solution, optimisation, the
+    fall-of-potential plan, IEC 62305-2 risk and IEC 62305-4 SPDs."""
+    st = data.get("studies") or {}
+    soil = data.get("soil") or {}
+    rob = soil.get("robust") or {}
+    trv = soil.get("traverses") or {}
+    if not st and not rob.get("excluded") and not trv:
+        return ""
+    L = t.get("L", {})
+    out = [f"<h2>{html.escape(L.get('Additional studies', 'Additional studies'))}</h2>"]
+
+    def sub(title, rows, note=""):
+        if not rows and not note:
+            return
+        out.append(f"<h3>{html.escape(L.get(title, title))}</h3>")
+        if rows:
+            out.append(_table(t, rows))
+        if note:
+            out.append(f"<div class='note'><bdi>{html.escape(str(note))}</bdi></div>")
+
+    if rob.get("excluded"):
+        sub("Soil readings set aside (robust fit)",
+            [_row(t, "Reading set aside", "a", e.get("spacing"), "m",
+                  f"measured {_fmt(e.get('measured'))} Ω·m, model {_fmt(e.get('model'))} Ω·m")
+             for e in rob["excluded"]], rob.get("note", ""))
+    if trv.get("fits"):
+        sub("Traverses fitted separately",
+            [_row(t, f"Traverse {f.get('name')}", "ρ₁ / ρ₂ / h",
+                  f"{_fmt(f.get('rho1'))} / {_fmt(f.get('rho2'))} / {_fmt(f.get('h'))}",
+                  "Ω·m / Ω·m / m", f"RMS {_fmt(f.get('rms_pct'))} %")
+             for f in trv["fits"] if f.get("fitted")], trv.get("note", ""))
+    fs = st.get("faultsweep")
+    if fs:
+        s0, w = fs.get("station") or {}, fs.get("worst") or {}
+        sub("Shield wires and fault location", [
+            _row(t, "Fault in the station: grid current", "I_g", s0.get("Ig_kA"), "kA",
+                 f"S_f = {_fmt(s0.get('Sf'))}"),
+            _row(t, "Largest grid current", "I_g,max", w.get("Ig_kA"), "kA", fs.get("governs", "")),
+            _row(t, "Design grid current", "I_G", fs.get("IG_design_kA"), "kA", "D_f · I_g,max"),
+        ] + ([_row(t, "Other lines at the station", "Z_other", fs.get("Z_other_total"), "Ω",
+                   ", ".join(str(o.get("name")) for o in fs.get("other_lines") or []))]
+             if fs.get("other_lines") else [])
+          + ([_row(t, "Parallel lines in the corridor", "n", len(fs.get("parallel_lines")), "",
+                   html.escape("; ".join(f"{q.get('name')}: {_fmt(q.get('separation'))} m"
+                                         for q in fs.get("parallel_lines"))
+                               + "; solved as one coupled network"))]
+             if fs.get("parallel_lines") else [])
+          + ([_row(t, "Shield wires on the line", "n", fs.get("n_wires"), "",
+                   "one bundle with their mutual impedance")]
+             if (fs.get("n_wires") or 1) > 1 else [])
+          + ([_row(t, "Measured footing resistances", "R_t", f"{len(fs.get('Rt_list'))} towers", "",
+                   f"{_fmt(min(fs['Rt_list']))} … {_fmt(max(fs['Rt_list']))} Ω")]
+             if fs.get("Rt_list") else []), fs.get("note", ""))
+    cs = st.get("cablesheath")
+    if cs:
+        sub("Cable sheaths — earth-fault return", [
+            _row(t, "Split factor", "S_f", cs.get("Sf"), "", cs.get("bonding", "")),
+            _row(t, "Current into the station earth", "I_g", cs.get("Ig_kA"), "kA", ""),
+            _row(t, "Current returning in the sheaths", "I_sheath", cs.get("I_sheath_kA"), "kA", ""),
+            _row(t, "Earth potential rise at the far end", "GPR_B", cs.get("GPR_B"), "V", ""),
+        ] + ([_row(t, "Highest link-box voltage", "V_lb",
+                   max(l["V_max"] for l in cs["link_boxes"]), "V",
+                   f"{_fmt(max(l['V_across_max'] for l in cs['link_boxes']))} V across a "
+                   f"sectionalising joint")] if cs.get("link_boxes") else []), cs.get("note", ""))
+    cv = st.get("convergence")
+    if cv:
+        sub("Convergence check", [
+            _row(t, "Touch voltage, estimated converged", "U_T", (cv.get("touch") or {}).get("extrapolated"), "V",
+                 f"change on halving the segments {_fmt((cv.get('touch') or {}).get('change_pct'))} %"),
+            _row(t, "Step voltage, estimated converged", "U_S", (cv.get("step") or {}).get("extrapolated"), "V",
+                 f"change {_fmt((cv.get('step') or {}).get('change_pct'))} %"),
+        ], cv.get("note", ""))
+    se = st.get("seasonal")
+    if se:
+        sub("Seasonal soil", [
+            _row(t, c.get("name"), "R_g / U_T / U_S",
+                 f"{_fmt(c.get('Rg'))} / {_fmt(c.get('touch'))} / {_fmt(c.get('step'))}", "Ω / V / V", "")
+            for c in se.get("cases") or []], se.get("note", ""))
+    mc = st.get("montecarlo")
+    if mc:
+        S_ = mc.get("stats") or {}
+        rows = [_row(t, f"{lab}, 5 % / median / 95 %", sym,
+                     f"{_fmt((S_.get(k) or {}).get('p05'))} / {_fmt((S_.get(k) or {}).get('p50'))} / {_fmt((S_.get(k) or {}).get('p95'))}",
+                     u, "") for lab, sym, k, u in (("Earth resistance", "R_g", "Rg", "Ω"),
+                                                   ("Touch voltage", "U_T", "touch", "V"),
+                                                   ("Step voltage", "U_S", "step", "V"))]
+        if mc.get("p_pass") is not None:
+            ci = (mc.get("ci95") or {}).get("p_pass")
+            rows.append(_row(t, "Probability of meeting both limits", "P", 100.0 * mc["p_pass"], "%",
+                             f"{mc.get('n')} soil models"
+                             + (f", 95 % CI {_fmt(100 * ci[0], 0)}–{_fmt(100 * ci[1], 0)} %" if ci else "")
+                             + (", Latin hypercube" if mc.get("method") == "lhs" else "")))
+        sub("Soil uncertainty", rows, mc.get("note", ""))
+    pf = st.get("powerfreq")
+    if pf:
+        sub("Non-equipotential solution", [
+            _row(t, "Earth impedance at the feed", "|Z|", (pf.get("Z") or {}).get("abs"), "Ω",
+                 f"{pf.get('metal')}, {_fmt(pf.get('f'))} Hz"),
+            _row(t, "Earth resistance, equipotential", "R_g", pf.get("Rg_equipotential"), "Ω", ""),
+            _row(t, "Lowest metal potential / feed", "V_min/V_feed", pf.get("V_min_over_feed"), "–", ""),
+            _row(t, "Maximum touch voltage", "U_T", pf.get("touch_max"), "V",
+                 f"equipotential {_fmt((pf.get('equipotential') or {}).get('touch_max'))} V"),
+            _row(t, "Maximum step voltage", "U_S", pf.get("step_max"), "V",
+                 f"equipotential {_fmt((pf.get('equipotential') or {}).get('step_max'))} V"),
+        ] + ([_row(t, "Two-scale solution", "N / N_f",
+                   f"{(pf.get('two_scale') or {}).get('coarse_segments')} / "
+                   f"{(pf.get('two_scale') or {}).get('fine_segments')}", "",
+                   f"metal potentials at {_fmt((pf.get('two_scale') or {}).get('coarse_length'))} m, "
+                   f"leakage and surface at {_fmt((pf.get('two_scale') or {}).get('fine_length'))} m")]
+             if pf.get("two_scale") else []) + [_row(t, "Fence touch voltage", "U_T,F", f.get("touch_max"), "V",
+                  html.escape(f"{f.get('name')} ({'bonded' if f.get('bonded') else 'isolated'}), "
+                              f"{f.get('side')}; equipotential {_fmt(f.get('equipotential_touch'))} V"))
+             for f in pf.get("fences") or []], pf.get("note", ""))
+    op = st.get("optimise")
+    if op and op.get("best"):
+        b = op["best"]
+        sub("Grid optimisation", [
+            _row(t, "Conductors", "n_x × n_y", f"{b.get('n_x')} × {b.get('n_y')}", "", f"grading {_fmt(b.get('grading'))}"),
+            _row(t, "Rods", "n", b.get("rods"), "", ""),
+            _row(t, "Maximum touch voltage", "U_T", b.get("touch"), "V", ""),
+            _row(t, "Maximum step voltage", "U_S", b.get("step"), "V", ""),
+        ], op.get("note", ""))
+    ft = st.get("earthtest")
+    if ft:
+        rec = ft.get("recommended") or {}
+        rows = [_row(t, "Recommended current-electrode distance", "d_C", rec.get("dC"), "m",
+                     f"61.8 % error {_fmt(rec.get('error_618_pct'))} %")] if rec else []
+        it = ft.get("interpretation")
+        if it:
+            rows.append(_row(t, "Resistance implied by the readings", "R", it.get("R_true_estimate"), "Ω",
+                             f"scale {_fmt(it.get('scale'))}, shape RMS {_fmt(it.get('rms_shape_pct'))} %"))
+        sub("Fall-of-potential test", rows, ft.get("note", ""))
+    rk = st.get("risk")
+    if rk:
+        u = rk.get("unprotected") or {}
+        c = rk.get("choice") or rk.get("best") or {}
+        pr = rk.get("protected") or {}
+        rows = [_row(t, "Strike-point density", "N_SG", u.get("NSG"), "1/km²/yr", f"k = {_fmt(u.get('k'))}"),
+                _row(t, "Flashes to the structure", "N_D", u.get("ND"), "1/yr", "")]
+        for z in u.get("zones") or []:
+            rows.append(_row(t, f"Risk R, zone {z.get('name')}", "R", z.get("R"), "1/yr",
+                             "R_T = 10⁻⁵" + (f"; F = {_fmt(z.get('F'))} /yr against F_T = {_fmt(z.get('FT'))}"
+                                             if z.get("FT") and z.get("systems") else "")
+                             + (f"; of which surroundings (Annex E) {_fmt(z.get('RE'))}"
+                                if z.get("surroundings") else "")))
+        if c:
+            rows.append(_row(t, "Protection found" if rk.get("choice") else "Closest protection",
+                             "LPS / bonding / SPD", f"{c.get('lps')} / {c.get('eb')} / {c.get('spd')}", "",
+                             f"largest zone R = {_fmt(pr.get('R', c.get('R')))}"))
+        sub("Risk management (IEC 62305-2:2024)", rows, rk.get("note", ""))
+    sp = st.get("spd")
+    if sp:
+        out.append(f"<h3>{html.escape(L.get('Surge protection (IEC 62305-4)', 'Surge protection (IEC 62305-4)'))}</h3>")
+        out.append(_checks_table(t, sp.get("checks") or [], sp.get("note", "")))
+    return "".join(out)
 
 
 def _sec_building(t, d):
@@ -738,6 +1012,11 @@ def _sec_building(t, d):
              (d.get("device") or {}).get("Ia"), "A",
              (d.get("device") or {}).get("basis", "")),
     ]
+    dv = d.get("device") or {}
+    if dv.get("If_min"):
+        rows.append(_row(t, "Fuse operating time at the fault current", "t_op",
+                         dv.get("t_operate") if dv.get("t_operate") is not None else "—", "s",
+                         f"I_f = C_min·U₀/Z_s = {_fmt(dv.get('If_min'))} A"))
     rcd = d.get("rcd") or {}
     if rcd.get("selected_mA"):
         rows.append(_row(t, "Selected RCD rating", "IΔn", rcd.get("selected_mA"),
@@ -1005,6 +1284,7 @@ def build(data: dict, lang: str = "en") -> str:
         _sec_lightning(t, data.get("lightning")),
         _sec_airterm(t, data.get("airterm")),
         _sec_sysgnd(t, data.get("sysgnd")),
+        _sec_studies(t, data),
         _figures(t, data.get("figures")),
         _sec_standards(t, data),
     ])
