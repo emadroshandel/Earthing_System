@@ -381,6 +381,7 @@ dispatch("/api/ieee80/design", {"rho": 400, "Lx": 70, "Ly": 70, "D": 7,
 | Document | For |
 |---|---|
 | [`docs/THEORY.md`](docs/THEORY.md) | The physics and mathematics behind every page — derivations, worked examples, 21 figures, and a suggested teaching sequence |
+| `docs/THEORY.docx` | `THEORY.md` as a formatted Word document with title page, contents, numbered figures and page numbers — built locally by `docs/build_docx.sh`, not kept in the repository |
 | [`docs/METHODS.md`](docs/METHODS.md) | The condensed equation reference, every formula with its clause number or source |
 
 Every figure in `docs/figures` is generated from the engine itself by `docs/make_figures.py`, so
@@ -444,6 +445,60 @@ grid the numerical corner-mesh touch voltage is **931 V** against the closed-for
 > Several references quote Dwight's horizontal-conductor resistance with the total length
 > where the half-length belongs, which inflates the result by about 12 % for a 30 m tape.
 > `docs/THEORY.md` §9.4 has the details.
+
+### Changes in 1.11.0
+
+1. **Long pages split into sections** (`web/subnav.js`, `web/styles.css`, `web/index.html`). Four pages
+   held several separate tasks one under another, so what they offered was only found by scrolling.
+   Each is now divided into sections that are shown one at a time:
+   - *Fault current*: fault current & split factor · shield wires & fault location · cable sheaths;
+   - *Numerical solver*: model & solve · transferred potential · lightning response · accuracy & soil
+     studies · conductor impedance · grid optimisation · fall-of-potential test;
+   - *Buildings & homes*: installation & electrodes · earth pit;
+   - *Lightning earth*: earth termination · risk assessment · surge protection (SPD).
+
+   The sections of the open page are listed under its entry in the side menu, and again in a
+   numbered bar under the page heading that stays in view while the page scrolls. A line under the
+   bar says what the section does and, for the numerical studies, which inputs it takes from *Model &
+   solve* (with a link back). Previous / Next buttons at the foot walk through the page in order, and
+   each page reopens on the section last used. Nothing is removed: hidden sections keep their inputs and
+   results, so project files, the report and the drawings are unchanged. A section with one card lays its
+   fields out in several columns across the full width. Keyboard: the bar's buttons move with the arrow
+   keys; the current section is marked with `aria-current`; on a phone the bar scrolls sideways and keeps
+   the current section in view.
+
+2. **Visual polish** (`web/styles.css`, `web/app.js`, `web/a11y.js`, `web/draw.js`, `web/sections.js`).
+   Reviewed with the impeccable and ui-design skills and the Vercel web interface guidelines.
+   - Key results read as one strip with dividers instead of floating tiles; a failing value
+     tints its cell.
+   - Cards have one border and no shadow, and drawings sit straight on their card instead of
+     in a second frame. Field groups inside a card are divided by a rule rather than drawn as
+     cards within cards.
+   - Long page introductions are held to a readable line length.
+   - Numbers in tables line up and no longer wrap their unit onto a second line.
+   - Selects are wide enough to show their option, and tab strips stay on one row.
+   - Text glyphs are replaced by drawn icons: the expand chevron, the remove-row cross, the
+     menu's tick and warning marks, and the pull / download buttons.
+   - The browser's own surfaces follow the theme: text selection, caret, scrollbars,
+     `color-scheme`, and native selects in the dark theme.
+   - Plotly charts: the legend sits above the plot, clear of the axis title. Each plot's own
+     axis settings are laid over the house style instead of replacing it, so every axis keeps
+     the theme's grid in both themes. Hover labels follow the theme, and the chart toolbar
+     shows on hover.
+   - The address now names the page and section (`#numerical/ntp`), so a view can be bookmarked
+     or shared.
+3. **Scale drawings keep their lettering size** (`web/draw.js`). A drawing set out on a
+   920-unit sheet was shown in a ~700 px card, which printed 11 px labels at 8 px. Lettering,
+   leaders, legends and notes are now scaled by the ratio of sheet to shown width (1 to 1.4).
+   The notes and scale bar move down as needed, and a drawing is redrawn when its card changes
+   width. In the earth-grid section the surface-layer label moved to a leader, so it no longer
+   runs over the people and the post. The impulse effective-area plan now frames the whole
+   effective disc, which was cut off by the frame before.
+4. **Theory figures** (`docs/make_figures.py`, `docs/figures/`). A new house style: no top
+   or right frame, left-aligned titles, a lighter grid, and the application's Okabe–Ito
+   colours. Figure 2 (the body as a circuit) is redrawn as one correct series loop. Before, a
+   wire shorted the parallel feet in the touch case, and wires ran through the resistor
+   labels. All 21 figures were regenerated.
 
 ### Changes in 1.10.0
 
@@ -692,7 +747,7 @@ grid the numerical corner-mesh touch voltage is **931 V** against the closed-for
    - The one-way line model could place two nodes 10⁻¹⁶ m apart, whose span then dominated
      the elimination: for an 800 m bare copper wire on a 30 m grid it gave a GPR of 3 V instead
      of about 410 V. Coincident nodes are now merged; the input admittance of a uniform line
-     matches tanh(γL)/Z₀. Routes whose node set had no such pair (the book's 2 km cases among
+     matches tanh(γL)/Z₀. Routes whose node set had no such pair (the 2 km validation cases among
      them) are unchanged.
    - The Sommerfeld tables of the lightning and non-equipotential models were built from one
      J₀(rλ) array, which for uniform soil and a layout several hundred metres across ran to
