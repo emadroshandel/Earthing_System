@@ -20,7 +20,7 @@ Earthing System designs to IEEE 80, IEC 60364, IEC 62305 and IEEE 142. This modu
 adds two things around those four:
 
 1. ``REGISTRY`` — every standard, guide and technical brochure the software and
-   its tutorial refer to, with edition, status and the design area it serves.
+   its documentation refer to, with edition, status and the design area it serves.
    The report prints the entries relevant to the modules that were run.
 
 2. Small, well-defined calculations from the other codes, used as

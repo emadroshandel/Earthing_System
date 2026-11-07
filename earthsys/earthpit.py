@@ -20,8 +20,7 @@ An earth pit is a rod, pipe or plate set in a bored or dug hole that is filled,
 wholly or in part, with a material of lower resistivity than the soil
 (bentonite, coke breeze, an earthing enhancing compound, or a salt-charcoal-clay
 mix), usually with an inspection housing at the top.  Physically the backfill
-replaces the innermost shells of soil, where most of the resistance lies
-(tutorial §1.4, §11.7).
+replaces the innermost shells of soil, where most of the resistance lies.
 
 Methods
 -------

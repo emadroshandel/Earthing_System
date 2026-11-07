@@ -355,7 +355,7 @@ def image_terms(soil, src_layer: int, fld_layer: int):
     Returns a list of (coefficient, sign, shift): the image of a unit source
     at depth z' sits at depth  sign·z' + shift  and contributes
     coefficient / distance.  The four cases are the complete solution of
-    Laplace's equation in two horizontal layers (tutorial §8.6):
+    Laplace's equation in two horizontal layers:
 
       G11  source and field in layer 1  ρ₁/4π Σ Kⁿ (four images per n)
       G21  field in layer 2             ρ₁(1+K)/4π Σ Kⁿ

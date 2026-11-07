@@ -134,7 +134,7 @@ class TestBemImageTail(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(api.APP_VERSION, "1.10.0")
+        self.assertEqual(api.APP_VERSION, "1.11.0")
 
 
 # ---------------------------------------------------------------------------

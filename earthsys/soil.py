@@ -107,7 +107,7 @@ def schlumberger_two_layer(s_half: float, rho1: float, rho2: float, h: float,
     """Apparent resistivity seen by a Schlumberger array (AB/2 = s_half).
 
     With ``mn`` (the potential-electrode separation MN) the exact finite-MN
-    expression is used (tutorial Eq. 2.9):
+    expression is used:
 
         rho_a = rho1 [1 + (s^2 - d^2/4)/d * 2 sum K^n (1/R(s - d/2) - 1/R(s + d/2))],
         R(x) = sqrt(x^2 + (2 n h)^2),  d = MN.
@@ -286,7 +286,7 @@ def _linearised_uncertainty(fwd, xs, mns, p, phi_min) -> dict | None:
         C = s^2 (J^T J)^-1,   s^2 = Phi_min / (N - 3),
         J_ij = d ln rho_a(a_i) / d ln p_j,   p = (rho1, rho2, h)
 
-    (tutorial Eq. 2.12).  Returns one-standard-deviation ranges, the relative
+    Returns one-standard-deviation ranges, the relative
     standard deviations and the correlation of rho1 with h, which is the
     equivalence of the two-layer fit expressed as one number.  None when
     there are no spare degrees of freedom (three readings) or J is singular.
@@ -328,7 +328,7 @@ def _linearised_uncertainty(fwd, xs, mns, p, phi_min) -> dict | None:
     C = [[s2 * inv[r][c] for c in range(3)] for r in range(3)]
     sd = [math.sqrt(max(C[i][i], 0.0)) for i in range(3)]
     names = ("rho1", "rho2", "h")
-    out = dict(method="linearised covariance s²(JᵀJ)⁻¹, tutorial Eq. 2.12",
+    out = dict(method="linearised covariance s²(JᵀJ)⁻¹",
                dof=n - 3)
     for i, nm in enumerate(names):
         v = math.exp(p[i])
@@ -344,7 +344,7 @@ def fit_quality(xs, ys, resid, rms) -> dict:
     curve that falls and then rises (H-type) or rises and then falls
     (K-type) has at least three layers, and the best two-layer fit then
     produces a thin fictitious top layer whose rho1 and h mean nothing
-    (tutorial §2.7).  Version 1.1 reported such fits without comment — the
+    Version 1.1 reported such fits without comment — the
     built-in demo traverse was one, with RMS 12.8 % — and the equivalent
     resistivity derived from them could be passed straight into the grid
     design.
@@ -405,7 +405,7 @@ def disc_factor(K: float, h_over_r: float) -> float:
         F = 1 + (4/(pi r)) sum_{n>=1} K^n [ r atan(r/(n h))
                                              - (n h/2) ln(1 + r^2/(n h)^2) ]
 
-    (tutorial Eq. 6.5, the grid analogue of the foot-disc solution of §5.1).
+    (the grid analogue of the foot-disc solution of the surface layer).
     For n h >> r the bracket tends to r^2/(2 n h), so the tail of the series
     is summed in closed form with  sum K^n/n = -ln(1 - K).
     """
@@ -438,7 +438,7 @@ def equivalent_uniform(rho1: float, rho2: float, h: float,
     method
       'grid'     : rho1 F(K, h/r) with r = sqrt(A/pi) — the resistivity that
                    gives a disc of the grid's area the resistance it has on
-                   the two-layer soil (tutorial §6.4).  This is the only rule
+                   the two-layer soil.  This is the only rule
                    that looks as deep as the grid's current actually goes: a
                    70 m grid drives its current tens of metres down, however
                    shallow it is buried.  Needs the grid area.  When the
