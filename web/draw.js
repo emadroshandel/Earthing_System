@@ -136,6 +136,14 @@ window.DRAW = (function () {
     this.legendItems = [];
     this.notes = [];
     this.titleText = o.title || '';
+    /* Text scale.  A drawing is set out on a fixed sheet (W wide) and then shown
+       at the width of its card, which is often narrower: a 920-unit sheet in a
+       700 px card would print 11 px labels at 8 px.  Lettering, line spacing and
+       the halo are multiplied by k = sheet width / shown width (1 to 1.4) so the
+       labels keep their intended size on screen; the geometry is unchanged. */
+    const hw = o._hostW || 0;
+    this.k = hw > 80 ? Math.min(1.4, Math.max(1, this.W / hw)) : 1;
+    this.foot = [];     // notes and scale bar, moved down when lettering grows
   }
 
   Scene.prototype.X = function (x) { return this.ox + (x - this.x0) * this.sx; };
@@ -256,7 +264,7 @@ window.DRAW = (function () {
     o = o || {};
     const a = {
       x, y, 'text-anchor': o.anchor || 'start',
-      'font-size': o.size || 11.5,
+      'font-size': round((o.size || 11.5) * this.k),
       'font-weight': o.weight || 400,
       fill: o.fill || this.p.ink2,
       'font-family': o.mono ? 'JetBrains Mono, Consolas, monospace' : 'Segoe UI, Inter, sans-serif',
@@ -265,7 +273,7 @@ window.DRAW = (function () {
     let inner = esc(s);
     if (o.halo) {
       /* a soft halo keeps a label readable over hatching */
-      const h = `<text ${attrs(Object.assign({}, a, { stroke: this.p.panel, 'stroke-width': 3.2, 'stroke-linejoin': 'round', opacity: .85 }))}>${inner}</text>`;
+      const h = `<text ${attrs(Object.assign({}, a, { stroke: this.p.panel, 'stroke-width': round(3.2 * this.k), 'stroke-linejoin': 'round', opacity: .85 }))}>${inner}</text>`;
       return this.push(o.layer || 'front', h + `<text ${attrs(a)}>${inner}</text>`);
     }
     return this.push(o.layer || 'front', `<text ${attrs(a)}>${inner}</text>`);
@@ -392,10 +400,11 @@ window.DRAW = (function () {
     const txt = label == null ? m(Math.abs(yb - ya)) : label;
     if (label !== false) {
       const my = (A + B) / 2;
+      const fz = round(11 * this.k), hz = round(3.2 * this.k);
       this.push('front', `<g transform="translate(${round(X - 5)},${round(my)}) rotate(-90)">` +
-        `<text text-anchor="middle" font-size="11" font-weight="500" font-family="Segoe UI,Inter,sans-serif"
-          stroke="${this.p.panel}" stroke-width="3.2" stroke-linejoin="round" opacity=".85">${esc(txt)}</text>` +
-        `<text text-anchor="middle" font-size="11" font-weight="500" font-family="Segoe UI,Inter,sans-serif"
+        `<text text-anchor="middle" font-size="${fz}" font-weight="500" font-family="Segoe UI,Inter,sans-serif"
+          stroke="${this.p.panel}" stroke-width="${hz}" stroke-linejoin="round" opacity=".85">${esc(txt)}</text>` +
+        `<text text-anchor="middle" font-size="${fz}" font-weight="500" font-family="Segoe UI,Inter,sans-serif"
           fill="${this.p.ink}">${esc(txt)}</text></g>`);
     }
     return this;
@@ -412,7 +421,7 @@ window.DRAW = (function () {
     this.push('front', `<path d="M${round(X)},${round(Y)} L${round(ex)},${round(ey)} l${tail},0"
       fill="none" stroke="${c}" stroke-width=".9" marker-start="url(#${this.id}-dot)"/>`);
     const lines = Array.isArray(label) ? label : [label];
-    lines.forEach((L, i) => this.textPx(ex + tail + (dxPx >= 0 ? 4 : -4), ey + 4 + i * 13, L, {
+    lines.forEach((L, i) => this.textPx(ex + tail + (dxPx >= 0 ? 4 : -4), ey + 4 + i * 13 * this.k, L, {
       anchor: dxPx >= 0 ? 'start' : 'end', size: o.size || 11,
       fill: i ? this.p.ink2 : (o.fill || this.p.ink), weight: i ? 400 : 500, halo: true
     }));
@@ -435,13 +444,13 @@ window.DRAW = (function () {
       s += `<line x1="${round(xx)}" y1="${round(y - 4)}" x2="${round(xx)}" y2="${round(y + 4)}" stroke="${c}" stroke-width="1"/>`;
       if (i % 2 === 0 && i < 4) s += `<rect x="${round(x + px * i / 4)}" y="${round(y - 3.5)}" width="${round(px / 4)}" height="3.5" fill="${c}" opacity=".55"/>`;
     }
-    s += `<text x="${round(x + px + 7)}" y="${round(y + 4)}" font-size="10.5" fill="${c}"
+    s += `<text x="${round(x + px + 7)}" y="${round(y + 4)}" font-size="${round(10.5 * this.k)}" fill="${c}"
       font-family="Segoe UI,Inter,sans-serif">${esc(m(L))}</text></g>`;
-    this.push('front', s);
+    this.push('foot', s);
     if (!this.equal && isFinite(this.exag) && Math.abs(this.exag - 1) > 0.06) {
-      this.textPx(x + px + 52, y + 4,
+      this.textPx(x + px + 7 + (m(L).length * 6.2 + 14) * this.k, y + 4,
         `vertical exaggeration ${(this.exag).toFixed(1)} : 1`,
-        { size: 10, fill: this.p.warn, weight: 600 });
+        { size: 10, fill: this.p.warn, weight: 600, layer: 'foot' });
     }
     return this;
   };
@@ -459,35 +468,36 @@ window.DRAW = (function () {
 
   Scene.prototype._furniture = function () {
     if (this.titleText) {
-      this.textPx(this.P.l, 16, this.titleText, { size: 12.5, weight: 700, fill: this.p.ink });
+      const ty = round(4 + 12 * this.k);
+      this.textPx(this.P.l, ty, this.titleText, { size: 12.5, weight: 700, fill: this.p.ink });
       if (this.subText)
-        this.textPx(this.W - this.P.r, 16, this.subText, { size: 11, anchor: 'end', fill: this.p.ink2 });
+        this.textPx(this.W - this.P.r, ty, this.subText, { size: 11, anchor: 'end', fill: this.p.ink2 });
     }
     if (this.legendItems.length) {
       const o = this.legendOpts || {};
       let x = o.x != null ? o.x : this.W - this.P.r;
       let y = o.y != null ? o.y : this.P.t + 6;
       const anchor = o.anchor || 'end';
-      const box = [];
+      const box = [], k = this.k, row = 17 * k;
       this.legendItems.forEach((it, i) => {
-        const yy = y + i * 16;
+        const yy = y + i * row;
         const sx = anchor === 'end' ? x - 10 : x;
-        box.push(`<rect x="${round(anchor === 'end' ? sx - 12 : sx)}" y="${round(yy - 7)}" width="11" height="9"
+        box.push(`<rect x="${round(anchor === 'end' ? sx - 12 * k : sx)}" y="${round(yy - 7.5 * k)}" width="${round(11 * k)}" height="${round(9 * k)}"
           rx="2" fill="${it.fill || 'none'}" stroke="${it.stroke || it.fill || this.p.ink3}"
           stroke-width="${it.dash ? 1.4 : 1}" stroke-dasharray="${it.dash || ''}"/>`);
-        box.push(`<text x="${round(anchor === 'end' ? sx - 18 : sx + 16)}" y="${round(yy + 1.5)}"
-          text-anchor="${anchor === 'end' ? 'end' : 'start'}" font-size="10.8" fill="${this.p.ink2}"
+        box.push(`<text x="${round(anchor === 'end' ? sx - 18 * k : sx + 16 * k)}" y="${round(yy + 1.5 * k)}"
+          text-anchor="${anchor === 'end' ? 'end' : 'start'}" font-size="${round(11 * k)}" fill="${this.p.ink2}"
           font-family="Segoe UI,Inter,sans-serif">${esc(it.label)}</text>`);
       });
-      const wPx = Math.max.apply(null, this.legendItems.map(it => 9 + 5.7 * String(it.label).length));
-      const plate = `<rect x="${round(anchor === 'end' ? x - 22 - wPx : x - 4)}" y="${round(y - 13)}"
-        width="${round(wPx + 26)}" height="${round(this.legendItems.length * 16 + 8)}" rx="5"
-        fill="${this.p.panel}" opacity=".82"/>`;
+      const wPx = Math.max.apply(null, this.legendItems.map(it => (9 + 5.8 * String(it.label).length) * k));
+      const plate = `<rect x="${round(anchor === 'end' ? x - 22 * k - wPx : x - 6)}" y="${round(y - 15 * k)}"
+        width="${round(wPx + 28 * k)}" height="${round(this.legendItems.length * row + 10 * k)}" rx="6"
+        fill="${this.p.panel}" opacity=".9" stroke="${this.p.line}" stroke-width=".8"/>`;
       this.push('front', `<g>${plate}${box.join('')}</g>`);
     }
     /* Notes are laid out from the bottom up, wrapped to the frame width, so a
        long sentence never runs off the sheet. */
-    const perLine = Math.max(40, Math.floor((this.W - this.P.l - 20) / 5.05));
+    const perLine = Math.max(40, Math.floor((this.W - this.P.l - 20) / (5.05 * this.k)));
     const lines = [];
     this.notes.forEach(n => {
       let cur = '';
@@ -498,8 +508,11 @@ window.DRAW = (function () {
       if (cur) lines.push(cur);
     });
     lines.forEach((L, i) =>
-      this.textPx(this.P.l, this.H - 30 - (lines.length - 1 - i) * 12.5, L,
-        { size: 10.3, fill: this.p.ink3 }));
+      this.textPx(this.P.l, this.H - 30 - (lines.length - 1 - i) * 12.5 * this.k, L,
+        { size: 10.5, fill: this.p.ink2, layer: 'foot' }));
+    /* larger lettering needs a deeper foot: the notes and the scale bar move down
+       by what their lines grew, and the sheet grows with them */
+    this.extraH = Math.ceil((this.k - 1) * (lines.length * 12.5 + 24));
     return this;
   };
 
@@ -516,20 +529,40 @@ window.DRAW = (function () {
 
   Scene.prototype.svg = function () {
     this._furniture();
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.W} ${this.H}"
+    const H = this.H + (this.extraH || 0);
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.W} ${H}"
       width="100%" preserveAspectRatio="xMidYMid meet" role="img"
-      style="display:block;max-height:${this.H}px">
+      style="display:block;max-height:${H}px">
       <defs>${this.defs.join('')}</defs>
-      <rect width="${this.W}" height="${this.H}" fill="none"/>
-      ${this.back.join('')}${this.mid.join('')}${this.front.join('')}</svg>`;
+      <rect width="${this.W}" height="${H}" fill="none"/>
+      ${this.back.join('')}${this.mid.join('')}${this.front.join('')}
+      <g transform="translate(0,${this.extraH || 0})">${this.foot.join('')}</g></svg>`;
   };
 
   /* ============================================================== public */
+  /* Redraw a drawing when its card changes width (window resized, a hidden tab
+     or section shown), so the lettering scale follows the size it is shown at. */
+  const SEEN = {};
+  const RO = typeof ResizeObserver === 'function' ? new ResizeObserver(entries => {
+    entries.forEach(en => {
+      const id = en.target.id, w = Math.round(en.contentRect.width);
+      if (!SCENES[id] || w < 80) return;
+      const last = SEEN[id] || 0;
+      if (Math.abs(w - last) / Math.max(w, 1) < 0.06) return;
+      clearTimeout(en.target._esT);
+      en.target._esT = setTimeout(() => { if (SCENES[id]) SCENES[id](); }, 90);
+    });
+  }) : null;
+
   function scene(hostId, opts, build) {
     const fn = () => {
       const host = document.getElementById(hostId);
       if (!host) return;
-      const s = new Scene(typeof opts === 'function' ? opts() : opts);
+      const o = Object.assign({}, typeof opts === 'function' ? opts() : opts);
+      o._hostW = host.clientWidth;
+      SEEN[hostId] = o._hostW;
+      if (RO && !host._esObs) { RO.observe(host); host._esObs = true; }
+      const s = new Scene(o);
       try { build(s); } catch (e) { console.error('drawing failed:', hostId, e); }
       host.innerHTML = s.svg();
       host.dataset.drawn = '1';

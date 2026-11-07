@@ -77,8 +77,12 @@
           inp.setAttribute('aria-label', `${head || 'Value'}, row ${r + 1}`);
         });
         td.querySelectorAll('button').forEach(b => {
-          if (!b.getAttribute('aria-label') && /^[✕×x]$/.test(b.textContent.trim()))
+          if (!b.getAttribute('aria-label') && /^[✕×x]$/.test(b.textContent.trim())) {
             b.setAttribute('aria-label', `Remove row ${r + 1}`);
+            /* a drawn cross, not a text glyph */
+            b.classList.add('rowdel');
+            b.innerHTML = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+          }
         });
       });
     });

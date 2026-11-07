@@ -528,9 +528,11 @@ window.SEC = (function () {
 
       /* surface layer over native soil */
       s.stratum(0, -hs, {
-        pattern: 'gravel', colour: p.gravel, line: true,
-        label: `Surface layer   ρ_s = ${num(g.rhoS, 0)} Ω·m`, at: 0.015
+        pattern: 'gravel', colour: p.gravel, line: true
       });
+      /* the surface layer is thin on this scale: name it with a leader into the
+         soil, where there is room, rather than over the people and the post */
+      s.leader(D * 2.55, -hs / 2, 34, 54, [`Surface layer  ρ_s = ${num(g.rhoS, 0)} Ω·m`]);
       s.stratum(-hs, -Zb, {
         pattern: 'soil', colour: p.soilA,
         label: `Native soil   ρ = ${num(g.rho, 0)} Ω·m`, at: 0.015, anchor: 'start'
@@ -556,7 +558,7 @@ window.SEC = (function () {
       s.rectW(colX - 0.09, 0, 0.18, 2.6, { fill: p.steel, rx: 2 }, 'mid');
       s.rectW(colX - 0.5, 2.6, 1.0, 0.16, { fill: p.steel, rx: 2 }, 'mid');
       s.lineW(colX, 0, colX, -h, { stroke: p.copper, 'stroke-width': 2.2 }, 'mid');
-      s.textW(colX, 2.95, 'earthed structure', { anchor: 'middle', size: 10.5, fill: p.ink2, halo: true });
+      s.textW(colX, 2.62, 'earthed structure', { anchor: 'start', dx: 14, size: 10.5, fill: p.ink2, halo: true });
 
       const aX = colX - 1.0;
       const a = person(s, aX, 0, { reach: 1.0, reachDir: 1 });
@@ -1047,7 +1049,11 @@ window.SEC = (function () {
     const inj = String(imp.injection || 'centre').trim().toLowerCase();
     const edge = !(inj === 'centre' || inj === 'center' || inj === 'middle');
     const ix = edge ? -rg * 0.70 : 0, iy = edge ? -rg * 0.70 : 0;
-    const half = rg * 1.20 + 2;
+    /* frame the larger of the electrode and the effective area, so the disc the
+       front reaches is drawn whole rather than cut by the frame (1.11.0) */
+    const off = Math.hypot(ix, iy);
+    const rReach = Math.max(rg, off + (imp.r_effective || 0), ...models.map(mo => off + (mo.r || 0)).filter(isFinite));
+    const half = rReach * 1.12 + 2;
 
     DRAW.scene(hostId, {
       width: 760, height: 430, equal: true,
