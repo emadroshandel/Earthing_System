@@ -1,6 +1,6 @@
 """Earth pits (1.3.6): the axisymmetric solver, BS 7430 9.5.7, groups of pits,
 current density, size checks and the API.  The numbers are those of the
-tutorial, Section 11.7."""
+worked earth-pit examples in docs/THEORY.md."""
 import math
 import os
 import sys

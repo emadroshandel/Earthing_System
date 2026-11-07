@@ -14,12 +14,12 @@
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Regression tests for the six defects found while writing the second edition
-of "Earthing System Design — Theory and Practice" (its Appendix D).
+Regression tests for the six defects found during the independent review of
+version 1.2.
 
 Each test fails on version 1.1 and passes on 1.2.  Reference values come
 from an independent Galerkin boundary-element solver with the complete
-two-layer Green's function, written for the book.
+two-layer Green's function, written for the theory notes.
 
     python -m unittest discover -s tests -v
 """
@@ -40,7 +40,7 @@ except ImportError:                                         # pragma: no cover
     HAVE_NUMPY = False
 
 ANNEX_B = dict(Lx=70, Ly=70, D=7, h=0.5, d=0.01)
-# Annex B grid in 2 m of 400 ohm-m: independent two-layer BEM (tutorial Table 6.2)
+# Annex B grid in 2 m of 400 ohm-m: independent two-layer BEM
 BEM_REF = {(100, 0): 0.955, (1600, 0): 8.238, (100, 20): 0.777, (1600, 20): 8.061}
 
 
