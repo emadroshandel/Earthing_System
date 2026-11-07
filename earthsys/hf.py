@@ -564,7 +564,7 @@ class Model:
         # "sommerfeld" (default): images plus the Sommerfeld corrections of
         # horizontal currents and of charges; "quasistatic": images only;
         # "none"/"full": no image / the image K for the vector potential of
-        # every current (kept for the comparisons of the tutorial)
+        # every current (kept for comparison studies)
         self.a_image = a_image
         self._static()
 

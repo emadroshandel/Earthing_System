@@ -32,7 +32,7 @@ import os
 from . import (airterm, bem, dxfimport, earthtest, fuses, governing, hf, layered, powerfreq, risk, spd, studies, transfer, conductor, drawings, earthpit, faultcurrent, iec60364,
                iec62305, ieee80, ieee142, materials, reasoning, report, soil, standards)
 
-APP_VERSION = "1.10.0"
+APP_VERSION = "1.11.0"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECTS = os.path.join(BASE, "projects")

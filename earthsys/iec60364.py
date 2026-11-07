@@ -86,7 +86,7 @@ def rod_group_lambda(n: int, arrangement: str = "line"):
 
     By definition lambda = (1/n) sum_i sum_{j != i} s / d_ij — each rod's
     potential raised by its neighbours, in units of rho/(2 pi s), averaged
-    over the group (tutorial Eq. 9.9).  For rods in a line this is exactly
+    over the group.  For rods in a line this is exactly
     BS 7430 9.5.4; for a hollow square the published values of BS 7430
     Table 2 are used where they exist; otherwise the sum is evaluated for
     the actual layout.  (Version 1.1 used line-like values for the hollow
