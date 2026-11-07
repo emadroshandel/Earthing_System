@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# EarthSystem runtime output
+projects/*
+!projects/.keep
+outputs/*
+!outputs/.keep
+startup_log.txt
+diagnostic.txt
+
+# Document build artifacts
+docs/.tocmap.json
+docs/.headings.json
+
+# Archives and OS noise
+*.tar.gz
+*.zip
+.DS_Store
+Thumbs.db
+
+# Local material that must not be published
+References/
+_backup/
+Claude outputs/
+.pytest_cache/
+
+# Locally built theory document
+docs/*.docx
+docs/*.pdf
+
+# agent skills installed for this project (not part of the app)
+.claude/
+.agents/
+skills-lock.json
+.impeccable/
+PRODUCT.md
+DESIGN.md
