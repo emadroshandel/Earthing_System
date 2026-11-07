@@ -137,12 +137,12 @@ function checksHtml(list, narrative, crossCheck) {
           ${(c.remedy && c.remedy.length) ? `<div><b>How to fix it</b><ol>${c.remedy.map(r => `<li>${esc(r)}</li>`).join('')}</ol></div>` : ''}
         </div></td></tr>`;
     return `<tr class="crow${hasWhy ? ' has-why' : ''}">
-        <td>${hasWhy ? '<button type="button" class="twist" aria-expanded="false" aria-label="Why: ' + esc(c.name) + '">▸</button>' : ''}${esc(c.name)}${c.note ? `<div class="muted small">${esc(c.note)}</div>` : ''}</td>
+        <td>${hasWhy ? '<button type="button" class="twist" aria-expanded="false" aria-label="Why: ' + esc(c.name) + '"></button>' : ''}${esc(c.name)}${c.note ? `<div class="muted small">${esc(c.note)}</div>` : ''}</td>
         <td class="n">${typeof c.value === 'number' ? fmt(c.value) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${typeof c.limit === 'number' ? fmt(c.limit) : '—'} ${esc(c.unit || '')}</td>
         <td class="n">${m}</td>
         <td><span class="badge ${ok ? 'ok' : (c.advisory ? 'warn' : 'bad')}">${ok ? 'PASS' : (c.advisory ? 'CHECK' : 'FAIL')}</span></td>
-        <td class="muted small">${hasWhy ? 'why ▾' : ''}</td>
+        <td class="muted small">${hasWhy ? '<span class="whyhint" aria-hidden="true">Why</span>' : ''}</td>
       </tr>${why}`;
   }).join('');
   const cc = crossCheck ? `<div class="note info" style="margin-top:10px">${esc(crossCheck)}</div>` : '';
@@ -160,23 +160,57 @@ document.addEventListener('click', e => {
   if (!why || !why.classList.contains('whyrow')) return;
   why.hidden = !why.hidden;
   const t = row.querySelector('.twist');
-  if (t) { t.textContent = why.hidden ? '\u25b8' : '\u25be'; t.setAttribute('aria-expanded', String(!why.hidden)); }
+  if (t) t.setAttribute('aria-expanded', String(!why.hidden));
   row.classList.toggle('open', !why.hidden);
 });
 
 /* ------------------------------------------------------------------ plots */
 function css(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
+/* a CSS hex colour at some opacity, for Plotly (which does not read color-mix) */
+function fade(hex, a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
 function baseLayout(extra) {
-  const ink = css('--ink'), ink2 = css('--ink-2'), line = css('--line');
-  return Object.assign({
+  const ink = css('--ink'), ink2 = css('--ink-2'), ink3 = css('--ink-3'), line = css('--line'),
+    panel = css('--panel'), accent = css('--accent'),
+    grid = fade(line, .7);
+  const axis = () => ({ gridcolor: grid, zerolinecolor: line, linecolor: line, ticks: 'outside', tickcolor: line, ticklen: 4,
+    automargin: true, title: { font: { color: ink, size: 12.5 }, standoff: 10 } });
+  const base = {
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-    font: { family: 'Segoe UI, Inter, sans-serif', size: 11.5, color: ink2 },
-    margin: { l: 62, r: 22, t: 26, b: 52 },
-    xaxis: { gridcolor: line, zerolinecolor: line, linecolor: line, title: { font: { color: ink } } },
-    yaxis: { gridcolor: line, zerolinecolor: line, linecolor: line, title: { font: { color: ink } } },
-    legend: { orientation: 'h', y: -0.2, font: { size: 11 } },
+    font: { family: 'Segoe UI, Inter, sans-serif', size: 12, color: ink2 },
+    margin: { l: 64, r: 24, t: 44, b: 54 },
+    xaxis: { gridcolor: grid, zerolinecolor: line, linecolor: line, ticks: 'outside', tickcolor: line, ticklen: 4,
+             automargin: true, title: { font: { color: ink, size: 12.5 }, standoff: 10 } },
+    yaxis: { gridcolor: grid, zerolinecolor: line, linecolor: line, ticks: 'outside', tickcolor: line, ticklen: 4,
+             automargin: true, title: { font: { color: ink, size: 12.5 }, standoff: 10 } },
+    /* the legend sits above the plot, clear of the axis title */
+    legend: { orientation: 'h', x: 0, xanchor: 'left', y: 1.02, yanchor: 'bottom', font: { size: 11.5, color: ink2 },
+              bgcolor: 'rgba(0,0,0,0)', itemwidth: 30 },
+    hoverlabel: { bgcolor: panel, bordercolor: line, font: { family: 'Segoe UI, Inter, sans-serif', size: 12, color: ink } },
+    modebar: { bgcolor: 'rgba(0,0,0,0)', color: ink3, activecolor: accent },
     hovermode: 'closest'
-  }, extra || {});
+  };
+  /* a plot's own axis, legend and margin settings are laid over the house style
+     rather than replacing it, so every axis keeps the theme's grid and ink */
+  const out = Object.assign({}, base);
+  Object.entries(extra || {}).forEach(([k, v]) => {
+    const isAxis = /^[xy]axis\d*$/.test(k);
+    if (v && typeof v === 'object' && !Array.isArray(v) && (isAxis || k === 'legend' || k === 'margin')) {
+      const b0 = isAxis ? (base[k] || axis()) : (base[k] || {});
+      const m = Object.assign({}, b0, v);
+      if (isAxis) {
+        const t = v.title;
+        m.title = Object.assign({}, b0.title, typeof t === 'string' ? { text: t } : (t || {}));
+        if (t && typeof t === 'object' && t.font) m.title.font = Object.assign({}, b0.title.font, t.font);
+      }
+      out[k] = m;
+    } else out[k] = v;
+  });
+  return out;
 }
 const PLOTS = {};
 function plot(id, traces, layout) {
