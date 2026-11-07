@@ -37,3 +37,37 @@ def test_ieee80_16_7_range_warnings():
     assert any("2.5–22.5" in w for w in wide["warnings"])
     irr = ieee80.design(100, ieee80.GridGeometry(Lx=50, Ly=50, D=5, shape="irregular"), 5.0)
     assert any("irregular" in w for w in irr["warnings"])
+
+
+
+# Run the functions above under plain unittest too (python -m unittest);
+# pytest collects them directly and skips this class (__test__ = False).
+import unittest as _unittest  # noqa: E402
+
+
+class TestFunctions(_unittest.TestCase):
+    __test__ = False
+
+
+def _attach(cls, scope):
+    for name, fn in list(scope.items()):
+        if not (name.startswith("test_") and callable(fn)):
+            continue
+        params = getattr(fn, "_es_params", None)
+        if params is None:             # real pytest installed: read its mark
+            for m in getattr(fn, "pytestmark", []):
+                if getattr(m, "name", "") == "parametrize":
+                    a = m.args
+                    params = ([n.strip() for n in a[0].split(",")]
+                              if isinstance(a[0], str) else list(a[0]), list(a[1]))
+        if params is None:
+            setattr(cls, name, staticmethod(fn))
+            continue
+        names, values = params
+        for i, vals in enumerate(values):
+            vals = vals if isinstance(vals, tuple) else (vals,)
+            kw = dict(zip(names, vals))
+            setattr(cls, f"{name}_{i}", staticmethod(lambda fn=fn, kw=kw: fn(**kw)))
+
+
+_attach(TestFunctions, dict(globals()))

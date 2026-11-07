@@ -1,6 +1,6 @@
 # Earthing System — regression tests for the fixes of version 1.3.2.
 # Copyright (C) 2026 Emad Roshandel — GPL-3.0-or-later.
-"""Version 1.3.2 fixes found while preparing edition 2.3 of the tutorial.
+"""Version 1.3.2 fixes found during the independent review of 21 September 2026.
 
 1. Schwarz coefficient k2, curve A of IEEE 80 Figure 25, had the wrong sign
    of slope (-0.15x + 5.50 instead of +0.15x + 5.50).
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
 
 class TestInversionUncertainty(unittest.TestCase):
-    def test_tutorial_traverse(self):
+    def test_example_traverse(self):
         r = soil.invert_two_layer([1, 2, 4, 6, 10, 16], [320, 245, 182, 162, 168, 182])
         u = r["uncertainty"]
         self.assertEqual(u["dof"], 3)
