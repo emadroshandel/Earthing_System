@@ -131,7 +131,7 @@ class Interface(unittest.TestCase):
         self.assertIn("i % 2 === 0 && i < 4", self._src("draw.js"))
 
     def test_version(self):
-        self.assertEqual(api.APP_VERSION, "1.10.0")
+        self.assertEqual(api.APP_VERSION, "1.11.0")
 
 
 if __name__ == "__main__":

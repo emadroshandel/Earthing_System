@@ -287,7 +287,7 @@ class FourLayer(unittest.TestCase):
         self.assertAlmostEqual(a.solve(1.0)["Rg"], b.solve(1.0)["Rg"], places=6)
 
     def test_version(self):
-        self.assertEqual(api.APP_VERSION, "1.10.0")
+        self.assertEqual(api.APP_VERSION, "1.11.0")
 
 
 if __name__ == "__main__":
